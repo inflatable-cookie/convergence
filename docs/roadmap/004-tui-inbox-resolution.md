@@ -29,37 +29,37 @@ Out of scope:
 
 ### A) TUI skeleton
 
-- [ ] Add a `converge` TUI entrypoint when invoked with no args.
-- [ ] Choose a TUI framework (ratatui/crossterm) and wire terminal init/restore.
-- [ ] Implement a basic app state loop (events, redraw, quit).
+- [x] Add a `converge` TUI entrypoint when invoked with no args.
+- [x] Choose a TUI framework (ratatui/crossterm) and wire terminal init/restore.
+- [x] Implement a basic app state loop (events, redraw, quit).
 
 ### B) Data model + API integration
 
-- [ ] Define client-side view models for:
+- [x] Define client-side view models for:
   - publications
   - bundles
   - promotion state
   - gate graph
-- [ ] Add remote API client layer reusable by CLI and TUI.
+- [x] Add remote API client layer reusable by CLI and TUI.
 
 ### C) Screens
 
-- [ ] Overview screen: show remote config + current scope + promotion state.
-- [ ] Inbox screen: list publications by scope/gate; quick filter.
-- [ ] Bundles screen: list bundles; show promotable + reasons.
-- [ ] Bundle details: show inputs, root manifest id, created_at/by.
+- [x] Overview screen: show remote config + current scope + promotion state.
+- [x] Inbox screen: list publications by scope/gate; quick filter.
+- [x] Bundles screen: list bundles; show promotable + reasons.
+- [x] Bundle details: show inputs, root manifest id, created_at/by.
 
 ### D) Superposition inspection
 
-- [ ] Detect superpositions in a bundle root manifest.
-- [ ] Present a navigable list of conflicted paths.
-- [ ] Show variant metadata (source publication id, kind, blob/manifest ids).
+- [x] Detect superpositions in a bundle root manifest.
+- [x] Present a navigable list of conflicted paths.
+- [x] Show variant metadata (source publication id, kind, blob/manifest ids).
 
 ### E) Actions
 
-- [ ] Trigger `bundle` creation for selected publications.
-- [ ] Trigger `promote` for selected bundle.
-- [ ] Trigger `approve` for selected bundle (if required approvals are enabled).
+- [x] Trigger `bundle` creation for selected publications.
+- [x] Trigger `promote` for selected bundle.
+- [x] Trigger `approve` for selected bundle (if required approvals are enabled).
 
 ## Exit Criteria
 

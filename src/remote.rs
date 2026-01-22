@@ -1,0 +1,661 @@
+use std::collections::{HashMap, HashSet};
+
+use anyhow::{Context, Result};
+
+use crate::model::{ObjectId, RemoteConfig, SnapRecord};
+use crate::store::LocalStore;
+
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
+pub struct MissingObjectsResponse {
+    pub missing_blobs: Vec<String>,
+    pub missing_manifests: Vec<String>,
+    pub missing_snaps: Vec<String>,
+}
+
+#[derive(Debug, serde::Serialize)]
+struct MissingObjectsRequest {
+    blobs: Vec<String>,
+    manifests: Vec<String>,
+    snaps: Vec<String>,
+}
+
+#[derive(Debug, serde::Serialize)]
+struct CreatePublicationRequest {
+    snap_id: String,
+    scope: String,
+    gate: String,
+}
+
+#[derive(Debug, serde::Serialize)]
+struct CreateRepoRequest {
+    id: String,
+}
+
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
+pub struct Repo {
+    pub id: String,
+    pub owner: String,
+}
+
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
+pub struct Publication {
+    pub id: String,
+    pub snap_id: String,
+    pub scope: String,
+    pub gate: String,
+    pub publisher: String,
+    pub created_at: String,
+}
+
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
+pub struct Bundle {
+    pub id: String,
+    pub scope: String,
+    pub gate: String,
+    pub root_manifest: String,
+    pub input_publications: Vec<String>,
+    pub created_by: String,
+    pub created_at: String,
+    pub promotable: bool,
+    pub reasons: Vec<String>,
+
+    #[serde(default)]
+    pub approvals: Vec<String>,
+}
+
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
+pub struct Promotion {
+    pub id: String,
+    pub bundle_id: String,
+    pub scope: String,
+    pub from_gate: String,
+    pub to_gate: String,
+    pub promoted_by: String,
+    pub promoted_at: String,
+}
+
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
+pub struct GateGraph {
+    pub version: u32,
+    pub terminal_gate: String,
+    pub gates: Vec<GateDef>,
+}
+
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
+pub struct GateDef {
+    pub id: String,
+    pub name: String,
+    pub upstream: Vec<String>,
+
+    #[serde(default)]
+    pub allow_superpositions: bool,
+
+    #[serde(default)]
+    pub required_approvals: u32,
+}
+
+pub struct RemoteClient {
+    remote: RemoteConfig,
+    client: reqwest::blocking::Client,
+}
+
+impl RemoteClient {
+    pub fn new(remote: RemoteConfig) -> Result<Self> {
+        let client = reqwest::blocking::Client::builder()
+            .user_agent("converge")
+            .build()
+            .context("build reqwest client")?;
+        Ok(Self { remote, client })
+    }
+
+    pub fn remote(&self) -> &RemoteConfig {
+        &self.remote
+    }
+
+    fn auth(&self) -> String {
+        format!("Bearer {}", self.remote.token)
+    }
+
+    fn url(&self, path: &str) -> String {
+        format!("{}{}", self.remote.base_url, path)
+    }
+
+    pub fn create_repo(&self, repo_id: &str) -> Result<Repo> {
+        let resp = self
+            .client
+            .post(self.url("/repos"))
+            .header(reqwest::header::AUTHORIZATION, self.auth())
+            .json(&CreateRepoRequest {
+                id: repo_id.to_string(),
+            })
+            .send()
+            .context("create repo request")?;
+
+        if resp.status() == reqwest::StatusCode::NOT_FOUND {
+            anyhow::bail!("remote endpoint not found (is converge-server running?)");
+        }
+
+        let resp = resp.error_for_status().context("create repo status")?;
+        let repo: Repo = resp.json().context("parse create repo response")?;
+        Ok(repo)
+    }
+
+    pub fn list_publications(&self) -> Result<Vec<Publication>> {
+        let repo = &self.remote.repo_id;
+        let resp = self
+            .client
+            .get(self.url(&format!("/repos/{}/publications", repo)))
+            .header(reqwest::header::AUTHORIZATION, self.auth())
+            .send()
+            .context("list publications")?;
+
+        if resp.status() == reqwest::StatusCode::NOT_FOUND {
+            anyhow::bail!(
+                "remote repo not found (create it with `converge remote create-repo` or POST /repos)"
+            );
+        }
+
+        let pubs: Vec<Publication> = resp
+            .error_for_status()
+            .context("list publications status")?
+            .json()
+            .context("parse publications")?;
+        Ok(pubs)
+    }
+
+    pub fn get_gate_graph(&self) -> Result<GateGraph> {
+        let repo = &self.remote.repo_id;
+        let resp = self
+            .client
+            .get(self.url(&format!("/repos/{}/gate-graph", repo)))
+            .header(reqwest::header::AUTHORIZATION, self.auth())
+            .send()
+            .context("get gate graph")?;
+
+        if resp.status() == reqwest::StatusCode::NOT_FOUND {
+            anyhow::bail!(
+                "remote repo not found (create it with `converge remote create-repo` or POST /repos)"
+            );
+        }
+
+        let graph: GateGraph = resp
+            .error_for_status()
+            .context("get gate graph status")?
+            .json()
+            .context("parse gate graph")?;
+        Ok(graph)
+    }
+
+    pub fn put_gate_graph(&self, graph: &GateGraph) -> Result<GateGraph> {
+        let repo = &self.remote.repo_id;
+        let graph: GateGraph = self
+            .client
+            .put(self.url(&format!("/repos/{}/gate-graph", repo)))
+            .header(reqwest::header::AUTHORIZATION, self.auth())
+            .json(graph)
+            .send()
+            .context("put gate graph")?
+            .error_for_status()
+            .context("put gate graph status")?
+            .json()
+            .context("parse gate graph")?;
+        Ok(graph)
+    }
+
+    pub fn create_bundle(
+        &self,
+        scope: &str,
+        gate: &str,
+        publications: &[String],
+    ) -> Result<Bundle> {
+        let repo = &self.remote.repo_id;
+        let resp = self
+            .client
+            .post(self.url(&format!("/repos/{}/bundles", repo)))
+            .header(reqwest::header::AUTHORIZATION, self.auth())
+            .json(&serde_json::json!({
+                "scope": scope,
+                "gate": gate,
+                "input_publications": publications
+            }))
+            .send()
+            .context("create bundle request")?
+            .error_for_status()
+            .context("create bundle status")?;
+        let bundle: Bundle = resp.json().context("parse bundle")?;
+        Ok(bundle)
+    }
+
+    pub fn list_bundles(&self) -> Result<Vec<Bundle>> {
+        let repo = &self.remote.repo_id;
+        let resp = self
+            .client
+            .get(self.url(&format!("/repos/{}/bundles", repo)))
+            .header(reqwest::header::AUTHORIZATION, self.auth())
+            .send()
+            .context("list bundles")?;
+
+        if resp.status() == reqwest::StatusCode::NOT_FOUND {
+            anyhow::bail!(
+                "remote repo not found (create it with `converge remote create-repo` or POST /repos)"
+            );
+        }
+
+        let bundles: Vec<Bundle> = resp
+            .error_for_status()
+            .context("list bundles status")?
+            .json()
+            .context("parse bundles")?;
+        Ok(bundles)
+    }
+
+    pub fn get_bundle(&self, bundle_id: &str) -> Result<Bundle> {
+        let repo = &self.remote.repo_id;
+        let resp = self
+            .client
+            .get(self.url(&format!("/repos/{}/bundles/{}", repo, bundle_id)))
+            .header(reqwest::header::AUTHORIZATION, self.auth())
+            .send()
+            .context("get bundle")?;
+
+        if resp.status() == reqwest::StatusCode::NOT_FOUND {
+            anyhow::bail!("bundle not found");
+        }
+
+        let bundle: Bundle = resp
+            .error_for_status()
+            .context("get bundle status")?
+            .json()
+            .context("parse bundle")?;
+        Ok(bundle)
+    }
+
+    pub fn promote_bundle(&self, bundle_id: &str, to_gate: &str) -> Result<Promotion> {
+        let repo = &self.remote.repo_id;
+        let resp = self
+            .client
+            .post(self.url(&format!("/repos/{}/promotions", repo)))
+            .header(reqwest::header::AUTHORIZATION, self.auth())
+            .json(&serde_json::json!({
+                "bundle_id": bundle_id,
+                "to_gate": to_gate
+            }))
+            .send()
+            .context("promote request")?
+            .error_for_status()
+            .context("promote status")?;
+        let promotion: Promotion = resp.json().context("parse promotion")?;
+        Ok(promotion)
+    }
+
+    pub fn promotion_state(&self, scope: &str) -> Result<HashMap<String, String>> {
+        let repo = &self.remote.repo_id;
+        let resp = self
+            .client
+            .get(self.url(&format!("/repos/{}/promotion-state?scope={}", repo, scope)))
+            .header(reqwest::header::AUTHORIZATION, self.auth())
+            .send()
+            .context("promotion state request")?;
+
+        if resp.status() == reqwest::StatusCode::NOT_FOUND {
+            anyhow::bail!(
+                "remote repo not found (create it with `converge remote create-repo` or POST /repos)"
+            );
+        }
+
+        let resp = resp.error_for_status().context("promotion state status")?;
+
+        let state: HashMap<String, String> = resp.json().context("parse promotion state")?;
+        Ok(state)
+    }
+
+    pub fn approve_bundle(&self, bundle_id: &str) -> Result<Bundle> {
+        let repo = &self.remote.repo_id;
+        let resp = self
+            .client
+            .post(self.url(&format!("/repos/{}/bundles/{}/approve", repo, bundle_id)))
+            .header(reqwest::header::AUTHORIZATION, self.auth())
+            .send()
+            .context("approve request")?
+            .error_for_status()
+            .context("approve status")?;
+
+        let bundle: Bundle = resp.json().context("parse approved bundle")?;
+        Ok(bundle)
+    }
+
+    pub fn publish_snap(
+        &self,
+        store: &LocalStore,
+        snap: &SnapRecord,
+        scope: &str,
+        gate: &str,
+    ) -> Result<Publication> {
+        let (blobs, manifests) = collect_objects(store, &snap.root_manifest)?;
+        let manifest_order = manifest_postorder(store, &snap.root_manifest)?;
+
+        let repo = &self.remote.repo_id;
+        let resp = self
+            .client
+            .post(self.url(&format!("/repos/{}/objects/missing", repo)))
+            .header(reqwest::header::AUTHORIZATION, self.auth())
+            .json(&MissingObjectsRequest {
+                blobs: blobs.iter().cloned().collect(),
+                manifests: manifests.iter().cloned().collect(),
+                snaps: vec![snap.id.clone()],
+            })
+            .send()
+            .context("missing objects request")?;
+
+        if resp.status() == reqwest::StatusCode::NOT_FOUND {
+            anyhow::bail!(
+                "remote repo not found (create it with `converge remote create-repo` or POST /repos)"
+            );
+        }
+
+        let resp = resp.error_for_status().context("missing objects status")?;
+        let missing: MissingObjectsResponse = resp.json().context("parse missing objects")?;
+
+        for id in missing.missing_blobs {
+            let bytes = store.get_blob(&ObjectId(id.clone()))?;
+            self.client
+                .put(self.url(&format!("/repos/{}/objects/blobs/{}", repo, id)))
+                .header(reqwest::header::AUTHORIZATION, self.auth())
+                .body(bytes)
+                .send()
+                .context("upload blob")?
+                .error_for_status()
+                .context("upload blob status")?;
+        }
+
+        let mut missing_manifests: HashSet<String> =
+            missing.missing_manifests.into_iter().collect();
+        for mid in manifest_order {
+            let id = mid.as_str();
+            if !missing_manifests.remove(id) {
+                continue;
+            }
+
+            let bytes = store.get_manifest_bytes(&mid)?;
+            self.client
+                .put(self.url(&format!("/repos/{}/objects/manifests/{}", repo, id)))
+                .header(reqwest::header::AUTHORIZATION, self.auth())
+                .body(bytes)
+                .send()
+                .context("upload manifest")?
+                .error_for_status()
+                .context("upload manifest status")?;
+        }
+
+        if !missing_manifests.is_empty() {
+            anyhow::bail!(
+                "missing manifest upload ordering bug (still missing: {})",
+                missing_manifests.len()
+            );
+        }
+
+        if !missing.missing_snaps.is_empty() {
+            self.client
+                .put(self.url(&format!("/repos/{}/objects/snaps/{}", repo, snap.id)))
+                .header(reqwest::header::AUTHORIZATION, self.auth())
+                .json(snap)
+                .send()
+                .context("upload snap")?
+                .error_for_status()
+                .context("upload snap status")?;
+        }
+
+        let resp = self
+            .client
+            .post(self.url(&format!("/repos/{}/publications", repo)))
+            .header(reqwest::header::AUTHORIZATION, self.auth())
+            .json(&CreatePublicationRequest {
+                snap_id: snap.id.clone(),
+                scope: scope.to_string(),
+                gate: gate.to_string(),
+            })
+            .send()
+            .context("create publication")?
+            .error_for_status()
+            .context("create publication status")?;
+
+        let pubrec: Publication = resp.json().context("parse publication")?;
+        Ok(pubrec)
+    }
+
+    pub fn fetch_publications(
+        &self,
+        store: &LocalStore,
+        only_snap: Option<&str>,
+    ) -> Result<Vec<String>> {
+        let repo = &self.remote.repo_id;
+        let pubs = self.list_publications()?;
+        let pubs = pubs
+            .into_iter()
+            .filter(|p| only_snap.map(|s| p.snap_id == s).unwrap_or(true))
+            .collect::<Vec<_>>();
+
+        let mut fetched = Vec::new();
+        for p in pubs {
+            if store.has_snap(&p.snap_id) {
+                continue;
+            }
+
+            let snap_bytes = self
+                .client
+                .get(self.url(&format!("/repos/{}/objects/snaps/{}", repo, p.snap_id)))
+                .header(reqwest::header::AUTHORIZATION, self.auth())
+                .send()
+                .context("fetch snap")?
+                .error_for_status()
+                .context("fetch snap status")?
+                .bytes()
+                .context("read snap bytes")?;
+
+            let snap: SnapRecord = serde_json::from_slice(&snap_bytes).context("parse snap")?;
+            store.put_snap(&snap)?;
+
+            fetch_manifest_tree(store, self, repo, &ObjectId(snap.root_manifest.0.clone()))?;
+            fetched.push(snap.id);
+        }
+
+        Ok(fetched)
+    }
+
+    pub fn fetch_manifest_tree(&self, store: &LocalStore, root_manifest: &ObjectId) -> Result<()> {
+        let repo = &self.remote.repo_id;
+        fetch_manifest_tree(store, self, repo, root_manifest)
+    }
+}
+
+fn collect_objects(
+    store: &LocalStore,
+    root: &ObjectId,
+) -> Result<(HashSet<String>, HashSet<String>)> {
+    let mut blobs = HashSet::new();
+    let mut manifests = HashSet::new();
+    let mut stack = vec![root.clone()];
+
+    while let Some(mid) = stack.pop() {
+        if !manifests.insert(mid.as_str().to_string()) {
+            continue;
+        }
+        let m = store.get_manifest(&mid)?;
+        for e in m.entries {
+            match e.kind {
+                crate::model::ManifestEntryKind::File { blob, .. } => {
+                    blobs.insert(blob.as_str().to_string());
+                }
+                crate::model::ManifestEntryKind::Dir { manifest } => {
+                    stack.push(manifest);
+                }
+                crate::model::ManifestEntryKind::Symlink { .. } => {}
+                crate::model::ManifestEntryKind::Superposition { .. } => {
+                    anyhow::bail!("cannot publish snap containing superpositions");
+                }
+            }
+        }
+    }
+
+    Ok((blobs, manifests))
+}
+
+fn manifest_postorder(store: &LocalStore, root: &ObjectId) -> Result<Vec<ObjectId>> {
+    fn visit(
+        store: &LocalStore,
+        id: &ObjectId,
+        visiting: &mut HashSet<String>,
+        visited: &mut HashSet<String>,
+        out: &mut Vec<ObjectId>,
+    ) -> Result<()> {
+        let key = id.as_str().to_string();
+        if visited.contains(&key) {
+            return Ok(());
+        }
+        if !visiting.insert(key.clone()) {
+            anyhow::bail!("cycle detected in manifest graph at {}", id.as_str());
+        }
+
+        let manifest = store.get_manifest(id)?;
+        for e in manifest.entries {
+            if let crate::model::ManifestEntryKind::Dir { manifest } = e.kind {
+                visit(store, &manifest, visiting, visited, out)?;
+            }
+        }
+
+        visiting.remove(&key);
+        visited.insert(key);
+        out.push(id.clone());
+        Ok(())
+    }
+
+    let mut out = Vec::new();
+    let mut visiting = HashSet::new();
+    let mut visited = HashSet::new();
+    visit(store, root, &mut visiting, &mut visited, &mut out)?;
+    Ok(out)
+}
+
+fn fetch_manifest_tree(
+    store: &LocalStore,
+    remote: &RemoteClient,
+    repo: &str,
+    root: &ObjectId,
+) -> Result<()> {
+    let mut visited = HashSet::new();
+    fetch_manifest_tree_inner(store, remote, repo, root, &mut visited)
+}
+
+fn fetch_manifest_tree_inner(
+    store: &LocalStore,
+    remote: &RemoteClient,
+    repo: &str,
+    manifest_id: &ObjectId,
+    visited: &mut HashSet<String>,
+) -> Result<()> {
+    if !visited.insert(manifest_id.as_str().to_string()) {
+        return Ok(());
+    }
+
+    if !store.has_manifest(manifest_id) {
+        let bytes = remote
+            .client
+            .get(remote.url(&format!(
+                "/repos/{}/objects/manifests/{}",
+                repo,
+                manifest_id.as_str()
+            )))
+            .header(reqwest::header::AUTHORIZATION, remote.auth())
+            .send()
+            .context("fetch manifest")?
+            .error_for_status()
+            .context("fetch manifest status")?
+            .bytes()
+            .context("read manifest bytes")?;
+
+        store.put_manifest_bytes(manifest_id, &bytes)?;
+    }
+
+    let manifest = store.get_manifest(manifest_id)?;
+    for e in manifest.entries {
+        match e.kind {
+            crate::model::ManifestEntryKind::Dir { manifest } => {
+                fetch_manifest_tree_inner(store, remote, repo, &manifest, visited)?;
+            }
+            crate::model::ManifestEntryKind::File { blob, .. } => {
+                if store.has_blob(&blob) {
+                    continue;
+                }
+                let bytes = remote
+                    .client
+                    .get(remote.url(&format!("/repos/{}/objects/blobs/{}", repo, blob.as_str())))
+                    .header(reqwest::header::AUTHORIZATION, remote.auth())
+                    .send()
+                    .context("fetch blob")?
+                    .error_for_status()
+                    .context("fetch blob status")?
+                    .bytes()
+                    .context("read blob bytes")?;
+
+                let computed = blake3::hash(&bytes).to_hex().to_string();
+                if computed != blob.as_str() {
+                    anyhow::bail!(
+                        "blob hash mismatch (expected {}, got {})",
+                        blob.as_str(),
+                        computed
+                    );
+                }
+                let id = store.put_blob(&bytes)?;
+                if id != blob {
+                    anyhow::bail!("unexpected blob id mismatch");
+                }
+            }
+            crate::model::ManifestEntryKind::Symlink { .. } => {}
+            crate::model::ManifestEntryKind::Superposition { variants } => {
+                for v in variants {
+                    match v.kind {
+                        crate::model::SuperpositionVariantKind::File { blob, .. } => {
+                            if store.has_blob(&blob) {
+                                continue;
+                            }
+                            let bytes = remote
+                                .client
+                                .get(remote.url(&format!(
+                                    "/repos/{}/objects/blobs/{}",
+                                    repo,
+                                    blob.as_str()
+                                )))
+                                .header(reqwest::header::AUTHORIZATION, remote.auth())
+                                .send()
+                                .context("fetch blob")?
+                                .error_for_status()
+                                .context("fetch blob status")?
+                                .bytes()
+                                .context("read blob bytes")?;
+
+                            let computed = blake3::hash(&bytes).to_hex().to_string();
+                            if computed != blob.as_str() {
+                                anyhow::bail!(
+                                    "blob hash mismatch (expected {}, got {})",
+                                    blob.as_str(),
+                                    computed
+                                );
+                            }
+                            let id = store.put_blob(&bytes)?;
+                            if id != blob {
+                                anyhow::bail!("unexpected blob id mismatch");
+                            }
+                        }
+                        crate::model::SuperpositionVariantKind::Dir { manifest } => {
+                            fetch_manifest_tree_inner(store, remote, repo, &manifest, visited)?;
+                        }
+                        crate::model::SuperpositionVariantKind::Symlink { .. } => {}
+                        crate::model::SuperpositionVariantKind::Tombstone => {}
+                    }
+                }
+            }
+        }
+    }
+
+    Ok(())
+}
