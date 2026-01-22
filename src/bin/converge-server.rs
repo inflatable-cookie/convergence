@@ -63,6 +63,9 @@ struct GateDef {
     id: String,
     name: String,
     upstream: Vec<String>,
+
+    #[serde(default)]
+    allow_superpositions: bool,
 }
 
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
@@ -84,6 +87,9 @@ struct Bundle {
     input_publications: Vec<String>,
     created_by: String,
     created_at: String,
+
+    promotable: bool,
+    reasons: Vec<String>,
 }
 
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
@@ -304,6 +310,7 @@ async fn create_repo(
             id: "dev-intake".to_string(),
             name: "Dev Intake".to_string(),
             upstream: vec![],
+            allow_superpositions: false,
         }],
     };
 
@@ -726,6 +733,40 @@ fn coalesce_root_manifest(
     let mut inputs = inputs.to_vec();
     inputs.sort_by(|a, b| a.0.cmp(&b.0));
     merge_dir_manifests(state, repo_id, &inputs)
+}
+
+fn manifest_has_superpositions(
+    state: &AppState,
+    repo_id: &str,
+    root_manifest_id: &str,
+) -> Result<bool, Response> {
+    fn inner(
+        state: &AppState,
+        repo_id: &str,
+        manifest_id: &str,
+        visited: &mut HashSet<String>,
+    ) -> Result<bool, Response> {
+        if !visited.insert(manifest_id.to_string()) {
+            return Ok(false);
+        }
+
+        let manifest = read_manifest(state, repo_id, manifest_id)?;
+        for e in manifest.entries {
+            match e.kind {
+                converge::model::ManifestEntryKind::Superposition { .. } => return Ok(true),
+                converge::model::ManifestEntryKind::Dir { manifest } => {
+                    if inner(state, repo_id, manifest.as_str(), visited)? {
+                        return Ok(true);
+                    }
+                }
+                converge::model::ManifestEntryKind::File { .. } => {}
+                converge::model::ManifestEntryKind::Symlink { .. } => {}
+            }
+        }
+        Ok(false)
+    }
+
+    inner(state, repo_id, root_manifest_id, &mut HashSet::new())
 }
 
 fn merge_dir_manifests(
@@ -1200,6 +1241,21 @@ async fn create_bundle(
     // Derive a new root manifest by coalescing input snap trees.
     let root_manifest = coalesce_root_manifest(&state, &repo_id, &input_roots)?;
 
+    let gate_def = repo
+        .gate_graph
+        .gates
+        .iter()
+        .find(|g| g.id == payload.gate)
+        .ok_or_else(|| bad_request(anyhow::anyhow!("unknown gate")))?;
+
+    let has_superpositions = manifest_has_superpositions(&state, &repo_id, &root_manifest)?;
+    let mut promotable = true;
+    let mut reasons = Vec::new();
+    if has_superpositions && !gate_def.allow_superpositions {
+        promotable = false;
+        reasons.push("superpositions_present".to_string());
+    }
+
     let id = {
         let mut hasher = blake3::Hasher::new();
         hasher.update(repo_id.as_bytes());
@@ -1228,6 +1284,9 @@ async fn create_bundle(
         input_publications,
         created_by: subject.user,
         created_at,
+
+        promotable,
+        reasons,
     };
 
     let bytes = serde_json::to_vec_pretty(&bundle).map_err(|e| internal_error(anyhow::anyhow!(e)))?;
