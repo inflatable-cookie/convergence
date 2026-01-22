@@ -94,12 +94,12 @@ Minimum provenance:
 
 ### E) Object upload API
 
-- [ ] Endpoints to upload:
-  - [ ] blobs by id
-  - [ ] manifests by id
-  - [ ] snaps by id
-- [ ] Server validates:
-  - [ ] IDs match hashes
+- [x] Endpoints to upload:
+  - [x] blobs by id
+  - [x] manifests by id
+  - [x] snaps by id
+- [x] Server validates:
+  - [x] IDs match hashes
   - [ ] manifests reference existing blobs/manifests (or allow staged upload ordering)
 
 ### F) Publish intake API

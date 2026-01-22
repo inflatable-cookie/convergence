@@ -4,7 +4,9 @@ use std::path::{Path, PathBuf};
 use anyhow::{anyhow, Context, Result};
 use time::format_description::well_known::Rfc3339;
 
-use crate::model::{Manifest, ManifestEntry, ManifestEntryKind, ObjectId, SnapRecord, SnapStats};
+use crate::model::{
+    compute_snap_id, Manifest, ManifestEntry, ManifestEntryKind, ObjectId, SnapRecord, SnapStats,
+};
 use crate::store::LocalStore;
 
 #[derive(Clone)]
@@ -51,7 +53,7 @@ impl Workspace {
             .format(&Rfc3339)
             .context("format created_at")?;
 
-        let id = hash_snap_id(&created_at, &root_manifest, message.as_deref());
+        let id = compute_snap_id(&created_at, &root_manifest, message.as_deref());
         let snap = SnapRecord {
             version: 1,
             id,
@@ -143,18 +145,6 @@ impl Workspace {
         };
         self.store.put_manifest(&manifest)
     }
-}
-
-fn hash_snap_id(created_at: &str, root_manifest: &ObjectId, message: Option<&str>) -> String {
-    let mut hasher = blake3::Hasher::new();
-    hasher.update(created_at.as_bytes());
-    hasher.update(b"\n");
-    hasher.update(root_manifest.as_str().as_bytes());
-    if let Some(message) = message {
-        hasher.update(b"\n");
-        hasher.update(message.as_bytes());
-    }
-    hasher.finalize().to_hex().to_string()
 }
 
 fn should_ignore_name(name: &str) -> bool {

@@ -23,6 +23,8 @@ struct AppState {
     user: String,
     token: String,
 
+    data_dir: PathBuf,
+
     repos: Arc<RwLock<HashMap<String, Repo>>>,
 }
 
@@ -100,6 +102,7 @@ async fn run() -> Result<()> {
     let state = Arc::new(AppState {
         user: args.dev_user,
         token: args.dev_token,
+        data_dir: args.data_dir,
         repos: Arc::new(RwLock::new(HashMap::new())),
     });
 
@@ -111,6 +114,18 @@ async fn run() -> Result<()> {
         .route("/repos/:repo_id/lanes", get(list_lanes))
         .route("/repos/:repo_id/gates", get(list_gates))
         .route("/repos/:repo_id/scopes", get(list_scopes).post(create_scope))
+        .route(
+            "/repos/:repo_id/objects/blobs/:blob_id",
+            axum::routing::put(put_blob),
+        )
+        .route(
+            "/repos/:repo_id/objects/manifests/:manifest_id",
+            axum::routing::put(put_manifest),
+        )
+        .route(
+            "/repos/:repo_id/objects/snaps/:snap_id",
+            axum::routing::put(put_snap),
+        )
         .layer(middleware::from_fn_with_state(
             state.clone(),
             require_bearer,
@@ -236,6 +251,9 @@ async fn create_repo(
     };
     repos.insert(repo.id.clone(), repo.clone());
 
+    std::fs::create_dir_all(repo_data_dir(&state, &repo.id))
+        .map_err(|e| internal_error(anyhow::anyhow!(e)))?;
+
     Ok(Json(repo))
 }
 
@@ -350,6 +368,160 @@ async fn list_scopes(
     let mut out: Vec<String> = repo.scopes.iter().cloned().collect();
     out.sort();
     Ok(Json(out))
+}
+
+async fn put_blob(
+    State(state): State<Arc<AppState>>,
+    Extension(subject): Extension<Subject>,
+    Path((repo_id, blob_id)): Path<(String, String)>,
+    body: axum::body::Bytes,
+) -> Result<StatusCode, Response> {
+    validate_object_id(&blob_id).map_err(bad_request)?;
+
+    {
+        let repos = state.repos.read().await;
+        let repo = repos.get(&repo_id).ok_or_else(not_found)?;
+        if !can_publish(repo, &subject.user) {
+            return Err(forbidden());
+        }
+    }
+
+    let actual = blake3::hash(&body).to_hex().to_string();
+    if actual != blob_id {
+        return Err(bad_request(anyhow::anyhow!(
+            "blob hash mismatch (expected {}, got {})",
+            blob_id,
+            actual
+        )));
+    }
+
+    let path = repo_data_dir(&state, &repo_id)
+        .join("objects/blobs")
+        .join(&blob_id);
+    write_if_absent(&path, &body).map_err(internal_error)?;
+    Ok(StatusCode::CREATED)
+}
+
+async fn put_manifest(
+    State(state): State<Arc<AppState>>,
+    Extension(subject): Extension<Subject>,
+    Path((repo_id, manifest_id)): Path<(String, String)>,
+    body: axum::body::Bytes,
+) -> Result<StatusCode, Response> {
+    validate_object_id(&manifest_id).map_err(bad_request)?;
+
+    {
+        let repos = state.repos.read().await;
+        let repo = repos.get(&repo_id).ok_or_else(not_found)?;
+        if !can_publish(repo, &subject.user) {
+            return Err(forbidden());
+        }
+    }
+
+    let actual = blake3::hash(&body).to_hex().to_string();
+    if actual != manifest_id {
+        return Err(bad_request(anyhow::anyhow!(
+            "manifest hash mismatch (expected {}, got {})",
+            manifest_id,
+            actual
+        )));
+    }
+
+    // Basic schema validation.
+    let manifest: converge::model::Manifest =
+        serde_json::from_slice(&body).map_err(|e| bad_request(anyhow::anyhow!(e)))?;
+    if manifest.version != 1 {
+        return Err(bad_request(anyhow::anyhow!("unsupported manifest version")));
+    }
+
+    let path = repo_data_dir(&state, &repo_id)
+        .join("objects/manifests")
+        .join(format!("{}.json", manifest_id));
+    write_if_absent(&path, &body).map_err(internal_error)?;
+    Ok(StatusCode::CREATED)
+}
+
+async fn put_snap(
+    State(state): State<Arc<AppState>>,
+    Extension(subject): Extension<Subject>,
+    Path((repo_id, snap_id)): Path<(String, String)>,
+    Json(snap): Json<converge::model::SnapRecord>,
+) -> Result<StatusCode, Response> {
+    validate_object_id(&snap_id).map_err(bad_request)?;
+
+    {
+        let repos = state.repos.read().await;
+        let repo = repos.get(&repo_id).ok_or_else(not_found)?;
+        if !can_publish(repo, &subject.user) {
+            return Err(forbidden());
+        }
+    }
+
+    if snap.id != snap_id {
+        return Err(bad_request(anyhow::anyhow!(
+            "snap id mismatch (path {}, body {})",
+            snap_id,
+            snap.id
+        )));
+    }
+
+    let computed = converge::model::compute_snap_id(
+        &snap.created_at,
+        &snap.root_manifest,
+        snap.message.as_deref(),
+    );
+    if computed != snap.id {
+        return Err(bad_request(anyhow::anyhow!(
+            "snap id failed verification (expected {}, got {})",
+            computed,
+            snap.id
+        )));
+    }
+    if snap.version != 1 {
+        return Err(bad_request(anyhow::anyhow!("unsupported snap version")));
+    }
+
+    // For Phase 2 we accept the snap record as-is (client is authoritative on created_at).
+    let bytes = serde_json::to_vec_pretty(&snap).map_err(|e| internal_error(anyhow::anyhow!(e)))?;
+    let path = repo_data_dir(&state, &repo_id)
+        .join("objects/snaps")
+        .join(format!("{}.json", snap_id));
+    write_if_absent(&path, &bytes).map_err(internal_error)?;
+    Ok(StatusCode::CREATED)
+}
+
+fn validate_object_id(id: &str) -> Result<()> {
+    if id.len() != 64 {
+        return Err(anyhow::anyhow!("object id must be 64 hex chars"));
+    }
+    if !id.chars().all(|c| matches!(c, '0'..='9' | 'a'..='f')) {
+        return Err(anyhow::anyhow!("object id must be lowercase hex"));
+    }
+    Ok(())
+}
+
+fn repo_data_dir(state: &AppState, repo_id: &str) -> PathBuf {
+    state.data_dir.join(repo_id)
+}
+
+fn write_if_absent(path: &std::path::Path, bytes: &[u8]) -> Result<()> {
+    if path.exists() {
+        return Ok(());
+    }
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)
+            .with_context(|| format!("create dir {}", parent.display()))?;
+    }
+    std::fs::write(path, bytes).with_context(|| format!("write {}", path.display()))?;
+    Ok(())
+}
+
+fn internal_error(err: anyhow::Error) -> Response {
+    (
+        StatusCode::INTERNAL_SERVER_ERROR,
+        Json(serde_json::json!({"error": err.to_string()})),
+    )
+        .into_response()
 }
 
 fn validate_repo_id(id: &str) -> Result<()> {
