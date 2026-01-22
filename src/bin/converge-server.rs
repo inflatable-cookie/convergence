@@ -491,6 +491,36 @@ async fn put_manifest(
         return Err(bad_request(anyhow::anyhow!("unsupported manifest version")));
     }
 
+    // Phase 2: require referenced objects to exist. This simplifies client behavior and
+    // ensures that a manifest is never persisted with dangling references.
+    for entry in &manifest.entries {
+        match &entry.kind {
+            converge::model::ManifestEntryKind::File { blob, .. } => {
+                let p = repo_data_dir(&state, &repo_id)
+                    .join("objects/blobs")
+                    .join(blob.as_str());
+                if !p.exists() {
+                    return Err(bad_request(anyhow::anyhow!(
+                        "missing referenced blob {}",
+                        blob.as_str()
+                    )));
+                }
+            }
+            converge::model::ManifestEntryKind::Dir { manifest } => {
+                let p = repo_data_dir(&state, &repo_id)
+                    .join("objects/manifests")
+                    .join(format!("{}.json", manifest.as_str()));
+                if !p.exists() {
+                    return Err(bad_request(anyhow::anyhow!(
+                        "missing referenced manifest {}",
+                        manifest.as_str()
+                    )));
+                }
+            }
+            converge::model::ManifestEntryKind::Symlink { .. } => {}
+        }
+    }
+
     let path = repo_data_dir(&state, &repo_id)
         .join("objects/manifests")
         .join(format!("{}.json", manifest_id));

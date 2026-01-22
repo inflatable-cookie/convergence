@@ -104,7 +104,7 @@ Minimum provenance:
   - [x] snaps by id
 - [x] Server validates:
   - [x] IDs match hashes
-  - [ ] manifests reference existing blobs/manifests (or allow staged upload ordering)
+  - [x] manifests reference existing blobs/manifests (or allow staged upload ordering)
 
 ### F) Publish intake API
 

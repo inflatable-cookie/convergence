@@ -464,6 +464,7 @@ fn publish_snap(
     gate: &str,
 ) -> Result<Publication> {
     let (blobs, manifests) = collect_objects(store, &snap.root_manifest)?;
+    let manifest_order = manifest_postorder(store, &snap.root_manifest)?;
 
     let client = http(remote);
     let repo = &remote.repo_id;
@@ -507,8 +508,14 @@ fn publish_snap(
             .context("upload blob status")?;
     }
 
-    for id in missing.missing_manifests {
-        let bytes = store.get_manifest_bytes(&converge::model::ObjectId(id.clone()))?;
+    let mut missing_manifests: HashSet<String> = missing.missing_manifests.into_iter().collect();
+    for mid in manifest_order {
+        let id = mid.as_str();
+        if !missing_manifests.remove(id) {
+            continue;
+        }
+
+        let bytes = store.get_manifest_bytes(&mid)?;
         client
             .put(format!(
                 "{}/repos/{}/objects/manifests/{}",
@@ -520,6 +527,13 @@ fn publish_snap(
             .context("upload manifest")?
             .error_for_status()
             .context("upload manifest status")?;
+    }
+
+    if !missing_manifests.is_empty() {
+        anyhow::bail!(
+            "missing manifest upload ordering bug (still missing: {})",
+            missing_manifests.len()
+        );
     }
 
     if !missing.missing_snaps.is_empty() {
@@ -551,6 +565,45 @@ fn publish_snap(
 
     let pubrec: Publication = resp.json().context("parse publication")?;
     Ok(pubrec)
+}
+
+fn manifest_postorder(
+    store: &LocalStore,
+    root: &converge::model::ObjectId,
+) -> Result<Vec<converge::model::ObjectId>> {
+    fn visit(
+        store: &LocalStore,
+        id: &converge::model::ObjectId,
+        visiting: &mut HashSet<String>,
+        visited: &mut HashSet<String>,
+        out: &mut Vec<converge::model::ObjectId>,
+    ) -> Result<()> {
+        let key = id.as_str().to_string();
+        if visited.contains(&key) {
+            return Ok(());
+        }
+        if !visiting.insert(key.clone()) {
+            anyhow::bail!("cycle detected in manifest graph at {}", id.as_str());
+        }
+
+        let manifest = store.get_manifest(id)?;
+        for e in manifest.entries {
+            if let converge::model::ManifestEntryKind::Dir { manifest } = e.kind {
+                visit(store, &manifest, visiting, visited, out)?;
+            }
+        }
+
+        visiting.remove(&key);
+        visited.insert(key);
+        out.push(id.clone());
+        Ok(())
+    }
+
+    let mut out = Vec::new();
+    let mut visiting = HashSet::new();
+    let mut visited = HashSet::new();
+    visit(store, root, &mut visiting, &mut visited, &mut out)?;
+    Ok(out)
 }
 
 fn list_publications(remote: &RemoteConfig) -> Result<Vec<Publication>> {
