@@ -63,7 +63,7 @@ Next step:
 - [x] Define promotability record: `promotable: bool` + reasons.
 - [x] Implement minimal policy checks:
   - [x] forbid promotion if unresolved superpositions exist (configurable per gate)
-  - [ ] required approvals (stubbed as "manual approval recorded" initially)
+  - [x] required approvals (stubbed as "manual approval recorded" initially)
 
 ### E) Promotion mechanics
 

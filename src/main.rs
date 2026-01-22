@@ -565,6 +565,9 @@ struct Bundle {
     created_at: String,
     promotable: bool,
     reasons: Vec<String>,
+
+    #[serde(default)]
+    approvals: Vec<String>,
 }
 
 #[derive(Debug, serde::Serialize, serde::Deserialize)]

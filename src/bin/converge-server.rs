@@ -69,6 +69,9 @@ struct GateDef {
 
     #[serde(default)]
     allow_superpositions: bool,
+
+    #[serde(default)]
+    required_approvals: u32,
 }
 
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
@@ -93,6 +96,9 @@ struct Bundle {
 
     promotable: bool,
     reasons: Vec<String>,
+
+    #[serde(default)]
+    approvals: Vec<String>,
 }
 
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
@@ -191,6 +197,10 @@ async fn run() -> Result<()> {
             get(list_bundles).post(create_bundle),
         )
         .route("/repos/:repo_id/bundles/:bundle_id", get(get_bundle))
+        .route(
+            "/repos/:repo_id/bundles/:bundle_id/approve",
+            axum::routing::post(approve_bundle),
+        )
         .route(
             "/repos/:repo_id/promotions",
             get(list_promotions).post(create_promotion),
@@ -333,6 +343,7 @@ async fn create_repo(
             name: "Dev Intake".to_string(),
             upstream: vec![],
             allow_superpositions: false,
+            required_approvals: 0,
         }],
     };
 
@@ -797,6 +808,21 @@ fn manifest_has_superpositions(
     }
 
     inner(state, repo_id, root_manifest_id, &mut HashSet::new())
+}
+
+fn compute_promotability(
+    gate: &GateDef,
+    has_superpositions: bool,
+    approval_count: usize,
+) -> (bool, Vec<String>) {
+    let mut reasons = Vec::new();
+    if has_superpositions && !gate.allow_superpositions {
+        reasons.push("superpositions_present".to_string());
+    }
+    if approval_count < gate.required_approvals as usize {
+        reasons.push("approvals_missing".to_string());
+    }
+    (reasons.is_empty(), reasons)
 }
 
 fn merge_dir_manifests(
@@ -1279,12 +1305,11 @@ async fn create_bundle(
         .ok_or_else(|| bad_request(anyhow::anyhow!("unknown gate")))?;
 
     let has_superpositions = manifest_has_superpositions(&state, &repo_id, &root_manifest)?;
-    let mut promotable = true;
-    let mut reasons = Vec::new();
-    if has_superpositions && !gate_def.allow_superpositions {
-        promotable = false;
-        reasons.push("superpositions_present".to_string());
-    }
+    let (promotable, reasons) = compute_promotability(
+        gate_def,
+        has_superpositions,
+        0,
+    );
 
     let id = {
         let mut hasher = blake3::Hasher::new();
@@ -1317,6 +1342,8 @@ async fn create_bundle(
 
         promotable,
         reasons,
+
+        approvals: Vec::new(),
     };
 
     let bytes = serde_json::to_vec_pretty(&bundle).map_err(|e| internal_error(anyhow::anyhow!(e)))?;
@@ -1396,6 +1423,64 @@ async fn get_bundle(
     Ok(Json(bundle))
 }
 
+async fn approve_bundle(
+    State(state): State<Arc<AppState>>,
+    Extension(subject): Extension<Subject>,
+    Path((repo_id, bundle_id)): Path<(String, String)>,
+) -> Result<Json<Bundle>, Response> {
+    validate_object_id(&bundle_id).map_err(bad_request)?;
+
+    let mut repos = state.repos.write().await;
+    let repo = repos.get_mut(&repo_id).ok_or_else(not_found)?;
+    if !can_publish(repo, &subject.user) {
+        return Err(forbidden());
+    }
+
+    // Load bundle.
+    let mut bundle = if let Some(b) = repo.bundles.iter().find(|b| b.id == bundle_id) {
+        b.clone()
+    } else {
+        load_bundle_from_disk(state.as_ref(), &repo_id, &bundle_id)?
+    };
+
+    if !bundle.approvals.contains(&subject.user) {
+        bundle.approvals.push(subject.user.clone());
+        bundle.approvals.sort();
+        bundle.approvals.dedup();
+    }
+
+    let gate_def = repo
+        .gate_graph
+        .gates
+        .iter()
+        .find(|g| g.id == bundle.gate)
+        .ok_or_else(|| internal_error(anyhow::anyhow!("bundle gate not found")))?;
+
+    let has_superpositions =
+        manifest_has_superpositions(state.as_ref(), &repo_id, &bundle.root_manifest)?;
+    let (promotable, reasons) =
+        compute_promotability(gate_def, has_superpositions, bundle.approvals.len());
+    bundle.promotable = promotable;
+    bundle.reasons = reasons;
+
+    // Persist updated bundle.
+    let bytes =
+        serde_json::to_vec_pretty(&bundle).map_err(|e| internal_error(anyhow::anyhow!(e)))?;
+    let path = repo_data_dir(state.as_ref(), &repo_id)
+        .join("bundles")
+        .join(format!("{}.json", bundle.id));
+    write_atomic_overwrite(&path, &bytes).map_err(internal_error)?;
+
+    // Update in-memory copy if present.
+    if let Some(existing) = repo.bundles.iter_mut().find(|b| b.id == bundle.id) {
+        *existing = bundle.clone();
+    } else {
+        repo.bundles.push(bundle.clone());
+    }
+
+    Ok(Json(bundle))
+}
+
 #[derive(Debug, serde::Deserialize)]
 struct CreatePromotionRequest {
     bundle_id: String,
@@ -1427,7 +1512,18 @@ async fn create_promotion(
         load_bundle_from_disk(state.as_ref(), &repo_id, &payload.bundle_id)?
     };
 
-    if !bundle.promotable {
+    // Re-check promotability at promotion time.
+    let gate_def = repo
+        .gate_graph
+        .gates
+        .iter()
+        .find(|g| g.id == bundle.gate)
+        .ok_or_else(|| internal_error(anyhow::anyhow!("bundle gate not found")))?;
+    let has_superpositions =
+        manifest_has_superpositions(state.as_ref(), &repo_id, &bundle.root_manifest)?;
+    let (promotable, _reasons) =
+        compute_promotability(gate_def, has_superpositions, bundle.approvals.len());
+    if !promotable {
         return Err(conflict("bundle not promotable"));
     }
 
@@ -1592,6 +1688,18 @@ fn write_if_absent(path: &std::path::Path, bytes: &[u8]) -> Result<()> {
             .with_context(|| format!("create dir {}", parent.display()))?;
     }
     std::fs::write(path, bytes).with_context(|| format!("write {}", path.display()))?;
+    Ok(())
+}
+
+fn write_atomic_overwrite(path: &std::path::Path, bytes: &[u8]) -> Result<()> {
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)
+            .with_context(|| format!("create dir {}", parent.display()))?;
+    }
+    let tmp = path.with_extension(format!("tmp.{}", std::process::id()));
+    std::fs::write(&tmp, bytes).with_context(|| format!("write {}", tmp.display()))?;
+    std::fs::rename(&tmp, path)
+        .with_context(|| format!("rename {} -> {}", tmp.display(), path.display()))?;
     Ok(())
 }
 

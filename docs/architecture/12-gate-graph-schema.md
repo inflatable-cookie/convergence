@@ -13,7 +13,9 @@ Fields (v1):
 - `name`: display name
 - `upstream`: list of gate ids this gate consumes from
 - `lane`: optional lane id that owns/operates this gate
-- `policy`: placeholder object for promotability rules (Phase 3 minimal)
+- `policy`: promotability rules (Phase 3 minimal):
+  - `allow_superpositions`: whether superpositions are allowed to pass this gate
+  - `required_approvals`: number of manual approvals required to be promotable
 
 ## Gate Graph
 
