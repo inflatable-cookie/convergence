@@ -88,6 +88,9 @@ Minimum metadata:
 - `provenance` (who/when/how; policies executed)
 - `status` (e.g. promotable true/false + reasons)
 
+Phase 3 MVP note:
+- The first implementation uses a simplified bundle record (root manifest + publication ids) and does not yet compute a coalesced manifest from inputs.
+
 ### Promotion
 
 `promote` is an operation that advances a bundle to a downstream gate.
