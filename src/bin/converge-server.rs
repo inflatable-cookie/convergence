@@ -36,7 +36,7 @@ struct Repo {
     publishers: HashSet<String>,
     lanes: HashMap<String, Lane>,
 
-    gates: Vec<Gate>,
+    gate_graph: GateGraph,
     scopes: HashSet<String>,
 
     snaps: HashSet<String>,
@@ -47,6 +47,20 @@ struct Repo {
 struct Gate {
     id: String,
     name: String,
+}
+
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+struct GateGraph {
+    version: u32,
+    terminal_gate: String,
+    gates: Vec<GateDef>,
+}
+
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+struct GateDef {
+    id: String,
+    name: String,
+    upstream: Vec<String>,
 }
 
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
@@ -130,6 +144,10 @@ async fn run() -> Result<()> {
         .route("/repos/:repo_id/permissions", get(get_repo_permissions))
         .route("/repos/:repo_id/lanes", get(list_lanes))
         .route("/repos/:repo_id/gates", get(list_gates))
+        .route(
+            "/repos/:repo_id/gate-graph",
+            get(get_gate_graph).put(put_gate_graph),
+        )
         .route("/repos/:repo_id/scopes", get(list_scopes).post(create_scope))
         .route(
             "/repos/:repo_id/publications",
@@ -261,10 +279,15 @@ async fn create_repo(
     let mut lanes = HashMap::new();
     lanes.insert(default_lane.id.clone(), default_lane);
 
-    let gates = vec![Gate {
-        id: "dev-intake".to_string(),
-        name: "Dev Intake".to_string(),
-    }];
+    let gate_graph = GateGraph {
+        version: 1,
+        terminal_gate: "dev-intake".to_string(),
+        gates: vec![GateDef {
+            id: "dev-intake".to_string(),
+            name: "Dev Intake".to_string(),
+            upstream: vec![],
+        }],
+    };
 
     let mut scopes = HashSet::new();
     scopes.insert("main".to_string());
@@ -279,7 +302,7 @@ async fn create_repo(
         publishers,
         lanes,
 
-        gates,
+        gate_graph,
         scopes,
 
         snaps,
@@ -361,7 +384,47 @@ async fn list_gates(
         return Err(forbidden());
     }
 
-    Ok(Json(repo.gates.clone()))
+    let gates = repo
+        .gate_graph
+        .gates
+        .iter()
+        .map(|g| Gate {
+            id: g.id.clone(),
+            name: g.name.clone(),
+        })
+        .collect();
+    Ok(Json(gates))
+}
+
+async fn get_gate_graph(
+    State(state): State<Arc<AppState>>,
+    Extension(subject): Extension<Subject>,
+    Path(repo_id): Path<String>,
+) -> Result<Json<GateGraph>, Response> {
+    let repos = state.repos.read().await;
+    let repo = repos.get(&repo_id).ok_or_else(not_found)?;
+    if !can_read(repo, &subject.user) {
+        return Err(forbidden());
+    }
+    Ok(Json(repo.gate_graph.clone()))
+}
+
+async fn put_gate_graph(
+    State(state): State<Arc<AppState>>,
+    Extension(subject): Extension<Subject>,
+    Path(repo_id): Path<String>,
+    Json(graph): Json<GateGraph>,
+) -> Result<Json<GateGraph>, Response> {
+    validate_gate_graph(&graph).map_err(bad_request)?;
+
+    let mut repos = state.repos.write().await;
+    let repo = repos.get_mut(&repo_id).ok_or_else(not_found)?;
+    if !can_publish(repo, &subject.user) {
+        return Err(forbidden());
+    }
+
+    repo.gate_graph = graph.clone();
+    Ok(Json(graph))
 }
 
 #[derive(Debug, serde::Deserialize)]
@@ -787,7 +850,7 @@ async fn create_publication(
     if !repo.scopes.contains(&payload.scope) {
         return Err(bad_request(anyhow::anyhow!("unknown scope")));
     }
-    if !repo.gates.iter().any(|g| g.id == payload.gate) {
+    if !repo.gate_graph.gates.iter().any(|g| g.id == payload.gate) {
         return Err(bad_request(anyhow::anyhow!("unknown gate")));
     }
     if !repo.snaps.contains(&payload.snap_id) {
@@ -896,6 +959,82 @@ fn validate_gate_id(id: &str) -> Result<()> {
     {
         return Err(anyhow::anyhow!("gate id must be lowercase alnum or '-'"));
     }
+    Ok(())
+}
+
+fn validate_gate_graph(graph: &GateGraph) -> Result<()> {
+    if graph.version != 1 {
+        return Err(anyhow::anyhow!("unsupported gate graph version"));
+    }
+
+    if graph.gates.is_empty() {
+        return Err(anyhow::anyhow!("gate graph must contain at least one gate"));
+    }
+
+    let mut ids = HashSet::new();
+    for g in &graph.gates {
+        validate_gate_id(&g.id)?;
+        if g.name.trim().is_empty() {
+            return Err(anyhow::anyhow!("gate name cannot be empty"));
+        }
+        if !ids.insert(g.id.clone()) {
+            return Err(anyhow::anyhow!("duplicate gate id {}", g.id));
+        }
+    }
+
+    validate_gate_id(&graph.terminal_gate)?;
+    if !ids.contains(&graph.terminal_gate) {
+        return Err(anyhow::anyhow!("terminal_gate does not exist"));
+    }
+
+    // Validate upstream references exist.
+    for g in &graph.gates {
+        for up in &g.upstream {
+            validate_gate_id(up)?;
+            if !ids.contains(up) {
+                return Err(anyhow::anyhow!(
+                    "gate {} references unknown upstream {}",
+                    g.id,
+                    up
+                ));
+            }
+        }
+    }
+
+    // Acyclic check via DFS.
+    let mut visiting = HashSet::new();
+    let mut visited = HashSet::new();
+    for g in &graph.gates {
+        dfs_gate(g, graph, &mut visiting, &mut visited)?;
+    }
+
+    Ok(())
+}
+
+fn dfs_gate(
+    gate: &GateDef,
+    graph: &GateGraph,
+    visiting: &mut HashSet<String>,
+    visited: &mut HashSet<String>,
+) -> Result<()> {
+    if visited.contains(&gate.id) {
+        return Ok(());
+    }
+    if !visiting.insert(gate.id.clone()) {
+        return Err(anyhow::anyhow!("cycle detected at gate {}", gate.id));
+    }
+
+    for up in &gate.upstream {
+        let up_gate = graph
+            .gates
+            .iter()
+            .find(|g| g.id == *up)
+            .ok_or_else(|| anyhow::anyhow!("unknown upstream {}", up))?;
+        dfs_gate(up_gate, graph, visiting, visited)?;
+    }
+
+    visiting.remove(&gate.id);
+    visited.insert(gate.id.clone());
     Ok(())
 }
 

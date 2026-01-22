@@ -20,3 +20,4 @@ Docs:
 - `docs/architecture/09-security-identity-and-permissions.md`
 - `docs/architecture/10-cli-and-tui.md`
 - `docs/architecture/11-interop-and-migration.md`
+- `docs/architecture/12-gate-graph-schema.md`

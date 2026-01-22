@@ -37,9 +37,12 @@ Explicitly out of scope:
 
 ### A) Gate graph configuration
 
-- [ ] Define server-side gate schema (ids, names, upstream/downstream, lane ownership).
-- [ ] Persist and validate gate graphs (acyclic, reachable terminal, etc.).
-- [ ] Add APIs to list gates and graph for a repo.
+- [x] Define server-side gate schema (ids, names, upstream/downstream, lane ownership).
+- [x] Persist and validate gate graphs (acyclic, reachable terminal, etc.).
+- [x] Add APIs to list gates and graph for a repo.
+
+Next step:
+- Extend Phase 2's hard-coded `dev-intake` gate into a real per-repo gate graph configuration object.
 
 ### B) Bundle object model
 
