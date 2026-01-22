@@ -12,6 +12,18 @@ impl ObjectId {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct WorkspaceConfig {
     pub version: u32,
+
+    #[serde(default)]
+    pub remote: Option<RemoteConfig>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct RemoteConfig {
+    pub base_url: String,
+    pub token: String,
+    pub repo_id: String,
+    pub scope: String,
+    pub gate: String,
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]

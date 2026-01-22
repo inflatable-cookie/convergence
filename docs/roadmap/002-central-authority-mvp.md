@@ -122,14 +122,14 @@ Minimum provenance:
 
 ### H) Client changes
 
-- [ ] Add remote configuration to workspace metadata.
-- [ ] Implement `converge publish`:
-  - [ ] ensure local snap exists
-  - [ ] upload missing objects
-  - [ ] create publication
-- [ ] Implement `converge fetch`:
-  - [ ] fetch referenced objects for publications/bundles the user can see (Phase 2: publications only)
-  - [ ] store in local cache
+- [x] Add remote configuration to workspace metadata.
+- [x] Implement `converge publish`:
+  - [x] ensure local snap exists
+  - [x] upload missing objects
+  - [x] create publication
+- [x] Implement `converge fetch`:
+  - [x] fetch referenced objects for publications/bundles the user can see (Phase 2: publications only)
+  - [x] store in local cache
 
 ### I) Minimal UX
 

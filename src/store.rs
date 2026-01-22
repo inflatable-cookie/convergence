@@ -45,7 +45,10 @@ impl LocalStore {
         fs::create_dir_all(root.join("objects/manifests")).context("create manifests dir")?;
         fs::create_dir_all(root.join("snaps")).context("create snaps dir")?;
 
-        let cfg = WorkspaceConfig { version: 1 };
+        let cfg = WorkspaceConfig {
+            version: 1,
+            remote: None,
+        };
         let cfg_bytes = serde_json::to_vec_pretty(&cfg).context("serialize workspace config")?;
         write_atomic(&root.join("config.json"), &cfg_bytes).context("write config.json")?;
 
@@ -58,11 +61,21 @@ impl LocalStore {
         Ok(cfg)
     }
 
+    pub fn write_config(&self, cfg: &WorkspaceConfig) -> Result<()> {
+        let bytes = serde_json::to_vec_pretty(cfg).context("serialize config")?;
+        write_atomic(&self.root.join("config.json"), &bytes).context("write config.json")?;
+        Ok(())
+    }
+
     pub fn put_blob(&self, bytes: &[u8]) -> Result<ObjectId> {
         let id = hash_bytes(bytes);
         let path = self.root.join("objects/blobs").join(id.as_str());
         write_if_absent(&path, bytes).context("store blob")?;
         Ok(id)
+    }
+
+    pub fn has_blob(&self, id: &ObjectId) -> bool {
+        self.root.join("objects/blobs").join(id.as_str()).exists()
     }
 
     pub fn get_blob(&self, id: &ObjectId) -> Result<Vec<u8>> {
@@ -91,6 +104,48 @@ impl LocalStore {
         Ok(id)
     }
 
+    pub fn put_manifest_bytes(&self, id: &ObjectId, bytes: &[u8]) -> Result<()> {
+        let actual = blake3::hash(bytes).to_hex().to_string();
+        if actual != id.0 {
+            return Err(anyhow!(
+                "manifest hash mismatch (expected {}, got {})",
+                id.as_str(),
+                actual
+            ));
+        }
+        let path = self
+            .root
+            .join("objects/manifests")
+            .join(format!("{}.json", id.as_str()));
+        write_if_absent(&path, bytes).context("store manifest bytes")?;
+        Ok(())
+    }
+
+    pub fn has_manifest(&self, id: &ObjectId) -> bool {
+        self.root
+            .join("objects/manifests")
+            .join(format!("{}.json", id.as_str()))
+            .exists()
+    }
+
+    pub fn get_manifest_bytes(&self, id: &ObjectId) -> Result<Vec<u8>> {
+        let path = self
+            .root
+            .join("objects/manifests")
+            .join(format!("{}.json", id.as_str()));
+        let bytes = fs::read(&path).with_context(|| format!("read manifest {}", id.as_str()))?;
+        let actual = blake3::hash(&bytes).to_hex().to_string();
+        if actual != id.0 {
+            return Err(anyhow!(
+                "manifest integrity check failed for {} (expected {}, got {})",
+                path.display(),
+                id.as_str(),
+                actual
+            ));
+        }
+        Ok(bytes)
+    }
+
     pub fn get_manifest(&self, id: &ObjectId) -> Result<Manifest> {
         let path = self
             .root
@@ -116,6 +171,13 @@ impl LocalStore {
         let bytes = serde_json::to_vec_pretty(snap).context("serialize snap")?;
         write_atomic(&path, &bytes).context("write snap")?;
         Ok(())
+    }
+
+    pub fn has_snap(&self, snap_id: &str) -> bool {
+        self.root
+            .join("snaps")
+            .join(format!("{}.json", snap_id))
+            .exists()
     }
 
     pub fn get_snap(&self, snap_id: &str) -> Result<SnapRecord> {
