@@ -73,10 +73,10 @@ Minimum provenance:
 
 ### B) Identity and auth
 
-- [ ] Implement a minimal identity model:
-  - [ ] users
-  - [ ] access tokens
-- [ ] Implement request authentication via bearer token.
+- [x] Implement a minimal identity model:
+  - [x] users
+  - [x] access tokens
+- [x] Implement request authentication via bearer token.
 
 ### C) Authorization
 
