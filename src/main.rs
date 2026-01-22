@@ -128,6 +128,17 @@ enum Commands {
         json: bool,
     },
 
+    /// Approve a bundle (manual policy step)
+    Approve {
+        /// Bundle id to approve
+        #[arg(long)]
+        bundle_id: String,
+
+        /// Emit JSON
+        #[arg(long)]
+        json: bool,
+    },
+
     /// Show status for this workspace and remote
     Status {
         /// Emit JSON
@@ -408,6 +419,25 @@ fn run() -> Result<()> {
                 );
             } else {
                 println!("Promoted {} -> {}", promotion.from_gate, promotion.to_gate);
+            }
+        }
+
+        Commands::Approve { bundle_id, json } => {
+            let ws = Workspace::discover(&std::env::current_dir().context("get current dir")?)?;
+            let remote = require_remote(&ws.store)?;
+            let bundle = approve_bundle(&remote, &bundle_id)?;
+            if json {
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&bundle).context("serialize approve json")?
+                );
+            } else if bundle.promotable {
+                println!("Approved {} (now promotable)", bundle.id);
+            } else {
+                println!(
+                    "Approved {} (still blocked: {:?})",
+                    bundle.id, bundle.reasons
+                );
             }
         }
 
@@ -815,6 +845,24 @@ fn get_promotion_state(remote: &RemoteConfig, scope: &str) -> Result<HashMap<Str
 
     let state: HashMap<String, String> = resp.json().context("parse promotion state")?;
     Ok(state)
+}
+
+fn approve_bundle(remote: &RemoteConfig, bundle_id: &str) -> Result<Bundle> {
+    let client = http(remote);
+    let repo = &remote.repo_id;
+    let resp = client
+        .post(format!(
+            "{}/repos/{}/bundles/{}/approve",
+            remote.base_url, repo, bundle_id
+        ))
+        .header(reqwest::header::AUTHORIZATION, auth(remote))
+        .send()
+        .context("approve request")?
+        .error_for_status()
+        .context("approve status")?;
+
+    let bundle: Bundle = resp.json().context("parse approved bundle")?;
+    Ok(bundle)
 }
 
 fn create_remote_repo(remote: &RemoteConfig, repo_id: &str) -> Result<Repo> {
