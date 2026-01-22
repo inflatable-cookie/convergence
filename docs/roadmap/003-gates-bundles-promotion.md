@@ -46,9 +46,9 @@ Next step:
 
 ### B) Bundle object model
 
-- [ ] Define bundle record (root manifest id, inputs, produced_by gate, scope, provenance).
-- [ ] Implement bundle storage and retrieval.
-- [ ] Implement bundle listing by `(repo, scope, gate)`.
+- [x] Define bundle record (root manifest id, inputs, produced_by gate, scope, provenance).
+- [x] Implement bundle storage and retrieval.
+- [x] Implement bundle listing by `(repo, scope, gate)`.
 
 ### C) Coalescing algorithm (v1)
 

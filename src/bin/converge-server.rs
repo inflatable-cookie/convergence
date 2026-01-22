@@ -4,7 +4,7 @@ use std::sync::Arc;
 use std::{collections::HashMap, collections::HashSet};
 
 use anyhow::{Context, Result};
-use axum::extract::{Extension, State};
+use axum::extract::{Extension, Query, State};
 use axum::http::{header, StatusCode};
 use axum::middleware::{self, Next};
 use axum::response::{IntoResponse, Response};
@@ -41,6 +41,8 @@ struct Repo {
 
     snaps: HashSet<String>,
     publications: Vec<Publication>,
+
+    bundles: Vec<Bundle>,
 }
 
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
@@ -70,6 +72,17 @@ struct Publication {
     scope: String,
     gate: String,
     publisher: String,
+    created_at: String,
+}
+
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+struct Bundle {
+    id: String,
+    scope: String,
+    gate: String,
+    root_manifest: String,
+    input_publications: Vec<String>,
+    created_by: String,
     created_at: String,
 }
 
@@ -153,6 +166,11 @@ async fn run() -> Result<()> {
             "/repos/:repo_id/publications",
             get(list_publications).post(create_publication),
         )
+        .route(
+            "/repos/:repo_id/bundles",
+            get(list_bundles).post(create_bundle),
+        )
+        .route("/repos/:repo_id/bundles/:bundle_id", get(get_bundle))
         .route(
             "/repos/:repo_id/objects/blobs/:blob_id",
             axum::routing::put(put_blob).get(get_blob),
@@ -294,6 +312,7 @@ async fn create_repo(
 
     let snaps = HashSet::new();
     let publications = Vec::new();
+    let bundles = Vec::new();
 
     let repo = Repo {
         id: payload.id.clone(),
@@ -307,10 +326,15 @@ async fn create_repo(
 
         snaps,
         publications,
+
+        bundles,
     };
     repos.insert(repo.id.clone(), repo.clone());
 
     std::fs::create_dir_all(repo_data_dir(&state, &repo.id))
+        .map_err(|e| internal_error(anyhow::anyhow!(e)))?;
+
+    std::fs::create_dir_all(repo_data_dir(&state, &repo.id).join("bundles"))
         .map_err(|e| internal_error(anyhow::anyhow!(e)))?;
 
     Ok(Json(repo))
@@ -883,6 +907,191 @@ async fn list_publications(
         return Err(forbidden());
     }
     Ok(Json(repo.publications.clone()))
+}
+
+#[derive(Debug, serde::Deserialize)]
+struct CreateBundleRequest {
+    scope: String,
+    gate: String,
+    root_manifest: String,
+    input_publications: Vec<String>,
+}
+
+async fn create_bundle(
+    State(state): State<Arc<AppState>>,
+    Extension(subject): Extension<Subject>,
+    Path(repo_id): Path<String>,
+    Json(payload): Json<CreateBundleRequest>,
+) -> Result<Json<Bundle>, Response> {
+    validate_scope_id(&payload.scope).map_err(bad_request)?;
+    validate_gate_id(&payload.gate).map_err(bad_request)?;
+    validate_object_id(&payload.root_manifest).map_err(bad_request)?;
+    if payload.input_publications.is_empty() {
+        return Err(bad_request(anyhow::anyhow!(
+            "bundle must include at least one input publication"
+        )));
+    }
+    for pid in &payload.input_publications {
+        validate_object_id(pid).map_err(bad_request)?;
+    }
+
+    let created_at = time::OffsetDateTime::now_utc()
+        .format(&time::format_description::well_known::Rfc3339)
+        .map_err(|e| internal_error(anyhow::anyhow!(e)))?;
+
+    let mut input_publications = payload.input_publications;
+    input_publications.sort();
+    input_publications.dedup();
+
+    let id = {
+        let mut hasher = blake3::Hasher::new();
+        hasher.update(repo_id.as_bytes());
+        hasher.update(b"\n");
+        hasher.update(payload.scope.as_bytes());
+        hasher.update(b"\n");
+        hasher.update(payload.gate.as_bytes());
+        hasher.update(b"\n");
+        hasher.update(payload.root_manifest.as_bytes());
+        hasher.update(b"\n");
+        for pid in &input_publications {
+            hasher.update(pid.as_bytes());
+            hasher.update(b"\n");
+        }
+        hasher.update(subject.user.as_bytes());
+        hasher.update(b"\n");
+        hasher.update(created_at.as_bytes());
+        hasher.finalize().to_hex().to_string()
+    };
+
+    let mut repos = state.repos.write().await;
+    let repo = repos.get_mut(&repo_id).ok_or_else(not_found)?;
+    if !can_publish(repo, &subject.user) {
+        return Err(forbidden());
+    }
+    if !repo.scopes.contains(&payload.scope) {
+        return Err(bad_request(anyhow::anyhow!("unknown scope")));
+    }
+    if !repo.gate_graph.gates.iter().any(|g| g.id == payload.gate) {
+        return Err(bad_request(anyhow::anyhow!("unknown gate")));
+    }
+
+    // Validate the root manifest exists in storage.
+    let root_manifest_path = repo_data_dir(&state, &repo_id)
+        .join("objects/manifests")
+        .join(format!("{}.json", payload.root_manifest));
+    if !root_manifest_path.exists() {
+        return Err(bad_request(anyhow::anyhow!(
+            "unknown root_manifest (upload manifest first)"
+        )));
+    }
+
+    // Validate publication ids exist and match scope/gate.
+    for pid in &input_publications {
+        let Some(p) = repo.publications.iter().find(|p| &p.id == pid) else {
+            return Err(bad_request(anyhow::anyhow!(
+                "unknown publication {}",
+                pid
+            )));
+        };
+        if p.scope != payload.scope {
+            return Err(bad_request(anyhow::anyhow!(
+                "publication {} has mismatched scope",
+                pid
+            )));
+        }
+        if p.gate != payload.gate {
+            return Err(bad_request(anyhow::anyhow!(
+                "publication {} has mismatched gate",
+                pid
+            )));
+        }
+    }
+
+    let bundle = Bundle {
+        id: id.clone(),
+        scope: payload.scope,
+        gate: payload.gate,
+        root_manifest: payload.root_manifest,
+        input_publications,
+        created_by: subject.user,
+        created_at,
+    };
+
+    let bytes = serde_json::to_vec_pretty(&bundle).map_err(|e| internal_error(anyhow::anyhow!(e)))?;
+    let path = repo_data_dir(&state, &repo_id)
+        .join("bundles")
+        .join(format!("{}.json", id));
+    write_if_absent(&path, &bytes).map_err(internal_error)?;
+
+    repo.bundles.push(bundle.clone());
+    Ok(Json(bundle))
+}
+
+#[derive(Debug, serde::Deserialize)]
+struct ListBundlesQuery {
+    scope: Option<String>,
+    gate: Option<String>,
+}
+
+async fn list_bundles(
+    State(state): State<Arc<AppState>>,
+    Extension(subject): Extension<Subject>,
+    Path(repo_id): Path<String>,
+    Query(q): Query<ListBundlesQuery>,
+) -> Result<Json<Vec<Bundle>>, Response> {
+    let repos = state.repos.read().await;
+    let repo = repos.get(&repo_id).ok_or_else(not_found)?;
+    if !can_read(repo, &subject.user) {
+        return Err(forbidden());
+    }
+
+    let mut out = Vec::new();
+    for b in &repo.bundles {
+        if let Some(scope) = &q.scope {
+            if &b.scope != scope {
+                continue;
+            }
+        }
+        if let Some(gate) = &q.gate {
+            if &b.gate != gate {
+                continue;
+            }
+        }
+        out.push(b.clone());
+    }
+    Ok(Json(out))
+}
+
+async fn get_bundle(
+    State(state): State<Arc<AppState>>,
+    Extension(subject): Extension<Subject>,
+    Path((repo_id, bundle_id)): Path<(String, String)>,
+) -> Result<Json<Bundle>, Response> {
+    validate_object_id(&bundle_id).map_err(bad_request)?;
+
+    let repos = state.repos.read().await;
+    let repo = repos.get(&repo_id).ok_or_else(not_found)?;
+    if !can_read(repo, &subject.user) {
+        return Err(forbidden());
+    }
+
+    if let Some(b) = repo.bundles.iter().find(|b| b.id == bundle_id) {
+        return Ok(Json(b.clone()));
+    }
+
+    // Best-effort disk fallback.
+    let path = repo_data_dir(&state, &repo_id)
+        .join("bundles")
+        .join(format!("{}.json", bundle_id));
+    if !path.exists() {
+        return Err(not_found());
+    }
+    let bytes = std::fs::read(&path)
+        .with_context(|| format!("read {}", path.display()))
+        .map_err(|e| internal_error(anyhow::anyhow!(e)))?;
+    let bundle: Bundle = serde_json::from_slice(&bytes)
+        .map_err(|e| internal_error(anyhow::anyhow!(e)))?;
+    Ok(Json(bundle))
 }
 
 fn validate_object_id(id: &str) -> Result<()> {
