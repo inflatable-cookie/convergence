@@ -67,9 +67,9 @@ Minimum provenance:
 
 ### A) Server skeleton
 
-- [ ] Create Rust server crate/binary.
-- [ ] Basic config (ports, data dirs, DB connection).
-- [ ] Health endpoint.
+- [x] Create Rust server crate/binary.
+- [x] Basic config (ports, data dirs, DB connection).
+- [x] Health endpoint.
 
 ### B) Identity and auth
 
