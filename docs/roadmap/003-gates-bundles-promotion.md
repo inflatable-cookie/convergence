@@ -73,9 +73,9 @@ Next step:
 
 ### F) Client commands
 
-- [ ] Implement `converge bundle` client command.
-- [ ] Implement `converge promote` client command.
-- [ ] Update `converge status` to display per-gate scope state.
+- [x] Implement `converge bundle` client command.
+- [x] Implement `converge promote` client command.
+- [x] Update `converge status` to display per-gate scope state.
 
 ### G) Tests
 

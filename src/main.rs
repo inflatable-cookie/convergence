@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 
 use anyhow::{Context, Result};
@@ -88,6 +88,40 @@ enum Commands {
         /// Fetch only this snap id
         #[arg(long)]
         snap_id: Option<String>,
+
+        /// Emit JSON
+        #[arg(long)]
+        json: bool,
+    },
+
+    /// Create a bundle on the remote from publications
+    Bundle {
+        /// Scope (defaults to remote config)
+        #[arg(long)]
+        scope: Option<String>,
+
+        /// Gate (defaults to remote config)
+        #[arg(long)]
+        gate: Option<String>,
+
+        /// Publication ids to include (repeatable). If omitted, includes all publications for scope+gate.
+        #[arg(long = "publication")]
+        publications: Vec<String>,
+
+        /// Emit JSON
+        #[arg(long)]
+        json: bool,
+    },
+
+    /// Promote a bundle to a downstream gate
+    Promote {
+        /// Bundle id to promote
+        #[arg(long)]
+        bundle_id: String,
+
+        /// Downstream gate id
+        #[arg(long)]
+        to_gate: String,
 
         /// Emit JSON
         #[arg(long)]
@@ -319,6 +353,64 @@ fn run() -> Result<()> {
             }
         }
 
+        Commands::Bundle {
+            scope,
+            gate,
+            publications,
+            json,
+        } => {
+            let ws = Workspace::discover(&std::env::current_dir().context("get current dir")?)?;
+            let remote = require_remote(&ws.store)?;
+            let scope = scope.unwrap_or_else(|| remote.scope.clone());
+            let gate = gate.unwrap_or_else(|| remote.gate.clone());
+
+            let pubs = if publications.is_empty() {
+                let all = list_publications(&remote)?;
+                all.into_iter()
+                    .filter(|p| p.scope == scope && p.gate == gate)
+                    .map(|p| p.id)
+                    .collect::<Vec<_>>()
+            } else {
+                publications
+            };
+
+            if pubs.is_empty() {
+                anyhow::bail!(
+                    "no publications found for scope={} gate={} (publish first)",
+                    scope,
+                    gate
+                );
+            }
+
+            let bundle = create_bundle(&remote, &scope, &gate, &pubs)?;
+            if json {
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&bundle).context("serialize bundle json")?
+                );
+            } else {
+                println!("{}", bundle.id);
+            }
+        }
+
+        Commands::Promote {
+            bundle_id,
+            to_gate,
+            json,
+        } => {
+            let ws = Workspace::discover(&std::env::current_dir().context("get current dir")?)?;
+            let remote = require_remote(&ws.store)?;
+            let promotion = promote_bundle(&remote, &bundle_id, &to_gate)?;
+            if json {
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&promotion).context("serialize promotion json")?
+                );
+            } else {
+                println!("Promoted {} -> {}", promotion.from_gate, promotion.to_gate);
+            }
+        }
+
         Commands::Status { json, limit } => {
             let ws = Workspace::discover(&std::env::current_dir().context("get current dir")?)?;
             let cfg = ws.store.read_config()?;
@@ -329,6 +421,8 @@ fn run() -> Result<()> {
                 let mut pubs = pubs;
                 pubs.sort_by(|a, b| b.created_at.cmp(&a.created_at));
                 pubs.truncate(limit);
+
+                let promotion_state = get_promotion_state(&remote, &remote.scope)?;
 
                 if json {
                     let remote_json = serde_json::json!({
@@ -358,7 +452,8 @@ fn run() -> Result<()> {
                         "{}",
                         serde_json::to_string_pretty(&serde_json::json!({
                             "remote": remote_json,
-                            "publications": pubs_json
+                            "publications": pubs_json,
+                            "promotion_state": promotion_state
                         }))
                         .context("serialize status json")?
                     );
@@ -367,6 +462,20 @@ fn run() -> Result<()> {
                     println!("repo: {}", remote.repo_id);
                     println!("scope: {}", remote.scope);
                     println!("gate: {}", remote.gate);
+
+                    println!("promotion_state:");
+                    if promotion_state.is_empty() {
+                        println!("(none)");
+                    } else {
+                        let mut keys = promotion_state.keys().cloned().collect::<Vec<_>>();
+                        keys.sort();
+                        for gate in keys {
+                            let bid = promotion_state.get(&gate).cloned().unwrap_or_default();
+                            let short = bid.chars().take(8).collect::<String>();
+                            println!("{} {}", gate, short);
+                        }
+                    }
+
                     println!("publications:");
                     for p in pubs {
                         let short = p.snap_id.chars().take(8).collect::<String>();
@@ -443,6 +552,30 @@ struct Publication {
     gate: String,
     publisher: String,
     created_at: String,
+}
+
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
+struct Bundle {
+    id: String,
+    scope: String,
+    gate: String,
+    root_manifest: String,
+    input_publications: Vec<String>,
+    created_by: String,
+    created_at: String,
+    promotable: bool,
+    reasons: Vec<String>,
+}
+
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
+struct Promotion {
+    id: String,
+    bundle_id: String,
+    scope: String,
+    from_gate: String,
+    to_gate: String,
+    promoted_by: String,
+    promoted_at: String,
 }
 
 fn http(_remote: &RemoteConfig) -> reqwest::blocking::Client {
@@ -619,6 +752,66 @@ fn list_publications(remote: &RemoteConfig) -> Result<Vec<Publication>> {
         .json()
         .context("parse publications")?;
     Ok(pubs)
+}
+
+fn create_bundle(
+    remote: &RemoteConfig,
+    scope: &str,
+    gate: &str,
+    publications: &[String],
+) -> Result<Bundle> {
+    let client = http(remote);
+    let repo = &remote.repo_id;
+    let resp = client
+        .post(format!("{}/repos/{}/bundles", remote.base_url, repo))
+        .header(reqwest::header::AUTHORIZATION, auth(remote))
+        .json(&serde_json::json!({
+            "scope": scope,
+            "gate": gate,
+            "input_publications": publications
+        }))
+        .send()
+        .context("create bundle request")?
+        .error_for_status()
+        .context("create bundle status")?;
+    let bundle: Bundle = resp.json().context("parse bundle")?;
+    Ok(bundle)
+}
+
+fn promote_bundle(remote: &RemoteConfig, bundle_id: &str, to_gate: &str) -> Result<Promotion> {
+    let client = http(remote);
+    let repo = &remote.repo_id;
+    let resp = client
+        .post(format!("{}/repos/{}/promotions", remote.base_url, repo))
+        .header(reqwest::header::AUTHORIZATION, auth(remote))
+        .json(&serde_json::json!({
+            "bundle_id": bundle_id,
+            "to_gate": to_gate
+        }))
+        .send()
+        .context("promote request")?
+        .error_for_status()
+        .context("promote status")?;
+    let promotion: Promotion = resp.json().context("parse promotion")?;
+    Ok(promotion)
+}
+
+fn get_promotion_state(remote: &RemoteConfig, scope: &str) -> Result<HashMap<String, String>> {
+    let client = http(remote);
+    let repo = &remote.repo_id;
+    let resp = client
+        .get(format!(
+            "{}/repos/{}/promotion-state?scope={}",
+            remote.base_url, repo, scope
+        ))
+        .header(reqwest::header::AUTHORIZATION, auth(remote))
+        .send()
+        .context("promotion state request")?
+        .error_for_status()
+        .context("promotion state status")?;
+
+    let state: HashMap<String, String> = resp.json().context("parse promotion state")?;
+    Ok(state)
 }
 
 fn create_remote_repo(remote: &RemoteConfig, repo_id: &str) -> Result<Repo> {
