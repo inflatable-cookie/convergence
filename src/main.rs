@@ -663,6 +663,9 @@ fn collect_objects(
                     stack.push(manifest);
                 }
                 converge::model::ManifestEntryKind::Symlink { .. } => {}
+                converge::model::ManifestEntryKind::Superposition { .. } => {
+                    anyhow::bail!("cannot publish snap containing superpositions");
+                }
             }
         }
     }
@@ -796,6 +799,51 @@ fn fetch_manifest_tree_inner(
                 }
             }
             converge::model::ManifestEntryKind::Symlink { .. } => {}
+            converge::model::ManifestEntryKind::Superposition { variants } => {
+                for v in variants {
+                    match v.kind {
+                        converge::model::SuperpositionVariantKind::File { blob, .. } => {
+                            if store.has_blob(&blob) {
+                                continue;
+                            }
+                            let bytes = client
+                                .get(format!(
+                                    "{}/repos/{}/objects/blobs/{}",
+                                    remote.base_url,
+                                    repo,
+                                    blob.as_str()
+                                ))
+                                .header(reqwest::header::AUTHORIZATION, auth(remote))
+                                .send()
+                                .context("fetch blob")?
+                                .error_for_status()
+                                .context("fetch blob status")?
+                                .bytes()
+                                .context("read blob bytes")?;
+
+                            let computed = blake3::hash(&bytes).to_hex().to_string();
+                            if computed != blob.as_str() {
+                                anyhow::bail!(
+                                    "blob hash mismatch (expected {}, got {})",
+                                    blob.as_str(),
+                                    computed
+                                );
+                            }
+                            let id = store.put_blob(&bytes)?;
+                            if id != blob {
+                                anyhow::bail!("unexpected blob id mismatch");
+                            }
+                        }
+                        converge::model::SuperpositionVariantKind::Dir { manifest } => {
+                            fetch_manifest_tree_inner(
+                                store, remote, repo, client, &manifest, visited,
+                            )?;
+                        }
+                        converge::model::SuperpositionVariantKind::Symlink { .. } => {}
+                        converge::model::SuperpositionVariantKind::Tombstone => {}
+                    }
+                }
+            }
         }
     }
 

@@ -590,31 +590,7 @@ async fn put_manifest(
     // Phase 2: require referenced objects to exist. This simplifies client behavior and
     // ensures that a manifest is never persisted with dangling references.
     for entry in &manifest.entries {
-        match &entry.kind {
-            converge::model::ManifestEntryKind::File { blob, .. } => {
-                let p = repo_data_dir(&state, &repo_id)
-                    .join("objects/blobs")
-                    .join(blob.as_str());
-                if !p.exists() {
-                    return Err(bad_request(anyhow::anyhow!(
-                        "missing referenced blob {}",
-                        blob.as_str()
-                    )));
-                }
-            }
-            converge::model::ManifestEntryKind::Dir { manifest } => {
-                let p = repo_data_dir(&state, &repo_id)
-                    .join("objects/manifests")
-                    .join(format!("{}.json", manifest.as_str()));
-                if !p.exists() {
-                    return Err(bad_request(anyhow::anyhow!(
-                        "missing referenced manifest {}",
-                        manifest.as_str()
-                    )));
-                }
-            }
-            converge::model::ManifestEntryKind::Symlink { .. } => {}
-        }
+        validate_manifest_entry_refs(&state, &repo_id, &entry.kind)?;
     }
 
     let path = repo_data_dir(&state, &repo_id)
@@ -622,6 +598,251 @@ async fn put_manifest(
         .join(format!("{}.json", manifest_id));
     write_if_absent(&path, &body).map_err(internal_error)?;
     Ok(StatusCode::CREATED)
+}
+
+fn validate_manifest_entry_refs(
+    state: &AppState,
+    repo_id: &str,
+    kind: &converge::model::ManifestEntryKind,
+) -> Result<(), Response> {
+    match kind {
+        converge::model::ManifestEntryKind::File { blob, .. } => {
+            let p = repo_data_dir(state, repo_id)
+                .join("objects/blobs")
+                .join(blob.as_str());
+            if !p.exists() {
+                return Err(bad_request(anyhow::anyhow!(
+                    "missing referenced blob {}",
+                    blob.as_str()
+                )));
+            }
+        }
+        converge::model::ManifestEntryKind::Dir { manifest } => {
+            let p = repo_data_dir(state, repo_id)
+                .join("objects/manifests")
+                .join(format!("{}.json", manifest.as_str()));
+            if !p.exists() {
+                return Err(bad_request(anyhow::anyhow!(
+                    "missing referenced manifest {}",
+                    manifest.as_str()
+                )));
+            }
+        }
+        converge::model::ManifestEntryKind::Symlink { .. } => {}
+        converge::model::ManifestEntryKind::Superposition { variants } => {
+            for v in variants {
+                match &v.kind {
+                    converge::model::SuperpositionVariantKind::File { blob, .. } => {
+                        let p = repo_data_dir(state, repo_id)
+                            .join("objects/blobs")
+                            .join(blob.as_str());
+                        if !p.exists() {
+                            return Err(bad_request(anyhow::anyhow!(
+                                "missing referenced blob {}",
+                                blob.as_str()
+                            )));
+                        }
+                    }
+                    converge::model::SuperpositionVariantKind::Dir { manifest } => {
+                        let p = repo_data_dir(state, repo_id)
+                            .join("objects/manifests")
+                            .join(format!("{}.json", manifest.as_str()));
+                        if !p.exists() {
+                            return Err(bad_request(anyhow::anyhow!(
+                                "missing referenced manifest {}",
+                                manifest.as_str()
+                            )));
+                        }
+                    }
+                    converge::model::SuperpositionVariantKind::Symlink { .. } => {}
+                    converge::model::SuperpositionVariantKind::Tombstone => {}
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
+fn read_snap(state: &AppState, repo_id: &str, snap_id: &str) -> Result<converge::model::SnapRecord, Response> {
+    validate_object_id(snap_id).map_err(bad_request)?;
+    let path = repo_data_dir(state, repo_id)
+        .join("objects/snaps")
+        .join(format!("{}.json", snap_id));
+    if !path.exists() {
+        return Err(bad_request(anyhow::anyhow!("unknown snap")));
+    }
+    let bytes = std::fs::read(&path)
+        .with_context(|| format!("read {}", path.display()))
+        .map_err(|e| internal_error(anyhow::anyhow!(e)))?;
+    let snap: converge::model::SnapRecord =
+        serde_json::from_slice(&bytes).map_err(|e| internal_error(anyhow::anyhow!(e)))?;
+    Ok(snap)
+}
+
+fn read_manifest(
+    state: &AppState,
+    repo_id: &str,
+    manifest_id: &str,
+) -> Result<converge::model::Manifest, Response> {
+    validate_object_id(manifest_id).map_err(bad_request)?;
+    let path = repo_data_dir(state, repo_id)
+        .join("objects/manifests")
+        .join(format!("{}.json", manifest_id));
+    if !path.exists() {
+        return Err(bad_request(anyhow::anyhow!("unknown manifest")));
+    }
+    let bytes = std::fs::read(&path)
+        .with_context(|| format!("read {}", path.display()))
+        .map_err(|e| internal_error(anyhow::anyhow!(e)))?;
+    let actual = blake3::hash(&bytes).to_hex().to_string();
+    if actual != manifest_id {
+        return Err(internal_error(anyhow::anyhow!("manifest integrity check failed")));
+    }
+    let manifest: converge::model::Manifest =
+        serde_json::from_slice(&bytes).map_err(|e| internal_error(anyhow::anyhow!(e)))?;
+    Ok(manifest)
+}
+
+fn store_manifest(
+    state: &AppState,
+    repo_id: &str,
+    manifest: &converge::model::Manifest,
+) -> Result<String, Response> {
+    let bytes = serde_json::to_vec(manifest).map_err(|e| internal_error(anyhow::anyhow!(e)))?;
+    let id = blake3::hash(&bytes).to_hex().to_string();
+    let path = repo_data_dir(state, repo_id)
+        .join("objects/manifests")
+        .join(format!("{}.json", id));
+    write_if_absent(&path, &bytes).map_err(internal_error)?;
+    Ok(id)
+}
+
+fn coalesce_root_manifest(
+    state: &AppState,
+    repo_id: &str,
+    inputs: &[(String, String)],
+) -> Result<String, Response> {
+    // inputs: (publication_id, root_manifest_id)
+    let mut inputs = inputs.to_vec();
+    inputs.sort_by(|a, b| a.0.cmp(&b.0));
+    merge_dir_manifests(state, repo_id, &inputs)
+}
+
+fn merge_dir_manifests(
+    state: &AppState,
+    repo_id: &str,
+    inputs: &[(String, String)],
+) -> Result<String, Response> {
+    use std::collections::{BTreeMap, BTreeSet};
+
+    // Load each input directory manifest.
+    let mut input_maps: Vec<(String, BTreeMap<String, converge::model::ManifestEntryKind>)> =
+        Vec::new();
+    for (pub_id, mid) in inputs {
+        let m = read_manifest(state, repo_id, mid)?;
+        let mut map = BTreeMap::new();
+        for e in m.entries {
+            map.insert(e.name, e.kind);
+        }
+        input_maps.push((pub_id.clone(), map));
+    }
+
+    // Union of entry names.
+    let mut names = BTreeSet::new();
+    for (_, map) in &input_maps {
+        for k in map.keys() {
+            names.insert(k.clone());
+        }
+    }
+
+    let mut out_entries = Vec::new();
+    for name in names {
+        let mut kinds: Vec<(String, Option<converge::model::ManifestEntryKind>)> = Vec::new();
+        for (pub_id, map) in &input_maps {
+            kinds.push((pub_id.clone(), map.get(&name).cloned()));
+        }
+
+        let all_present = kinds.iter().all(|(_, k)| k.is_some());
+        if all_present {
+            let all_dirs = kinds.iter().all(|(_, k)| matches!(k, Some(converge::model::ManifestEntryKind::Dir { .. })));
+            if all_dirs {
+                let child_inputs = kinds
+                    .iter()
+                    .map(|(pub_id, k)| {
+                        let converge::model::ManifestEntryKind::Dir { manifest } = k.clone().unwrap() else {
+                            unreachable!();
+                        };
+                        (pub_id.clone(), manifest.as_str().to_string())
+                    })
+                    .collect::<Vec<_>>();
+                let merged_child = merge_dir_manifests(state, repo_id, &child_inputs)?;
+                out_entries.push(converge::model::ManifestEntry {
+                    name,
+                    kind: converge::model::ManifestEntryKind::Dir {
+                        manifest: converge::model::ObjectId(merged_child),
+                    },
+                });
+                continue;
+            }
+
+            // If all entry kinds are identical (file/symlink), keep it.
+            let first = kinds[0].1.clone().unwrap();
+            let identical = kinds.iter().all(|(_, k)| match k.clone().unwrap() {
+                converge::model::ManifestEntryKind::File { .. } => k.clone().unwrap() == first,
+                converge::model::ManifestEntryKind::Symlink { .. } => k.clone().unwrap() == first,
+                _ => false,
+            });
+            if identical {
+                out_entries.push(converge::model::ManifestEntry { name, kind: first });
+                continue;
+            }
+        }
+
+        // Conflict (or missing in some inputs): create a superposition entry.
+        let mut variants = Vec::new();
+        for (pub_id, kind) in kinds {
+            let vkind = match kind {
+                Some(converge::model::ManifestEntryKind::File { blob, mode, size }) => {
+                    converge::model::SuperpositionVariantKind::File { blob, mode, size }
+                }
+                Some(converge::model::ManifestEntryKind::Dir { manifest }) => {
+                    converge::model::SuperpositionVariantKind::Dir { manifest }
+                }
+                Some(converge::model::ManifestEntryKind::Symlink { target }) => {
+                    converge::model::SuperpositionVariantKind::Symlink { target }
+                }
+                Some(converge::model::ManifestEntryKind::Superposition { variants }) => {
+                    // Nested superposition: preserve as a variant to avoid losing information.
+                    // Represent it by storing it as a derived manifest under a synthetic dir entry.
+                    // For v1, treat as tombstone to force explicit resolution later.
+                    let _ = variants;
+                    converge::model::SuperpositionVariantKind::Tombstone
+                }
+                None => converge::model::SuperpositionVariantKind::Tombstone,
+            };
+            variants.push(converge::model::SuperpositionVariant {
+                source: pub_id,
+                kind: vkind,
+            });
+        }
+
+        out_entries.push(converge::model::ManifestEntry {
+            name,
+            kind: converge::model::ManifestEntryKind::Superposition { variants },
+        });
+    }
+
+    let merged = converge::model::Manifest {
+        version: 1,
+        entries: out_entries,
+    };
+
+    // Ensure references exist before persisting.
+    for e in &merged.entries {
+        validate_manifest_entry_refs(state, repo_id, &e.kind)?;
+    }
+
+    store_manifest(state, repo_id, &merged)
 }
 
 async fn get_manifest(
@@ -913,7 +1134,6 @@ async fn list_publications(
 struct CreateBundleRequest {
     scope: String,
     gate: String,
-    root_manifest: String,
     input_publications: Vec<String>,
 }
 
@@ -925,7 +1145,6 @@ async fn create_bundle(
 ) -> Result<Json<Bundle>, Response> {
     validate_scope_id(&payload.scope).map_err(bad_request)?;
     validate_gate_id(&payload.gate).map_err(bad_request)?;
-    validate_object_id(&payload.root_manifest).map_err(bad_request)?;
     if payload.input_publications.is_empty() {
         return Err(bad_request(anyhow::anyhow!(
             "bundle must include at least one input publication"
@@ -943,26 +1162,6 @@ async fn create_bundle(
     input_publications.sort();
     input_publications.dedup();
 
-    let id = {
-        let mut hasher = blake3::Hasher::new();
-        hasher.update(repo_id.as_bytes());
-        hasher.update(b"\n");
-        hasher.update(payload.scope.as_bytes());
-        hasher.update(b"\n");
-        hasher.update(payload.gate.as_bytes());
-        hasher.update(b"\n");
-        hasher.update(payload.root_manifest.as_bytes());
-        hasher.update(b"\n");
-        for pid in &input_publications {
-            hasher.update(pid.as_bytes());
-            hasher.update(b"\n");
-        }
-        hasher.update(subject.user.as_bytes());
-        hasher.update(b"\n");
-        hasher.update(created_at.as_bytes());
-        hasher.finalize().to_hex().to_string()
-    };
-
     let mut repos = state.repos.write().await;
     let repo = repos.get_mut(&repo_id).ok_or_else(not_found)?;
     if !can_publish(repo, &subject.user) {
@@ -975,23 +1174,11 @@ async fn create_bundle(
         return Err(bad_request(anyhow::anyhow!("unknown gate")));
     }
 
-    // Validate the root manifest exists in storage.
-    let root_manifest_path = repo_data_dir(&state, &repo_id)
-        .join("objects/manifests")
-        .join(format!("{}.json", payload.root_manifest));
-    if !root_manifest_path.exists() {
-        return Err(bad_request(anyhow::anyhow!(
-            "unknown root_manifest (upload manifest first)"
-        )));
-    }
-
-    // Validate publication ids exist and match scope/gate.
+    // Resolve and validate publication ids; gather input snap roots.
+    let mut input_roots: Vec<(String, String)> = Vec::new();
     for pid in &input_publications {
         let Some(p) = repo.publications.iter().find(|p| &p.id == pid) else {
-            return Err(bad_request(anyhow::anyhow!(
-                "unknown publication {}",
-                pid
-            )));
+            return Err(bad_request(anyhow::anyhow!("unknown publication {}", pid)));
         };
         if p.scope != payload.scope {
             return Err(bad_request(anyhow::anyhow!(
@@ -1005,13 +1192,39 @@ async fn create_bundle(
                 pid
             )));
         }
+
+        let snap = read_snap(&state, &repo_id, &p.snap_id)?;
+        input_roots.push((pid.clone(), snap.root_manifest.as_str().to_string()));
     }
+
+    // Derive a new root manifest by coalescing input snap trees.
+    let root_manifest = coalesce_root_manifest(&state, &repo_id, &input_roots)?;
+
+    let id = {
+        let mut hasher = blake3::Hasher::new();
+        hasher.update(repo_id.as_bytes());
+        hasher.update(b"\n");
+        hasher.update(payload.scope.as_bytes());
+        hasher.update(b"\n");
+        hasher.update(payload.gate.as_bytes());
+        hasher.update(b"\n");
+        hasher.update(root_manifest.as_bytes());
+        hasher.update(b"\n");
+        for pid in &input_publications {
+            hasher.update(pid.as_bytes());
+            hasher.update(b"\n");
+        }
+        hasher.update(subject.user.as_bytes());
+        hasher.update(b"\n");
+        hasher.update(created_at.as_bytes());
+        hasher.finalize().to_hex().to_string()
+    };
 
     let bundle = Bundle {
         id: id.clone(),
         scope: payload.scope,
         gate: payload.gate,
-        root_manifest: payload.root_manifest,
+        root_manifest,
         input_publications,
         created_by: subject.user,
         created_at,

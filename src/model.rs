@@ -60,13 +60,13 @@ pub fn compute_snap_id(
     hasher.finalize().to_hex().to_string()
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Manifest {
     pub version: u32,
     pub entries: Vec<ManifestEntry>,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ManifestEntry {
     pub name: String,
 
@@ -74,7 +74,7 @@ pub struct ManifestEntry {
     pub kind: ManifestEntryKind,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "type")]
 pub enum ManifestEntryKind {
     File {
@@ -88,4 +88,32 @@ pub enum ManifestEntryKind {
     Symlink {
         target: String,
     },
+    Superposition {
+        variants: Vec<SuperpositionVariant>,
+    },
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SuperpositionVariant {
+    pub source: String,
+
+    #[serde(flatten)]
+    pub kind: SuperpositionVariantKind,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "type")]
+pub enum SuperpositionVariantKind {
+    File {
+        blob: ObjectId,
+        mode: u32,
+        size: u64,
+    },
+    Dir {
+        manifest: ObjectId,
+    },
+    Symlink {
+        target: String,
+    },
+    Tombstone,
 }

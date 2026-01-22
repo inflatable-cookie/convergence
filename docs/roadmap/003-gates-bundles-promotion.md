@@ -52,11 +52,11 @@ Next step:
 
 ### C) Coalescing algorithm (v1)
 
-- [ ] Define deterministic coalescing order rules.
-- [ ] Implement a simple coalescer:
-  - [ ] identical path changes coalesce
-  - [ ] conflicting path entries create superpositions
-- [ ] Store superpositions as first-class entries in manifests (no filesystem alternates).
+- [x] Define deterministic coalescing order rules.
+- [x] Implement a simple coalescer:
+  - [x] identical path changes coalesce
+  - [x] conflicting path entries create superpositions
+- [x] Store superpositions as first-class entries in manifests (no filesystem alternates).
 
 ### D) Promotability evaluation (minimal)
 

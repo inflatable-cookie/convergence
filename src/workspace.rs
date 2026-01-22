@@ -6,6 +6,7 @@ use time::format_description::well_known::Rfc3339;
 
 use crate::model::{
     compute_snap_id, Manifest, ManifestEntry, ManifestEntryKind, ObjectId, SnapRecord, SnapStats,
+    SuperpositionVariantKind,
 };
 use crate::store::LocalStore;
 
@@ -243,6 +244,24 @@ fn materialize_manifest(store: &LocalStore, manifest_id: &ObjectId, out_dir: &Pa
             }
             ManifestEntryKind::Symlink { target } => {
                 create_symlink(&target, &path)?;
+            }
+            ManifestEntryKind::Superposition { variants } => {
+                let mut sources = Vec::new();
+                for v in variants {
+                    sources.push(match v.kind {
+                        SuperpositionVariantKind::Tombstone => format!("{}: tombstone", v.source),
+                        SuperpositionVariantKind::File { .. } => format!("{}: file", v.source),
+                        SuperpositionVariantKind::Dir { .. } => format!("{}: dir", v.source),
+                        SuperpositionVariantKind::Symlink { .. } => {
+                            format!("{}: symlink", v.source)
+                        }
+                    });
+                }
+                return Err(anyhow!(
+                    "cannot materialize superposition at {} (variants: {})",
+                    path.display(),
+                    sources.join(", ")
+                ));
             }
         }
     }
