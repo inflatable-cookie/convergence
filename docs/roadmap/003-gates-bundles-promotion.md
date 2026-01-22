@@ -80,7 +80,7 @@ Next step:
 ### G) Tests
 
 - [x] End-to-end: publish two snaps -> bundle -> detect superposition -> resolve policy blocks promotion.
-- [ ] End-to-end: clean bundle -> promotable -> promote -> downstream gate state updates.
+- [x] End-to-end: clean bundle -> promotable -> promote -> downstream gate state updates.
 
 ## Exit Criteria
 

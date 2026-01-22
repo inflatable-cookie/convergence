@@ -128,3 +128,69 @@ fn phase3_e2e_bundle_with_conflict_blocks_promotion() -> Result<()> {
 
     Ok(())
 }
+
+#[test]
+fn phase3_e2e_clean_bundle_can_be_promoted() -> Result<()> {
+    let server = common::spawn_server()?;
+    let base_url = server.base_url.clone();
+    let token = server.token.clone();
+
+    let ws = tempfile::tempdir().context("create ws")?;
+    setup_workspace(ws.path(), &base_url, &token)?;
+    run_converge(ws.path(), &["remote", "create-repo"])?;
+
+    // Configure a simple 2-gate graph: dev-intake -> team
+    let client = reqwest::blocking::Client::new();
+    client
+        .put(format!("{}/repos/test/gate-graph", base_url))
+        .header(reqwest::header::AUTHORIZATION, common::auth_header(&token))
+        .json(&serde_json::json!({
+            "version": 1,
+            "terminal_gate": "team",
+            "gates": [
+                {"id": "dev-intake", "name": "Dev Intake", "upstream": [], "allow_superpositions": false},
+                {"id": "team", "name": "Team", "upstream": ["dev-intake"], "allow_superpositions": false}
+            ]
+        }))
+        .send()
+        .context("put gate graph")?
+        .error_for_status()
+        .context("put gate graph status")?;
+
+    // Publish a clean snap.
+    fs::write(ws.path().join("a.txt"), b"ok\n").context("write a.txt")?;
+    let snap = run_converge(ws.path(), &["snap", "-m", "ok"])?;
+    run_converge(ws.path(), &["publish", "--snap-id", &snap])?;
+
+    // Bundle should be promotable.
+    let bundle_json = run_converge(ws.path(), &["bundle", "--json"])?;
+    let bundle: Bundle = serde_json::from_str(&bundle_json).context("parse bundle")?;
+    assert!(bundle.promotable);
+    assert!(bundle.reasons.is_empty());
+
+    // Promotion should succeed.
+    run_converge(
+        ws.path(),
+        &["promote", "--bundle-id", &bundle.id, "--to-gate", "team"],
+    )?;
+
+    // Verify promotion state updated.
+    let state: serde_json::Value = client
+        .get(format!(
+            "{}/repos/test/promotion-state?scope=main",
+            base_url
+        ))
+        .header(reqwest::header::AUTHORIZATION, common::auth_header(&token))
+        .send()
+        .context("get promotion state")?
+        .error_for_status()
+        .context("get promotion state status")?
+        .json()
+        .context("parse promotion state")?;
+    assert_eq!(
+        state.get("team"),
+        Some(&serde_json::Value::String(bundle.id))
+    );
+
+    Ok(())
+}
