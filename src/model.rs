@@ -18,6 +18,9 @@ pub struct WorkspaceConfig {
 
     #[serde(default)]
     pub chunking: Option<ChunkingConfig>,
+
+    #[serde(default)]
+    pub retention: Option<RetentionConfig>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -26,6 +29,25 @@ pub struct ChunkingConfig {
     pub chunk_size: u64,
     /// Chunking threshold in bytes. Files with size >= threshold are chunked.
     pub threshold: u64,
+}
+
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+pub struct RetentionConfig {
+    /// Keep at least the most recent N snaps.
+    #[serde(default)]
+    pub keep_last: Option<u64>,
+
+    /// Keep snaps newer than N days.
+    #[serde(default)]
+    pub keep_days: Option<u64>,
+
+    /// Snap ids that are always kept.
+    #[serde(default)]
+    pub pinned: Vec<String>,
+
+    /// If true, `gc` will delete snap records that are not kept.
+    #[serde(default)]
+    pub prune_snaps: bool,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

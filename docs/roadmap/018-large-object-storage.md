@@ -81,8 +81,8 @@ Defaults and configuration:
 
 ### E) Retention + GC
 
-- [ ] Local retention policy config (keep last N snaps, keep last X days, keep pinned).
-- [ ] Local mark/sweep GC that deletes unreferenced objects.
+- [x] Local retention policy config (keep last N snaps, keep last X days, keep pinned).
+- [x] Local mark/sweep GC that deletes unreferenced objects.
 - [ ] Server retention policy that is driven by published bundles/releases.
 
 ## Exit Criteria
