@@ -57,8 +57,8 @@ Design targets:
 - [x] Write file recipe objects; update snap manifests accordingly.
 - [x] Restore file bytes from chunk tree deterministically.
 - [ ] Add tests:
-  - multi-chunk file roundtrip
-  - small edit causes limited new chunks
+  - [x] multi-chunk file roundtrip
+  - [x] small edit causes limited new chunks
   - restore determinism across platforms
 
 Defaults and configuration:

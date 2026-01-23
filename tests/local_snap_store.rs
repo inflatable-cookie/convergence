@@ -117,6 +117,60 @@ fn chunked_file_roundtrip() -> Result<()> {
     Ok(())
 }
 
+#[test]
+fn chunked_file_small_edit_reuses_most_chunks() -> Result<()> {
+    let tmp = tempfile::tempdir().context("create tempdir")?;
+    let root = tmp.path();
+
+    let ws = Workspace::init(root, false)?;
+
+    // Force chunking (default threshold is 8MiB).
+    let big_path = root.join("big.bin");
+    {
+        use std::io::Write;
+        let mut f = std::io::BufWriter::new(std::fs::File::create(&big_path)?);
+        let chunk = vec![b'a'; 1024 * 1024];
+        for _ in 0..9 {
+            f.write_all(&chunk)?;
+        }
+        f.flush()?;
+    }
+
+    let blobs_dir = root.join(".converge/objects/blobs");
+    let recipes_dir = root.join(".converge/objects/recipes");
+    let manifests_dir = root.join(".converge/objects/manifests");
+
+    let count = |p: &Path| -> Result<usize> { Ok(std::fs::read_dir(p)?.count()) };
+
+    ws.create_snap(Some("one".to_string()))?;
+    let blobs1 = count(&blobs_dir)?;
+    let recipes1 = count(&recipes_dir)?;
+    let manifests1 = count(&manifests_dir)?;
+
+    // Small in-place edit: should only change one chunk blob.
+    {
+        use std::io::{Seek, SeekFrom, Write};
+        let mut f = std::fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .open(&big_path)?;
+        f.seek(SeekFrom::Start(1234))?;
+        f.write_all(b"Z")?;
+        f.flush()?;
+    }
+
+    ws.create_snap(Some("two".to_string()))?;
+    let blobs2 = count(&blobs_dir)?;
+    let recipes2 = count(&recipes_dir)?;
+    let manifests2 = count(&manifests_dir)?;
+
+    // One changed chunk, new recipe, new manifest.
+    assert_eq!(blobs2, blobs1 + 1);
+    assert_eq!(recipes2, recipes1 + 1);
+    assert_eq!(manifests2, manifests1 + 1);
+    Ok(())
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 enum Node {
     File { bytes: Vec<u8>, mode: u32 },
