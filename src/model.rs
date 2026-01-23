@@ -26,6 +26,40 @@ pub struct RemoteConfig {
     pub gate: String,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct VariantKey {
+    pub source: String,
+
+    #[serde(flatten)]
+    pub kind: VariantKeyKind,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(tag = "type")]
+pub enum VariantKeyKind {
+    File {
+        blob: ObjectId,
+        mode: u32,
+        size: u64,
+    },
+    Dir {
+        manifest: ObjectId,
+    },
+    Symlink {
+        target: String,
+    },
+    Tombstone,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum ResolutionDecision {
+    /// Legacy decision: 0-based variant index.
+    Index(u32),
+    /// Stable decision: a key derived from variant content.
+    Key(VariantKey),
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Resolution {
     pub version: u32,
@@ -33,8 +67,8 @@ pub struct Resolution {
     pub root_manifest: ObjectId,
     pub created_at: String,
 
-    /// Path -> selected variant index
-    pub decisions: std::collections::BTreeMap<String, u32>,
+    /// Path -> selected decision (v1 index or v2 key)
+    pub decisions: std::collections::BTreeMap<String, ResolutionDecision>,
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
@@ -110,6 +144,30 @@ pub struct SuperpositionVariant {
 
     #[serde(flatten)]
     pub kind: SuperpositionVariantKind,
+}
+
+impl SuperpositionVariant {
+    pub fn key(&self) -> VariantKey {
+        let kind = match &self.kind {
+            SuperpositionVariantKind::File { blob, mode, size } => VariantKeyKind::File {
+                blob: blob.clone(),
+                mode: *mode,
+                size: *size,
+            },
+            SuperpositionVariantKind::Dir { manifest } => VariantKeyKind::Dir {
+                manifest: manifest.clone(),
+            },
+            SuperpositionVariantKind::Symlink { target } => VariantKeyKind::Symlink {
+                target: target.clone(),
+            },
+            SuperpositionVariantKind::Tombstone => VariantKeyKind::Tombstone,
+        };
+
+        VariantKey {
+            source: self.source.clone(),
+            kind,
+        }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]

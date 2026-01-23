@@ -16,8 +16,8 @@ use ratatui::widgets::{Block, Borders, Clear, List, ListItem, ListState, Paragra
 use ratatui::Terminal;
 
 use crate::model::{
-    ManifestEntryKind, ObjectId, Resolution, SnapRecord, SnapStats, SuperpositionVariant,
-    SuperpositionVariantKind,
+    ManifestEntryKind, ObjectId, Resolution, ResolutionDecision, SnapRecord, SnapStats,
+    SuperpositionVariant, SuperpositionVariantKind,
 };
 use crate::remote::{Bundle, GateGraph, Publication, RemoteClient};
 use crate::store::LocalStore;
@@ -99,7 +99,7 @@ struct App {
     super_selected: usize,
     super_error: Option<String>,
 
-    super_decisions: BTreeMap<String, u32>,
+    super_decisions: BTreeMap<String, ResolutionDecision>,
     super_resolution_created_at: Option<String>,
     super_notice: Option<String>,
 }
@@ -331,7 +331,7 @@ impl App {
         };
 
         let resolution = Resolution {
-            version: 1,
+            version: 2,
             bundle_id,
             root_manifest,
             created_at,
@@ -869,7 +869,9 @@ fn handle_key(app: &mut App, code: KeyCode) -> bool {
                     return false;
                 }
 
-                app.super_decisions.insert(path.clone(), idx as u32);
+                let key = conflict.variants[idx].key();
+                app.super_decisions
+                    .insert(path.clone(), ResolutionDecision::Key(key));
                 if let Err(err) = app.persist_super_resolution() {
                     app.super_error = Some(format!("save resolution: {:#}", err));
                 } else {
@@ -1551,10 +1553,25 @@ fn draw_superpositions(frame: &mut ratatui::Frame, app: &App, area: Rect) {
         app.super_conflicts
             .iter()
             .map(|c| {
-                let mark = match app.super_decisions.get(&c.path).copied() {
-                    None => " ".to_string(),
-                    Some(idx) => {
-                        let n = idx + 1;
+                let idx = match app.super_decisions.get(&c.path) {
+                    None => None,
+                    Some(ResolutionDecision::Index(i)) => Some(*i as usize),
+                    Some(ResolutionDecision::Key(k)) => {
+                        c.variants.iter().position(|v| &v.key() == k)
+                    }
+                };
+
+                let mark = match idx {
+                    None => {
+                        if app.super_decisions.contains_key(&c.path) {
+                            "!".to_string()
+                        } else {
+                            " ".to_string()
+                        }
+                    }
+                    Some(i) if i >= c.variants.len() => "!".to_string(),
+                    Some(i) => {
+                        let n = i + 1;
                         if n <= 9 {
                             format!("{}", n)
                         } else {
@@ -1641,10 +1658,23 @@ fn draw_superpositions(frame: &mut ratatui::Frame, app: &App, area: Rect) {
             Span::raw(conflict.path.as_str()),
         ]));
 
-        let chosen = app.super_decisions.get(&conflict.path).copied();
-        let chosen = match chosen {
+        let chosen = match app.super_decisions.get(&conflict.path) {
             None => "(none)".to_string(),
-            Some(idx) => format!("#{}", idx + 1),
+            Some(ResolutionDecision::Index(i)) => {
+                let i = *i as usize;
+                if i >= conflict.variants.len() {
+                    "(!)".to_string()
+                } else {
+                    format!("#{}", i + 1)
+                }
+            }
+            Some(ResolutionDecision::Key(k)) => {
+                let idx = conflict.variants.iter().position(|v| &v.key() == k);
+                match idx {
+                    Some(i) => format!("#{}", i + 1),
+                    None => "(!)".to_string(),
+                }
+            }
         };
         lines.push(Line::from(vec![
             Span::styled("chosen: ", Style::default().fg(Color::Gray)),

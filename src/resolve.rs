@@ -3,14 +3,15 @@ use std::collections::HashMap;
 use anyhow::{Context, Result};
 
 use crate::model::{
-    Manifest, ManifestEntry, ManifestEntryKind, ObjectId, SuperpositionVariantKind,
+    Manifest, ManifestEntry, ManifestEntryKind, ObjectId, ResolutionDecision, SuperpositionVariant,
+    SuperpositionVariantKind, VariantKey,
 };
 use crate::store::LocalStore;
 
-pub fn superposition_variant_counts(
+pub fn superposition_variants(
     store: &LocalStore,
     root: &ObjectId,
-) -> Result<std::collections::BTreeMap<String, usize>> {
+) -> Result<std::collections::BTreeMap<String, Vec<SuperpositionVariant>>> {
     let mut out = std::collections::BTreeMap::new();
     let mut stack = vec![(String::new(), root.clone())];
 
@@ -28,7 +29,7 @@ pub fn superposition_variant_counts(
                     stack.push((path, manifest));
                 }
                 ManifestEntryKind::Superposition { variants } => {
-                    out.insert(path, variants.len());
+                    out.insert(path, variants);
                 }
                 ManifestEntryKind::File { .. } | ManifestEntryKind::Symlink { .. } => {}
             }
@@ -38,17 +39,61 @@ pub fn superposition_variant_counts(
     Ok(out)
 }
 
+pub fn superposition_variant_counts(
+    store: &LocalStore,
+    root: &ObjectId,
+) -> Result<std::collections::BTreeMap<String, usize>> {
+    let variants = superposition_variants(store, root)?;
+    Ok(variants.into_iter().map(|(p, v)| (p, v.len())).collect())
+}
+
 pub fn apply_resolution(
     store: &LocalStore,
     root: &ObjectId,
-    decisions: &std::collections::BTreeMap<String, u32>,
+    decisions: &std::collections::BTreeMap<String, ResolutionDecision>,
 ) -> Result<ObjectId> {
+    fn find_variant_index_by_key(
+        variants: &[SuperpositionVariant],
+        key: &VariantKey,
+    ) -> Option<usize> {
+        variants.iter().position(|v| &v.key() == key)
+    }
+
+    fn decision_to_index(
+        path: &str,
+        decision: &ResolutionDecision,
+        variants: &[SuperpositionVariant],
+    ) -> Result<usize> {
+        match decision {
+            ResolutionDecision::Index(idx) => {
+                let idx = *idx as usize;
+                if idx >= variants.len() {
+                    anyhow::bail!(
+                        "resolution decision out of range for {} (idx {}, variants {})",
+                        path,
+                        idx,
+                        variants.len()
+                    );
+                }
+                Ok(idx)
+            }
+            ResolutionDecision::Key(key) => {
+                find_variant_index_by_key(variants, key).with_context(|| {
+                    format!(
+                        "resolution variant_key not found for {} (source {})",
+                        path, key.source
+                    )
+                })
+            }
+        }
+    }
+
     // Rewrites the manifest graph, swapping superpositions for chosen variants.
     fn rewrite(
         store: &LocalStore,
         id: &ObjectId,
         prefix: &str,
-        decisions: &std::collections::BTreeMap<String, u32>,
+        decisions: &std::collections::BTreeMap<String, ResolutionDecision>,
         memo: &mut HashMap<String, ObjectId>,
     ) -> Result<ObjectId> {
         // Memoize by (prefix, manifest_id). Decisions are path-based, so identical manifest ids
@@ -76,19 +121,10 @@ pub fn apply_resolution(
                     }
                 }
                 ManifestEntryKind::Superposition { variants } => {
-                    let idx = decisions
+                    let decision = decisions
                         .get(&path)
-                        .copied()
                         .with_context(|| format!("no resolution decision for {}", path))?;
-                    let idx = idx as usize;
-                    if idx >= variants.len() {
-                        anyhow::bail!(
-                            "resolution decision out of range for {} (idx {}, variants {})",
-                            path,
-                            idx,
-                            variants.len()
-                        );
-                    }
+                    let idx = decision_to_index(&path, decision, &variants)?;
 
                     let v = &variants[idx];
                     match &v.kind {

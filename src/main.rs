@@ -171,8 +171,12 @@ enum ResolveCommands {
         #[arg(long)]
         path: String,
         /// Variant number (1-based)
-        #[arg(long)]
-        variant: u32,
+        #[arg(long, conflicts_with = "key")]
+        variant: Option<u32>,
+
+        /// Variant key JSON (stable)
+        #[arg(long, conflicts_with = "variant")]
+        key: Option<String>,
         /// Emit JSON
         #[arg(long)]
         json: bool,
@@ -619,7 +623,7 @@ fn run() -> Result<()> {
                         .format(&time::format_description::well_known::Rfc3339)
                         .context("format time")?;
                     let resolution = converge::model::Resolution {
-                        version: 1,
+                        version: 2,
                         bundle_id: bundle_id.clone(),
                         root_manifest: root,
                         created_at,
@@ -653,23 +657,45 @@ fn run() -> Result<()> {
                     bundle_id,
                     path,
                     variant,
+                    key,
                     json,
                 } => {
                     let bundle = client.get_bundle(&bundle_id)?;
                     let root = converge::model::ObjectId(bundle.root_manifest.clone());
                     client.fetch_manifest_tree(&ws.store, &root)?;
-                    let counts = converge::resolve::superposition_variant_counts(&ws.store, &root)?;
-                    let Some(vlen) = counts.get(&path).copied() else {
+
+                    let variants = converge::resolve::superposition_variants(&ws.store, &root)?;
+                    let Some(vs) = variants.get(&path) else {
                         anyhow::bail!("no superposition at path {}", path);
                     };
+                    let vlen = vs.len();
 
-                    if variant == 0 {
-                        anyhow::bail!("variant is 1-based (use --variant 1..{})", vlen);
-                    }
-                    let idx = (variant - 1) as usize;
-                    if idx >= vlen {
-                        anyhow::bail!("variant out of range (variants: {})", vlen);
-                    }
+                    let decision = match (variant, key) {
+                        (Some(_), Some(_)) => {
+                            anyhow::bail!("use either --variant or --key (not both)");
+                        }
+                        (None, None) => {
+                            anyhow::bail!("missing required flag: --variant or --key");
+                        }
+                        (Some(variant), None) => {
+                            if variant == 0 {
+                                anyhow::bail!("variant is 1-based (use --variant 1..{})", vlen);
+                            }
+                            let idx = (variant - 1) as usize;
+                            if idx >= vlen {
+                                anyhow::bail!("variant out of range (variants: {})", vlen);
+                            }
+                            converge::model::ResolutionDecision::Key(vs[idx].key())
+                        }
+                        (None, Some(key_json)) => {
+                            let key: converge::model::VariantKey =
+                                serde_json::from_str(&key_json).context("parse --key")?;
+                            if !vs.iter().any(|v| v.key() == key) {
+                                anyhow::bail!("key not present at path {}", path);
+                            }
+                            converge::model::ResolutionDecision::Key(key)
+                        }
+                    };
 
                     let mut r = ws.store.get_resolution(&bundle_id)?;
                     if r.root_manifest != root {
@@ -680,7 +706,26 @@ fn run() -> Result<()> {
                         );
                     }
 
-                    r.decisions.insert(path.clone(), idx as u32);
+                    // Best-effort upgrade: convert index decisions to keys using current variants.
+                    if r.version == 1 {
+                        r.version = 2;
+                    }
+                    let existing = r.decisions.clone();
+                    for (p, d) in existing {
+                        if let converge::model::ResolutionDecision::Index(i) = d {
+                            let i = i as usize;
+                            if let Some(vs) = variants.get(&p) {
+                                if i < vs.len() {
+                                    r.decisions.insert(
+                                        p,
+                                        converge::model::ResolutionDecision::Key(vs[i].key()),
+                                    );
+                                }
+                            }
+                        }
+                    }
+
+                    r.decisions.insert(path.clone(), decision);
                     ws.store.put_resolution(&r)?;
 
                     if json {
@@ -689,7 +734,11 @@ fn run() -> Result<()> {
                             serde_json::to_string_pretty(&r).context("serialize resolution")?
                         );
                     } else {
-                        println!("Picked variant #{} for {}", variant, path);
+                        if let Some(v) = variant {
+                            println!("Picked variant #{} for {}", v, path);
+                        } else {
+                            println!("Picked key for {}", path);
+                        }
                     }
                 }
 
@@ -700,6 +749,9 @@ fn run() -> Result<()> {
                 } => {
                     let mut r = ws.store.get_resolution(&bundle_id)?;
                     r.decisions.remove(&path);
+                    if r.version == 1 {
+                        r.version = 2;
+                    }
                     ws.store.put_resolution(&r)?;
 
                     if json {
@@ -714,12 +766,14 @@ fn run() -> Result<()> {
 
                 ResolveCommands::Show { bundle_id, json } => {
                     let r = ws.store.get_resolution(&bundle_id)?;
-                    let counts = converge::resolve::superposition_variant_counts(
-                        &ws.store,
-                        &r.root_manifest,
-                    )
-                    .unwrap_or_default();
-                    let decided = counts
+
+                    // Best-effort fetch so we can enumerate current conflicts.
+                    let _ = client.fetch_manifest_tree(&ws.store, &r.root_manifest);
+
+                    let variants =
+                        converge::resolve::superposition_variants(&ws.store, &r.root_manifest)
+                            .unwrap_or_default();
+                    let decided = variants
                         .keys()
                         .filter(|p| r.decisions.contains_key(*p))
                         .count();
@@ -729,7 +783,7 @@ fn run() -> Result<()> {
                             "{}",
                             serde_json::to_string_pretty(&serde_json::json!({
                                 "resolution": r,
-                                "conflicts": counts,
+                                "conflicts": variants,
                                 "decided": decided
                             }))
                             .context("serialize resolve show json")?
@@ -739,8 +793,20 @@ fn run() -> Result<()> {
                         println!("root_manifest: {}", r.root_manifest.as_str());
                         println!("created_at: {}", r.created_at);
                         println!("decisions: {}", r.decisions.len());
-                        if !counts.is_empty() {
-                            println!("decided: {}/{}", decided, counts.len());
+
+                        if !variants.is_empty() {
+                            println!("decided: {}/{}", decided, variants.len());
+                            println!("conflicts:");
+                            for (p, vs) in variants {
+                                println!("{} (variants: {})", p, vs.len());
+                                for (idx, v) in vs.iter().enumerate() {
+                                    let n = idx + 1;
+                                    let key_json = serde_json::to_string(&v.key())
+                                        .context("serialize variant key")?;
+                                    println!("  #{} source={}", n, v.source);
+                                    println!("    key={}", key_json);
+                                }
+                            }
                         }
                     }
                 }

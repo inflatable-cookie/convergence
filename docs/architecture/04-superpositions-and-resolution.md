@@ -53,7 +53,8 @@ Resolution outputs:
 
 For now, resolutions are workspace-local and path-based:
 - Stored as `.converge/resolutions/<bundle_id>.json`
-- Decision format is `path -> variant_index` (0-based index into the variant list)
+- Decision format is `path -> VariantKey` (stable)
+- Back-compat: v1 files may still contain `path -> variant_index` and are still readable
 
 Applying a resolution:
 - rewrites the bundle's `root_manifest` by replacing each superposition with the chosen variant
@@ -62,6 +63,7 @@ Applying a resolution:
 
 CLI:
 - `converge resolve init|pick|clear|show|apply`
+- `converge resolve pick` supports `--variant <n>` or `--key <json>`
 
 ## UX constraints (large-org safe)
 
