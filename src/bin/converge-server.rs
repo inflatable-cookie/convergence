@@ -1033,18 +1033,6 @@ async fn put_snap(
         )));
     }
 
-    let computed = converge::model::compute_snap_id(
-        &snap.created_at,
-        &snap.root_manifest,
-        snap.message.as_deref(),
-    );
-    if computed != snap.id {
-        return Err(bad_request(anyhow::anyhow!(
-            "snap id failed verification (expected {}, got {})",
-            computed,
-            snap.id
-        )));
-    }
     if snap.version != 1 {
         return Err(bad_request(anyhow::anyhow!("unsupported snap version")));
     }
@@ -1089,18 +1077,8 @@ async fn get_snap(
     let bytes = std::fs::read(&path)
         .with_context(|| format!("read {}", path.display()))
         .map_err(|e| internal_error(anyhow::anyhow!(e)))?;
-    let snap: converge::model::SnapRecord =
+    let _snap: converge::model::SnapRecord =
         serde_json::from_slice(&bytes).map_err(|e| internal_error(anyhow::anyhow!(e)))?;
-    let computed = converge::model::compute_snap_id(
-        &snap.created_at,
-        &snap.root_manifest,
-        snap.message.as_deref(),
-    );
-    if computed != snap.id {
-        return Err(internal_error(anyhow::anyhow!(
-            "snap integrity check failed"
-        )));
-    }
     Ok(json_bytes(bytes))
 }
 

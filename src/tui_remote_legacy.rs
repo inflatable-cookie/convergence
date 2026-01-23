@@ -461,7 +461,7 @@ impl App {
         let short = bundle_id.chars().take(8).collect::<String>();
         let message = Some(format!("resolve bundle {}", short));
         let snap_id =
-            crate::model::compute_snap_id(&created_at, &resolved_root, message.as_deref());
+            crate::model::compute_snap_id(&created_at, &resolved_root);
 
         let snap = SnapRecord {
             version: 1,

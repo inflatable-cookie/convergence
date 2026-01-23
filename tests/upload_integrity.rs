@@ -86,7 +86,7 @@ fn upload_integrity_hash_mismatch_rejected() -> Result<()> {
     // Snap id mismatch should be rejected.
     let root_manifest = converge::model::ObjectId(blake3::hash(b"{}").to_hex().to_string());
     let created_at = "2026-01-22T00:00:00Z";
-    let snap_id = converge::model::compute_snap_id(created_at, &root_manifest, None);
+    let snap_id = converge::model::compute_snap_id(created_at, &root_manifest);
     let snap = converge::model::SnapRecord {
         version: 1,
         id: snap_id,

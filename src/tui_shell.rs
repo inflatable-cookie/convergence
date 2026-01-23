@@ -1,5 +1,6 @@
 use std::any::Any;
 use std::io::{self, IsTerminal};
+use std::sync::OnceLock;
 use std::time::Duration;
 
 use anyhow::{Context, Result};
@@ -23,6 +24,10 @@ use crate::remote::RemoteClient;
 use crate::resolve::{ResolutionValidation, superposition_variants, validate_resolution};
 use crate::store::LocalStore;
 use crate::workspace::Workspace;
+
+use time::OffsetDateTime;
+use time::format_description::FormatItem;
+use time::format_description::well_known::Rfc3339;
 
 pub fn run() -> Result<()> {
     if !io::stdin().is_terminal() || !io::stdout().is_terminal() {
@@ -94,6 +99,34 @@ struct ViewFrame {
     view: Box<dyn View>,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum TimestampMode {
+    Relative,
+    Absolute,
+}
+
+impl TimestampMode {
+    fn toggle(self) -> Self {
+        match self {
+            TimestampMode::Relative => TimestampMode::Absolute,
+            TimestampMode::Absolute => TimestampMode::Relative,
+        }
+    }
+
+    fn label(self) -> &'static str {
+        match self {
+            TimestampMode::Relative => "relative",
+            TimestampMode::Absolute => "absolute",
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug)]
+struct RenderCtx {
+    now: OffsetDateTime,
+    ts_mode: TimestampMode,
+}
+
 trait View: Any {
     fn as_any(&self) -> &dyn Any;
     fn as_any_mut(&mut self) -> &mut dyn Any;
@@ -105,7 +138,7 @@ trait View: Any {
     fn move_up(&mut self) {}
     fn move_down(&mut self) {}
 
-    fn render(&self, frame: &mut ratatui::Frame, area: ratatui::layout::Rect);
+    fn render(&self, frame: &mut ratatui::Frame, area: ratatui::layout::Rect, ctx: &RenderCtx);
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -123,10 +156,19 @@ struct ScrollEntry {
 }
 
 #[derive(Debug)]
+enum ModalKind {
+    Viewer,
+    SnapMessage { snap_id: String },
+}
+
+#[derive(Debug)]
 struct Modal {
     title: String,
     lines: Vec<String>,
     scroll: usize,
+
+    kind: ModalKind,
+    input: Input,
 }
 
 fn render_view_chrome(
@@ -138,13 +180,67 @@ fn render_view_chrome(
     let header = Line::from(vec![
         Span::styled(title, Style::default().fg(Color::Yellow)),
         Span::raw("  "),
-        Span::styled(updated_at, Style::default().fg(Color::Gray)),
+        Span::styled(fmt_ts_ui(updated_at), Style::default().fg(Color::Gray)),
     ]);
 
     let outer = Block::default().borders(Borders::ALL).title(header);
     let inner = outer.inner(area);
     frame.render_widget(outer, area);
     inner
+}
+
+fn ts_ui_format() -> &'static [FormatItem<'static>] {
+    static FMT: OnceLock<Vec<FormatItem<'static>>> = OnceLock::new();
+    FMT.get_or_init(|| {
+        time::format_description::parse(
+            "[year]-[month repr:numerical padding:zero]-[day padding:zero] [hour padding:zero]:[minute padding:zero]Z",
+        )
+        .expect("valid time format")
+    })
+}
+
+fn fmt_ts_abs(ts: &str) -> Option<String> {
+    let dt = OffsetDateTime::parse(ts, &Rfc3339).ok()?;
+    dt.format(ts_ui_format()).ok()
+}
+
+fn fmt_since(ts: &str, now: OffsetDateTime) -> Option<String> {
+    let dt = OffsetDateTime::parse(ts, &Rfc3339).ok()?;
+    let delta = now - dt;
+    let secs = delta.whole_seconds();
+
+    // Future timestamps are rare; show as absolute.
+    if secs < 0 {
+        return None;
+    }
+
+    let mins = secs / 60;
+    let hours = mins / 60;
+    let days = hours / 24;
+
+    let s = if secs < 60 {
+        "just now".to_string()
+    } else if mins < 60 {
+        format!("{}m ago", mins)
+    } else if hours < 48 {
+        format!("{}h ago", hours)
+    } else if days < 14 {
+        format!("{}d ago", days)
+    } else {
+        // Past that, prefer an absolute date.
+        return None;
+    };
+    Some(s)
+}
+
+fn fmt_ts_list(ts: &str, ctx: &RenderCtx) -> String {
+    match ctx.ts_mode {
+        TimestampMode::Relative => fmt_since(ts, ctx.now).unwrap_or_else(|| fmt_ts_ui(ts)),
+        TimestampMode::Absolute => fmt_ts_ui(ts),
+    }
+}
+fn fmt_ts_ui(ts: &str) -> String {
+    fmt_ts_abs(ts).unwrap_or_else(|| ts.to_string())
 }
 
 #[derive(Debug)]
@@ -165,14 +261,14 @@ impl RootView {
         }
     }
 
-    fn refresh(&mut self, ws: Option<&Workspace>) {
+    fn refresh(&mut self, ws: Option<&Workspace>, ctx: &RenderCtx) {
         let lines = match (self.ctx, ws) {
             (_, None) => vec!["No workspace".to_string()],
             (RootContext::Local, Some(ws)) => {
-                local_status_lines(ws).unwrap_or_else(|e| vec![format!("status: {:#}", e)])
+                local_status_lines(ws, ctx).unwrap_or_else(|e| vec![format!("status: {:#}", e)])
             }
             (RootContext::Remote, Some(ws)) => {
-                remote_status_lines(ws).unwrap_or_else(|e| vec![format!("status: {:#}", e)])
+                remote_status_lines(ws, ctx).unwrap_or_else(|e| vec![format!("status: {:#}", e)])
             }
         };
 
@@ -213,7 +309,7 @@ impl View for RootView {
         }
     }
 
-    fn render(&self, frame: &mut ratatui::Frame, area: ratatui::layout::Rect) {
+    fn render(&self, frame: &mut ratatui::Frame, area: ratatui::layout::Rect, _ctx: &RenderCtx) {
         let inner = render_view_chrome(frame, self.title(), self.updated_at(), area);
 
         let parts = Layout::default()
@@ -293,7 +389,7 @@ impl View for SnapsView {
         self.selected = (self.selected + 1).min(max);
     }
 
-    fn render(&self, frame: &mut ratatui::Frame, area: ratatui::layout::Rect) {
+    fn render(&self, frame: &mut ratatui::Frame, area: ratatui::layout::Rect, ctx: &RenderCtx) {
         let inner = render_view_chrome(frame, self.title(), self.updated_at(), area);
         let parts = Layout::default()
             .direction(Direction::Vertical)
@@ -310,9 +406,18 @@ impl View for SnapsView {
             let sid = s.id.chars().take(8).collect::<String>();
             let msg = s.message.clone().unwrap_or_default();
             if msg.is_empty() {
-                rows.push(ListItem::new(format!("{} {}", sid, s.created_at)));
+                rows.push(ListItem::new(format!(
+                    "{} {}",
+                    sid,
+                    fmt_ts_list(&s.created_at, ctx)
+                )));
             } else {
-                rows.push(ListItem::new(format!("{} {} {}", sid, s.created_at, msg)));
+                rows.push(ListItem::new(format!(
+                    "{} {} {}",
+                    sid,
+                    fmt_ts_list(&s.created_at, ctx),
+                    msg
+                )));
             }
         }
         if rows.is_empty() {
@@ -321,12 +426,12 @@ impl View for SnapsView {
 
         let list = List::new(rows)
             .block(Block::default().borders(Borders::BOTTOM).title(format!(
-                "snaps{} (commands: filter, open, show, restore, back)",
-                self.filter
-                    .as_ref()
-                    .map(|f| format!(" filter={}", f))
-                    .unwrap_or_default()
-            )))
+                    "snaps{} (commands: filter, open, msg, show, restore, back)",
+                    self.filter
+                        .as_ref()
+                        .map(|f| format!(" filter={}", f))
+                        .unwrap_or_default()
+                )))
             .highlight_style(Style::default().bg(Color::DarkGray));
         frame.render_stateful_widget(list, parts[0], &mut state);
 
@@ -337,7 +442,10 @@ impl View for SnapsView {
             let s = &self.items[idx];
             let mut out = Vec::new();
             out.push(Line::from(format!("id: {}", s.id)));
-            out.push(Line::from(format!("created_at: {}", s.created_at)));
+            out.push(Line::from(format!(
+                "created_at: {}",
+                fmt_ts_ui(&s.created_at)
+            )));
             if let Some(msg) = &s.message
                 && !msg.is_empty()
             {
@@ -401,7 +509,7 @@ impl View for InboxView {
         self.selected = (self.selected + 1).min(max);
     }
 
-    fn render(&self, frame: &mut ratatui::Frame, area: ratatui::layout::Rect) {
+    fn render(&self, frame: &mut ratatui::Frame, area: ratatui::layout::Rect, _ctx: &RenderCtx) {
         let inner = render_view_chrome(frame, self.title(), self.updated_at(), area);
         let parts = Layout::default()
             .direction(Direction::Vertical)
@@ -450,7 +558,10 @@ impl View for InboxView {
             out.push(Line::from(format!("id: {}", p.id)));
             out.push(Line::from(format!("snap: {}", p.snap_id)));
             out.push(Line::from(format!("publisher: {}", p.publisher)));
-            out.push(Line::from(format!("created_at: {}", p.created_at)));
+            out.push(Line::from(format!(
+                "created_at: {}",
+                fmt_ts_ui(&p.created_at)
+            )));
             if let Some(r) = &p.resolution {
                 out.push(Line::from(""));
                 out.push(Line::from("resolution:"));
@@ -506,7 +617,7 @@ impl View for BundlesView {
         self.selected = (self.selected + 1).min(max);
     }
 
-    fn render(&self, frame: &mut ratatui::Frame, area: ratatui::layout::Rect) {
+    fn render(&self, frame: &mut ratatui::Frame, area: ratatui::layout::Rect, _ctx: &RenderCtx) {
         let inner = render_view_chrome(frame, self.title(), self.updated_at(), area);
         let parts = Layout::default()
             .direction(Direction::Vertical)
@@ -552,7 +663,10 @@ impl View for BundlesView {
             let b = &self.items[idx];
             let mut out = Vec::new();
             out.push(Line::from(format!("id: {}", b.id)));
-            out.push(Line::from(format!("created_at: {}", b.created_at)));
+            out.push(Line::from(format!(
+                "created_at: {}",
+                fmt_ts_ui(&b.created_at)
+            )));
             out.push(Line::from(format!("created_by: {}", b.created_by)));
             out.push(Line::from(format!("promotable: {}", b.promotable)));
             if !b.reasons.is_empty() {
@@ -611,7 +725,7 @@ impl View for SuperpositionsView {
         self.selected = (self.selected + 1).min(max);
     }
 
-    fn render(&self, frame: &mut ratatui::Frame, area: ratatui::layout::Rect) {
+    fn render(&self, frame: &mut ratatui::Frame, area: ratatui::layout::Rect, _ctx: &RenderCtx) {
         let inner = render_view_chrome(frame, self.title(), self.updated_at(), area);
         let parts = Layout::default()
             .direction(Direction::Vertical)
@@ -768,7 +882,7 @@ impl View for SuperpositionsView {
     }
 }
 
-#[derive(Default)]
+#[derive(Debug, Default)]
 struct Input {
     buf: String,
     cursor: usize,
@@ -872,6 +986,12 @@ fn global_command_defs() -> Vec<CommandDef> {
             help: "Show help",
         },
         CommandDef {
+            name: "timefmt",
+            aliases: &["tf"],
+            usage: "timefmt [rel|abs|toggle]",
+            help: "Toggle timestamp format",
+        },
+        CommandDef {
             name: "quit",
             aliases: &[],
             usage: "quit",
@@ -906,6 +1026,12 @@ fn local_root_command_defs() -> Vec<CommandDef> {
             aliases: &[],
             usage: "snap [-m <message>]",
             help: "Create a snap",
+        },
+        CommandDef {
+            name: "msg",
+            aliases: &[],
+            usage: "msg [<snap_id_prefix>] [<message...>|--clear]",
+            help: "Set/clear snap message",
         },
         CommandDef {
             name: "snaps",
@@ -1040,6 +1166,12 @@ fn snaps_command_defs() -> Vec<CommandDef> {
             aliases: &["unfilter"],
             usage: "clear-filter",
             help: "Clear snap filter",
+        },
+        CommandDef {
+            name: "msg",
+            aliases: &[],
+            usage: "msg <message> | msg --clear",
+            help: "Set/clear message on selected snap",
         },
         CommandDef {
             name: "open",
@@ -1198,6 +1330,7 @@ struct App {
     workspace_err: Option<String>,
 
     root_ctx: RootContext,
+    ts_mode: TimestampMode,
 
     // Internal log (useful for debugging) but no longer the primary UI.
     log: Vec<ScrollEntry>,
@@ -1223,6 +1356,7 @@ impl Default for App {
             workspace: None,
             workspace_err: None,
             root_ctx: RootContext::Local,
+            ts_mode: TimestampMode::Relative,
             log: Vec::new(),
             last_command: None,
             last_result: None,
@@ -1343,9 +1477,12 @@ impl App {
     fn refresh_root_view(&mut self) {
         let ws = self.workspace.clone();
         let ctx = self.root_ctx;
+        let ts_mode = self.ts_mode;
+        let now = OffsetDateTime::now_utc();
+        let rctx = RenderCtx { now, ts_mode };
         if let Some(v) = self.current_view_mut::<RootView>() {
             v.ctx = ctx;
-            v.refresh(ws.as_ref());
+            v.refresh(ws.as_ref(), &rctx);
         }
     }
 
@@ -1383,6 +1520,29 @@ impl App {
             title: title.into(),
             lines,
             scroll: 0,
+            kind: ModalKind::Viewer,
+            input: Input::default(),
+        });
+    }
+
+    fn open_snap_message_modal(&mut self, snap_id: String, initial: Option<String>) {
+        let short = snap_id.chars().take(8).collect::<String>();
+        let mut lines = Vec::new();
+        lines.push(format!("snap: {}", short));
+        lines.push("".to_string());
+        lines.push("Enter to save (empty clears); Esc to cancel.".to_string());
+
+        let mut input = Input::default();
+        if let Some(s) = initial {
+            input.set(s);
+        }
+
+        self.modal = Some(Modal {
+            title: "Message".to_string(),
+            lines,
+            scroll: 0,
+            kind: ModalKind::SnapMessage { snap_id },
+            input,
         });
     }
 
@@ -1537,6 +1697,7 @@ impl App {
                 }
                 "init" => self.cmd_init(args),
                 "snap" => self.cmd_snap(args),
+                "msg" => self.cmd_msg(args),
                 "snaps" => self.cmd_snaps(args),
                 "show" => self.cmd_show(args),
                 "restore" => self.cmd_restore(args),
@@ -1598,10 +1759,31 @@ impl App {
         }
     }
 
-    fn dispatch_global(&mut self, cmd: &str, _args: &[String]) -> bool {
+    fn dispatch_global(&mut self, cmd: &str, args: &[String]) -> bool {
         match cmd {
             "quit" => {
                 self.quit = true;
+                true
+            }
+            "timefmt" => {
+                let sub = args.first().map(|s| s.as_str()).unwrap_or("toggle");
+                match sub {
+                    "toggle" => {
+                        self.ts_mode = self.ts_mode.toggle();
+                    }
+                    "rel" | "relative" => {
+                        self.ts_mode = TimestampMode::Relative;
+                    }
+                    "abs" | "absolute" => {
+                        self.ts_mode = TimestampMode::Absolute;
+                    }
+                    _ => {
+                        self.push_error("usage: timefmt [rel|abs|toggle]".to_string());
+                        return true;
+                    }
+                }
+                self.refresh_root_view();
+                self.push_output(vec![format!("timestamps: {}", self.ts_mode.label())]);
                 true
             }
             _ => false,
@@ -1618,6 +1800,7 @@ impl App {
                 "filter" => self.cmd_snaps_filter(args),
                 "clear-filter" => self.cmd_snaps_clear_filter(args),
                 "open" => self.cmd_snaps_open(args),
+                "msg" => self.cmd_snaps_msg(args),
                 "show" => self.cmd_snaps_show(args),
                 "restore" => self.cmd_snaps_restore(args),
                 _ => {
@@ -1719,6 +1902,7 @@ impl App {
             lines.push("- At root: Tab toggles local/remote.".to_string());
             lines.push("- Prefix with `/` to force root commands.".to_string());
             lines.push("- Root view: use `refresh` (or `status`) to recompute.".to_string());
+            lines.push("- UI: `timefmt` toggles relative/absolute timestamps.".to_string());
             self.open_modal("Help", lines);
             return;
         }
@@ -1840,6 +2024,137 @@ impl App {
             Err(err) => {
                 self.push_error(format!("snap: {:#}", err));
             }
+        }
+    }
+
+    fn cmd_msg(&mut self, args: &[String]) {
+        let Some(ws) = self.require_workspace() else {
+            return;
+        };
+
+        if args.is_empty() {
+            let Some(head_id) = ws.store.get_head().ok().flatten() else {
+                self.push_error(
+                    "usage: msg <snap_id_prefix> <message> | msg <snap_id_prefix> --clear"
+                        .to_string(),
+                );
+                return;
+            };
+            let snap = match ws.show_snap(&head_id) {
+                Ok(s) => s,
+                Err(err) => {
+                    self.push_error(format!("show snap: {:#}", err));
+                    return;
+                }
+            };
+            self.open_snap_message_modal(snap.id, snap.message);
+            return;
+        }
+
+        let prefix = &args[0];
+        let clear = args.len() == 2 && args[1] == "--clear";
+        let interactive = args.len() == 1;
+        let message = if clear || interactive {
+            None
+        } else {
+            Some(args[1..].join(" "))
+        };
+
+        let snaps = match ws.list_snaps() {
+            Ok(s) => s,
+            Err(err) => {
+                self.push_error(format!("list snaps: {:#}", err));
+                return;
+            }
+        };
+        let matches = snaps
+            .iter()
+            .filter(|s| s.id.starts_with(prefix))
+            .map(|s| s.id.clone())
+            .collect::<Vec<_>>();
+        if matches.is_empty() {
+            self.push_error(format!("no snap matches {}", prefix));
+            return;
+        }
+        if matches.len() > 1 {
+            self.push_error(format!("ambiguous snap prefix {}", prefix));
+            return;
+        }
+        let snap_id = &matches[0];
+
+        if interactive {
+            let snap = match ws.show_snap(snap_id) {
+                Ok(s) => s,
+                Err(err) => {
+                    self.push_error(format!("show snap: {:#}", err));
+                    return;
+                }
+            };
+            self.open_snap_message_modal(snap.id, snap.message);
+            return;
+        }
+
+        if let Err(err) = ws.store.update_snap_message(snap_id, message.as_deref()) {
+            self.push_error(format!("set message: {:#}", err));
+            return;
+        }
+
+        self.refresh_root_view();
+        if clear {
+            self.push_output(vec![format!("cleared message for {}", snap_id)]);
+        } else {
+            self.push_output(vec![format!("updated message for {}", snap_id)]);
+        }
+    }
+
+    fn cmd_snaps_msg(&mut self, args: &[String]) {
+        let Some(ws) = self.require_workspace() else {
+            return;
+        };
+        let Some(v) = self.current_view::<SnapsView>() else {
+            self.push_error("not in snaps mode".to_string());
+            return;
+        };
+        if v.items.is_empty() {
+            self.push_error("(no selection)".to_string());
+            return;
+        }
+
+        let idx = v.selected.min(v.items.len().saturating_sub(1));
+        let snap_id = v.items[idx].id.clone();
+
+        if args.is_empty() {
+            let initial = v.items[idx].message.clone();
+            self.open_snap_message_modal(snap_id, initial);
+            return;
+        }
+
+        let clear = args.len() == 1 && args[0] == "--clear";
+        let message = if clear { None } else { Some(args.join(" ")) };
+
+        if let Err(err) = ws.store.update_snap_message(&snap_id, message.as_deref()) {
+            self.push_error(format!("set message: {:#}", err));
+            return;
+        }
+
+        // Refresh the snaps view list so the selected item shows message.
+        if let Some(v) = self.current_view_mut::<SnapsView>() {
+            match ws.list_snaps() {
+                Ok(snaps) => {
+                    v.all_items = snaps.clone();
+                    v.items = snaps;
+                    v.updated_at = now_ts();
+                }
+                Err(err) => {
+                    self.push_error(format!("list snaps: {:#}", err));
+                }
+            }
+        }
+        self.refresh_root_view();
+        if clear {
+            self.push_output(vec![format!("cleared message for {}", snap_id)]);
+        } else {
+            self.push_output(vec![format!("updated message for {}", snap_id)]);
         }
     }
 
@@ -2327,7 +2642,7 @@ impl App {
         };
 
         let created_at = now_ts();
-        let snap_id = crate::model::compute_snap_id(&created_at, &resolved_root, None);
+        let snap_id = crate::model::compute_snap_id(&created_at, &resolved_root);
         let snap = crate::model::SnapRecord {
             version: 1,
             id: snap_id,
@@ -3496,29 +3811,119 @@ fn handle_key(app: &mut App, key: KeyEvent) {
 }
 
 fn handle_modal_key(app: &mut App, key: KeyEvent) {
-    let Some(m) = app.modal.as_mut() else {
-        return;
+    enum ModalAction {
+        None,
+        Close,
+        SubmitSnapMessage { snap_id: String, msg: String },
+    }
+
+    let action = {
+        let Some(m) = app.modal.as_mut() else {
+            return;
+        };
+
+        match &mut m.kind {
+            ModalKind::Viewer => match key.code {
+                KeyCode::Esc | KeyCode::Enter => ModalAction::Close,
+                KeyCode::Up => {
+                    m.scroll = m.scroll.saturating_sub(1);
+                    ModalAction::None
+                }
+                KeyCode::Down => {
+                    if m.scroll < m.lines.len().saturating_sub(1) {
+                        m.scroll += 1;
+                    }
+                    ModalAction::None
+                }
+                KeyCode::PageUp => {
+                    m.scroll = m.scroll.saturating_sub(10);
+                    ModalAction::None
+                }
+                KeyCode::PageDown => {
+                    m.scroll = (m.scroll + 10).min(m.lines.len().saturating_sub(1));
+                    ModalAction::None
+                }
+                _ => ModalAction::None,
+            },
+            ModalKind::SnapMessage { snap_id } => match key.code {
+                KeyCode::Esc => ModalAction::Close,
+                KeyCode::Enter => ModalAction::SubmitSnapMessage {
+                    snap_id: snap_id.clone(),
+                    msg: m.input.buf.clone(),
+                },
+                KeyCode::Backspace => {
+                    m.input.backspace();
+                    ModalAction::None
+                }
+                KeyCode::Delete => {
+                    m.input.delete();
+                    ModalAction::None
+                }
+                KeyCode::Left => {
+                    m.input.move_left();
+                    ModalAction::None
+                }
+                KeyCode::Right => {
+                    m.input.move_right();
+                    ModalAction::None
+                }
+                KeyCode::Char(c) => {
+                    if !key.modifiers.contains(KeyModifiers::CONTROL)
+                        && !key.modifiers.contains(KeyModifiers::ALT)
+                    {
+                        m.input.insert_char(c);
+                    }
+                    ModalAction::None
+                }
+                _ => ModalAction::None,
+            },
+        }
     };
 
-    match key.code {
-        KeyCode::Esc | KeyCode::Enter => {
+    match action {
+        ModalAction::None => {}
+        ModalAction::Close => {
             app.close_modal();
         }
-        KeyCode::Up => {
-            m.scroll = m.scroll.saturating_sub(1);
-        }
-        KeyCode::Down => {
-            if m.scroll < m.lines.len().saturating_sub(1) {
-                m.scroll += 1;
+        ModalAction::SubmitSnapMessage { snap_id, msg } => {
+            app.close_modal();
+            let Some(ws) = app.require_workspace() else {
+                return;
+            };
+            let msg = msg.trim().to_string();
+            let msg = if msg.is_empty() { None } else { Some(msg) };
+            if let Err(err) = ws.store.update_snap_message(&snap_id, msg.as_deref()) {
+                app.push_error(format!("set message: {:#}", err));
+                return;
             }
+
+            // Refresh snaps view list (if visible) and root status.
+            if let Some(v) = app.current_view_mut::<SnapsView>() {
+                let selected_id = v
+                    .items
+                    .get(v.selected.min(v.items.len().saturating_sub(1)))
+                    .map(|s| s.id.clone());
+
+                match ws.list_snaps() {
+                    Ok(snaps) => {
+                        v.all_items = snaps.clone();
+                        v.items = snaps;
+                        if let Some(sel) = selected_id
+                            && let Some(i) = v.items.iter().position(|s| s.id == sel)
+                        {
+                            v.selected = i;
+                        }
+                        v.updated_at = now_ts();
+                    }
+                    Err(err) => {
+                        app.push_error(format!("list snaps: {:#}", err));
+                    }
+                }
+            }
+
+            app.refresh_root_view();
+            app.push_output(vec!["updated snap message".to_string()]);
         }
-        KeyCode::PageUp => {
-            m.scroll = m.scroll.saturating_sub(10);
-        }
-        KeyCode::PageDown => {
-            m.scroll = (m.scroll + 10).min(m.lines.len().saturating_sub(1));
-        }
-        _ => {}
     }
 }
 
@@ -3756,21 +4161,35 @@ impl StatusDelta {
     }
 }
 
-fn local_status_lines(ws: &Workspace) -> Result<Vec<String>> {
+fn local_status_lines(ws: &Workspace, ctx: &RenderCtx) -> Result<Vec<String>> {
     let snaps = ws.list_snaps()?;
-    let latest = snaps.first();
+
+    let mut baseline: Option<crate::model::SnapRecord> = None;
+    if let Ok(Some(head_id)) = ws.store.get_head()
+        && let Ok(s) = ws.show_snap(&head_id)
+    {
+        baseline = Some(s);
+    }
+    if baseline.is_none() {
+        baseline = snaps.first().cloned();
+    }
 
     let (cur_root, cur_manifests, _stats) = ws.current_manifest_tree()?;
 
     let mut lines = Vec::new();
     lines.push(format!("workspace: {}", ws.root.display()));
-    if let Some(s) = latest {
-        lines.push(format!("baseline: latest snap {}", s.id));
+    if let Some(s) = &baseline {
+        let short = s.id.chars().take(8).collect::<String>();
+        lines.push(format!(
+            "baseline: {} {}",
+            short,
+            fmt_ts_list(&s.created_at, ctx)
+        ));
     } else {
         lines.push("baseline: (none; no snaps yet)".to_string());
     }
 
-    let changes = if let Some(s) = latest {
+    let changes = if let Some(s) = baseline {
         if s.root_manifest == cur_root {
             Vec::new()
         } else {
@@ -3821,7 +4240,7 @@ fn local_status_lines(ws: &Workspace) -> Result<Vec<String>> {
     Ok(lines)
 }
 
-fn remote_status_lines(ws: &Workspace) -> Result<Vec<String>> {
+fn remote_status_lines(ws: &Workspace, ctx: &RenderCtx) -> Result<Vec<String>> {
     let cfg = ws.store.read_config()?;
     let Some(remote) = cfg.remote else {
         return Ok(vec!["No remote configured".to_string()]);
@@ -3880,7 +4299,11 @@ fn remote_status_lines(ws: &Workspace) -> Result<Vec<String>> {
             };
             lines.push(format!(
                 "{} {} {} {} {}",
-                short, p.created_at, p.publisher, p.gate, present
+                short,
+                fmt_ts_list(&p.created_at, ctx),
+                p.publisher,
+                p.gate,
+                present
             ));
         }
     }
@@ -4093,7 +4516,11 @@ fn draw(frame: &mut ratatui::Frame, app: &App) {
     frame.render_widget(header, chunks[0]);
 
     // Main view (modal)
-    app.view().render(frame, chunks[1]);
+    let ctx = RenderCtx {
+        now: OffsetDateTime::now_utc(),
+        ts_mode: app.ts_mode,
+    };
+    app.view().render(frame, chunks[1], &ctx);
 
     // Status / last result
     {
@@ -4113,7 +4540,10 @@ fn draw(frame: &mut ratatui::Frame, app: &App) {
             for (i, l) in r.lines.iter().enumerate() {
                 if i == 0 {
                     lines.push(Line::from(vec![
-                        Span::styled(format!("{} ", r.ts), Style::default().fg(Color::Gray)),
+                        Span::styled(
+                            format!("{} ", fmt_ts_ui(&r.ts)),
+                            Style::default().fg(Color::Gray),
+                        ),
                         Span::styled(l.as_str(), style),
                     ]));
                 } else {
@@ -4215,27 +4645,67 @@ fn draw_modal(frame: &mut ratatui::Frame, modal: &Modal) {
         .title(Line::from(vec![
             Span::styled(modal.title.as_str(), Style::default().fg(Color::Yellow)),
             Span::raw("  "),
-            Span::styled("Esc to close", Style::default().fg(Color::Gray)),
+            Span::styled("Esc", Style::default().fg(Color::Gray)),
         ]))
         .style(Style::default().bg(Color::Black));
     let inner = outer.inner(popup);
     frame.render_widget(outer, popup);
 
-    let mut lines = Vec::new();
-    for s in &modal.lines {
-        lines.push(Line::from(s.as_str()));
-    }
-    if lines.is_empty() {
-        lines.push(Line::from(""));
-    }
+    match &modal.kind {
+        ModalKind::Viewer => {
+            let mut lines = Vec::new();
+            for s in &modal.lines {
+                lines.push(Line::from(s.as_str()));
+            }
+            if lines.is_empty() {
+                lines.push(Line::from(""));
+            }
+            let scroll = modal.scroll.min(lines.len().saturating_sub(1)) as u16;
+            frame.render_widget(
+                Paragraph::new(lines)
+                    .wrap(Wrap { trim: false })
+                    .scroll((scroll, 0)),
+                inner,
+            );
+        }
+        ModalKind::SnapMessage { .. } => {
+            let parts = Layout::default()
+                .direction(Direction::Vertical)
+                .constraints([Constraint::Min(0), Constraint::Length(3)])
+                .split(inner);
 
-    let scroll = modal.scroll.min(lines.len().saturating_sub(1)) as u16;
-    frame.render_widget(
-        Paragraph::new(lines)
-            .wrap(Wrap { trim: false })
-            .scroll((scroll, 0)),
-        inner,
-    );
+            let mut lines = Vec::new();
+            for s in &modal.lines {
+                lines.push(Line::from(s.as_str()));
+            }
+            if lines.is_empty() {
+                lines.push(Line::from(""));
+            }
+
+            let scroll = modal.scroll.min(lines.len().saturating_sub(1)) as u16;
+            frame.render_widget(
+                Paragraph::new(lines)
+                    .wrap(Wrap { trim: false })
+                    .scroll((scroll, 0)),
+                parts[0],
+            );
+
+            let prompt = "message> ";
+            let input_line = Line::from(vec![
+                Span::styled(prompt, Style::default().fg(Color::Yellow)),
+                Span::raw(modal.input.buf.as_str()),
+            ]);
+            frame.render_widget(
+                Paragraph::new(input_line)
+                    .block(Block::default().borders(Borders::ALL).title("Edit")),
+                parts[1],
+            );
+
+            let x = prompt.len() as u16 + modal.input.cursor as u16;
+            let y = parts[1].y + 1;
+            frame.set_cursor_position((parts[1].x + 1 + x, y));
+        }
+    }
 }
 
 fn expand_rect(

@@ -56,7 +56,7 @@ impl Workspace {
             .format(&Rfc3339)
             .context("format created_at")?;
 
-        let id = compute_snap_id(&created_at, &root_manifest, message.as_deref());
+        let id = compute_snap_id(&created_at, &root_manifest);
         let snap = SnapRecord {
             version: 1,
             id,
@@ -66,6 +66,7 @@ impl Workspace {
             stats,
         };
         self.store.put_snap(&snap)?;
+        self.store.set_head(Some(&snap.id))?;
         Ok(snap)
     }
 
@@ -83,12 +84,39 @@ impl Workspace {
         let snap = self.store.get_snap(snap_id)?;
 
         if !force {
-            ensure_empty_except_converge(&self.root)?;
-        } else {
-            clear_workspace_except_converge(&self.root)?;
+            let (cur_root, _cur_manifests, _stats) = self.current_manifest_tree()?;
+
+            if let Some(head_id) = self.store.get_head()? {
+                let head_snap = self.store.get_snap(&head_id)?;
+                if cur_root != head_snap.root_manifest {
+                    let short = head_id.chars().take(8).collect::<String>();
+                    return Err(anyhow!(
+                        "Refusing to restore: workspace has changes since {} (use --force)",
+                        short
+                    ));
+                }
+            } else if is_empty_except_converge_and_git(&self.root)? {
+                // Empty workspace: allow restore.
+            } else {
+                // No HEAD: try to infer one from the current workspace state.
+                let snaps = self.list_snaps()?;
+                let matching = snaps
+                    .into_iter()
+                    .find(|s| s.root_manifest == cur_root)
+                    .map(|s| s.id);
+                let Some(head_id) = matching else {
+                    return Err(anyhow!(
+                        "No HEAD snap and workspace doesn't match any known snap (use --force)"
+                    ));
+                };
+                self.store.set_head(Some(&head_id))?;
+            }
         }
 
+        clear_workspace_except_converge_and_git(&self.root)?;
+
         materialize_manifest(&self.store, &snap.root_manifest, &self.root)?;
+        self.store.set_head(Some(&snap.id))?;
         Ok(())
     }
 
@@ -270,27 +298,12 @@ fn file_mode(path: &Path) -> Result<u32> {
     }
 }
 
-fn ensure_empty_except_converge(root: &Path) -> Result<()> {
-    for entry in fs::read_dir(root).with_context(|| format!("read dir {}", root.display()))? {
-        let entry = entry?;
-        let name = entry.file_name();
-        if name == ".converge" {
-            continue;
-        }
-        return Err(anyhow!(
-            "Refusing to restore into non-empty directory {} (use --force)",
-            root.display()
-        ));
-    }
-    Ok(())
-}
-
-fn clear_workspace_except_converge(root: &Path) -> Result<()> {
+fn clear_workspace_except_converge_and_git(root: &Path) -> Result<()> {
     for entry in fs::read_dir(root).with_context(|| format!("read dir {}", root.display()))? {
         let entry = entry?;
         let path = entry.path();
         let name = entry.file_name();
-        if name == ".converge" {
+        if name == ".converge" || name == ".git" {
             continue;
         }
         let ft = entry.file_type()?;
@@ -301,6 +314,18 @@ fn clear_workspace_except_converge(root: &Path) -> Result<()> {
         }
     }
     Ok(())
+}
+
+fn is_empty_except_converge_and_git(root: &Path) -> Result<bool> {
+    for entry in fs::read_dir(root).with_context(|| format!("read dir {}", root.display()))? {
+        let entry = entry?;
+        let name = entry.file_name();
+        if name == ".converge" || name == ".git" {
+            continue;
+        }
+        return Ok(false);
+    }
+    Ok(true)
 }
 
 fn materialize_manifest(store: &LocalStore, manifest_id: &ObjectId, out_dir: &Path) -> Result<()> {

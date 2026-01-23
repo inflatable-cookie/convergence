@@ -849,11 +849,7 @@ fn run() -> Result<()> {
                     let created_at = time::OffsetDateTime::now_utc()
                         .format(&time::format_description::well_known::Rfc3339)
                         .context("format time")?;
-                    let snap_id = converge::model::compute_snap_id(
-                        &created_at,
-                        &resolved_root,
-                        message.as_deref(),
-                    );
+                    let snap_id = converge::model::compute_snap_id(&created_at, &resolved_root);
 
                     let snap = converge::model::SnapRecord {
                         version: 1,

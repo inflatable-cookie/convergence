@@ -98,7 +98,7 @@ fn server_persists_repo_across_restart() -> Result<()> {
     // Upload snap.
     let created_at = "2026-01-22T00:00:00Z";
     let root_manifest = converge::model::ObjectId(manifest_id.clone());
-    let snap_id = converge::model::compute_snap_id(created_at, &root_manifest, None);
+    let snap_id = converge::model::compute_snap_id(created_at, &root_manifest);
     let snap = converge::model::SnapRecord {
         version: 1,
         id: snap_id.clone(),

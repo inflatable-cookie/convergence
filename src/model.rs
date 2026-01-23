@@ -89,19 +89,11 @@ pub struct SnapRecord {
     pub stats: SnapStats,
 }
 
-pub fn compute_snap_id(
-    created_at: &str,
-    root_manifest: &ObjectId,
-    message: Option<&str>,
-) -> String {
+pub fn compute_snap_id(created_at: &str, root_manifest: &ObjectId) -> String {
     let mut hasher = blake3::Hasher::new();
     hasher.update(created_at.as_bytes());
     hasher.update(b"\n");
     hasher.update(root_manifest.as_str().as_bytes());
-    if let Some(message) = message {
-        hasher.update(b"\n");
-        hasher.update(message.as_bytes());
-    }
     hasher.finalize().to_hex().to_string()
 }
 

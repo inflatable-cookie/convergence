@@ -244,6 +244,46 @@ impl LocalStore {
             .join(format!("{}.json", bundle_id))
             .exists()
     }
+
+    pub fn update_snap_message(&self, snap_id: &str, message: Option<&str>) -> Result<()> {
+        let mut snap = self.get_snap(snap_id)?;
+        let msg = message
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty());
+        snap.message = msg;
+        self.put_snap(&snap)
+    }
+
+    fn head_path(&self) -> PathBuf {
+        self.root.join("HEAD")
+    }
+
+    pub fn get_head(&self) -> Result<Option<String>> {
+        let path = self.head_path();
+        if !path.exists() {
+            return Ok(None);
+        }
+        let s =
+            fs::read_to_string(&path).with_context(|| format!("read head {}", path.display()))?;
+        let s = s.trim().to_string();
+        if s.is_empty() { Ok(None) } else { Ok(Some(s)) }
+    }
+
+    pub fn set_head(&self, snap_id: Option<&str>) -> Result<()> {
+        let path = self.head_path();
+        match snap_id {
+            None => {
+                if path.exists() {
+                    fs::remove_file(&path).with_context(|| format!("remove {}", path.display()))?;
+                }
+                Ok(())
+            }
+            Some(id) => {
+                write_atomic(&path, id.as_bytes()).context("write head")?;
+                Ok(())
+            }
+        }
+    }
 }
 
 pub fn hash_bytes(bytes: &[u8]) -> ObjectId {
