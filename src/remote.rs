@@ -55,7 +55,7 @@ pub struct Publication {
     pub resolution: Option<PublicationResolution>,
 }
 
-#[derive(Debug, serde::Serialize, serde::Deserialize)]
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct PublicationResolution {
     pub bundle_id: String,
     pub root_manifest: String,
@@ -113,6 +113,25 @@ pub struct GateDef {
 pub struct RemoteClient {
     remote: RemoteConfig,
     client: reqwest::blocking::Client,
+}
+
+fn with_retries<T>(label: &str, mut f: impl FnMut() -> Result<T>) -> Result<T> {
+    const ATTEMPTS: usize = 3;
+    let mut last: Option<anyhow::Error> = None;
+    for i in 0..ATTEMPTS {
+        match f() {
+            Ok(v) => return Ok(v),
+            Err(err) => {
+                last = Some(err);
+                if i + 1 < ATTEMPTS {
+                    std::thread::sleep(std::time::Duration::from_millis(200 * (1 << i)));
+                }
+            }
+        }
+    }
+    Err(last
+        .unwrap_or_else(|| anyhow::anyhow!("unknown error"))
+        .context(label.to_string()))
 }
 
 impl RemoteClient {
@@ -362,18 +381,19 @@ impl RemoteClient {
         let manifest_order = manifest_postorder(store, &snap.root_manifest)?;
 
         let repo = &self.remote.repo_id;
-        let resp = self
-            .client
-            .post(self.url(&format!("/repos/{}/objects/missing", repo)))
-            .header(reqwest::header::AUTHORIZATION, self.auth())
-            .json(&MissingObjectsRequest {
-                blobs: blobs.iter().cloned().collect(),
-                manifests: manifests.iter().cloned().collect(),
-                recipes: recipes.iter().cloned().collect(),
-                snaps: vec![snap.id.clone()],
-            })
-            .send()
-            .context("missing objects request")?;
+        let resp = with_retries("missing objects request", || {
+            self.client
+                .post(self.url(&format!("/repos/{}/objects/missing", repo)))
+                .header(reqwest::header::AUTHORIZATION, self.auth())
+                .json(&MissingObjectsRequest {
+                    blobs: blobs.iter().cloned().collect(),
+                    manifests: manifests.iter().cloned().collect(),
+                    recipes: recipes.iter().cloned().collect(),
+                    snaps: vec![snap.id.clone()],
+                })
+                .send()
+                .context("send")
+        })?;
 
         if resp.status() == reqwest::StatusCode::NOT_FOUND {
             anyhow::bail!(
@@ -386,27 +406,31 @@ impl RemoteClient {
 
         for id in missing.missing_blobs {
             let bytes = store.get_blob(&ObjectId(id.clone()))?;
-            self.client
-                .put(self.url(&format!("/repos/{}/objects/blobs/{}", repo, id)))
-                .header(reqwest::header::AUTHORIZATION, self.auth())
-                .body(bytes)
-                .send()
-                .context("upload blob")?
-                .error_for_status()
-                .context("upload blob status")?;
+            with_retries(&format!("upload blob {}", id), || {
+                self.client
+                    .put(self.url(&format!("/repos/{}/objects/blobs/{}", repo, id)))
+                    .header(reqwest::header::AUTHORIZATION, self.auth())
+                    .body(bytes.clone())
+                    .send()
+                    .context("send")?
+                    .error_for_status()
+                    .context("status")
+            })?;
         }
 
         for id in missing.missing_recipes {
             let rid = ObjectId(id.clone());
             let bytes = store.get_recipe_bytes(&rid)?;
-            self.client
-                .put(self.url(&format!("/repos/{}/objects/recipes/{}", repo, id)))
-                .header(reqwest::header::AUTHORIZATION, self.auth())
-                .body(bytes)
-                .send()
-                .context("upload recipe")?
-                .error_for_status()
-                .context("upload recipe status")?;
+            with_retries(&format!("upload recipe {}", id), || {
+                self.client
+                    .put(self.url(&format!("/repos/{}/objects/recipes/{}", repo, id)))
+                    .header(reqwest::header::AUTHORIZATION, self.auth())
+                    .body(bytes.clone())
+                    .send()
+                    .context("send")?
+                    .error_for_status()
+                    .context("status")
+            })?;
         }
 
         let mut missing_manifests: HashSet<String> =
@@ -418,14 +442,16 @@ impl RemoteClient {
             }
 
             let bytes = store.get_manifest_bytes(&mid)?;
-            self.client
-                .put(self.url(&format!("/repos/{}/objects/manifests/{}", repo, id)))
-                .header(reqwest::header::AUTHORIZATION, self.auth())
-                .body(bytes)
-                .send()
-                .context("upload manifest")?
-                .error_for_status()
-                .context("upload manifest status")?;
+            with_retries(&format!("upload manifest {}", id), || {
+                self.client
+                    .put(self.url(&format!("/repos/{}/objects/manifests/{}", repo, id)))
+                    .header(reqwest::header::AUTHORIZATION, self.auth())
+                    .body(bytes.clone())
+                    .send()
+                    .context("send")?
+                    .error_for_status()
+                    .context("status")
+            })?;
         }
 
         if !missing_manifests.is_empty() {
@@ -436,30 +462,33 @@ impl RemoteClient {
         }
 
         if !missing.missing_snaps.is_empty() {
-            self.client
-                .put(self.url(&format!("/repos/{}/objects/snaps/{}", repo, snap.id)))
-                .header(reqwest::header::AUTHORIZATION, self.auth())
-                .json(snap)
-                .send()
-                .context("upload snap")?
-                .error_for_status()
-                .context("upload snap status")?;
+            with_retries("upload snap", || {
+                self.client
+                    .put(self.url(&format!("/repos/{}/objects/snaps/{}", repo, snap.id)))
+                    .header(reqwest::header::AUTHORIZATION, self.auth())
+                    .json(snap)
+                    .send()
+                    .context("send")?
+                    .error_for_status()
+                    .context("status")
+            })?;
         }
 
-        let resp = self
-            .client
-            .post(self.url(&format!("/repos/{}/publications", repo)))
-            .header(reqwest::header::AUTHORIZATION, self.auth())
-            .json(&CreatePublicationRequest {
-                snap_id: snap.id.clone(),
-                scope: scope.to_string(),
-                gate: gate.to_string(),
-                resolution,
-            })
-            .send()
-            .context("create publication")?
-            .error_for_status()
-            .context("create publication status")?;
+        let resp = with_retries("create publication", || {
+            self.client
+                .post(self.url(&format!("/repos/{}/publications", repo)))
+                .header(reqwest::header::AUTHORIZATION, self.auth())
+                .json(&CreatePublicationRequest {
+                    snap_id: snap.id.clone(),
+                    scope: scope.to_string(),
+                    gate: gate.to_string(),
+                    resolution: resolution.clone(),
+                })
+                .send()
+                .context("send")?
+                .error_for_status()
+                .context("status")
+        })?;
 
         let pubrec: Publication = resp.json().context("parse publication")?;
         Ok(pubrec)
@@ -483,16 +512,17 @@ impl RemoteClient {
                 continue;
             }
 
-            let snap_bytes = self
-                .client
-                .get(self.url(&format!("/repos/{}/objects/snaps/{}", repo, p.snap_id)))
-                .header(reqwest::header::AUTHORIZATION, self.auth())
-                .send()
-                .context("fetch snap")?
-                .error_for_status()
-                .context("fetch snap status")?
-                .bytes()
-                .context("read snap bytes")?;
+            let snap_bytes = with_retries(&format!("fetch snap {}", p.snap_id), || {
+                self.client
+                    .get(self.url(&format!("/repos/{}/objects/snaps/{}", repo, p.snap_id)))
+                    .header(reqwest::header::AUTHORIZATION, self.auth())
+                    .send()
+                    .context("send")?
+                    .error_for_status()
+                    .context("status")?
+                    .bytes()
+                    .context("bytes")
+            })?;
 
             let snap: SnapRecord = serde_json::from_slice(&snap_bytes).context("parse snap")?;
             store.put_snap(&snap)?;
@@ -671,16 +701,18 @@ fn fetch_blob_if_missing(
     if store.has_blob(blob) {
         return Ok(());
     }
-    let bytes = remote
-        .client
-        .get(remote.url(&format!("/repos/{}/objects/blobs/{}", repo, blob.as_str())))
-        .header(reqwest::header::AUTHORIZATION, remote.auth())
-        .send()
-        .context("fetch blob")?
-        .error_for_status()
-        .context("fetch blob status")?
-        .bytes()
-        .context("read blob bytes")?;
+    let bytes = with_retries(&format!("fetch blob {}", blob.as_str()), || {
+        remote
+            .client
+            .get(remote.url(&format!("/repos/{}/objects/blobs/{}", repo, blob.as_str())))
+            .header(reqwest::header::AUTHORIZATION, remote.auth())
+            .send()
+            .context("send")?
+            .error_for_status()
+            .context("status")?
+            .bytes()
+            .context("bytes")
+    })?;
 
     let computed = blake3::hash(&bytes).to_hex().to_string();
     if computed != blob.as_str() {
@@ -704,20 +736,22 @@ fn fetch_recipe_and_chunks(
     recipe: &ObjectId,
 ) -> Result<()> {
     if !store.has_recipe(recipe) {
-        let bytes = remote
-            .client
-            .get(remote.url(&format!(
-                "/repos/{}/objects/recipes/{}",
-                repo,
-                recipe.as_str()
-            )))
-            .header(reqwest::header::AUTHORIZATION, remote.auth())
-            .send()
-            .context("fetch recipe")?
-            .error_for_status()
-            .context("fetch recipe status")?
-            .bytes()
-            .context("read recipe bytes")?;
+        let bytes = with_retries(&format!("fetch recipe {}", recipe.as_str()), || {
+            remote
+                .client
+                .get(remote.url(&format!(
+                    "/repos/{}/objects/recipes/{}",
+                    repo,
+                    recipe.as_str()
+                )))
+                .header(reqwest::header::AUTHORIZATION, remote.auth())
+                .send()
+                .context("send")?
+                .error_for_status()
+                .context("status")?
+                .bytes()
+                .context("bytes")
+        })?;
 
         store.put_recipe_bytes(recipe, &bytes)?;
     }

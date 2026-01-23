@@ -69,7 +69,7 @@ Defaults and configuration:
 ### C) Distribution protocol
 
 - [x] Extend missing-object discovery to include chunk objects + recipe objects.
-- [ ] Implement resumable, chunk-level upload/download.
+- [x] Implement resumable, chunk-level upload/download.
 - [x] Ensure server can validate object availability for a publication/bundle.
 
 ### D) Gate policies for large objects
