@@ -141,22 +141,32 @@ pub fn apply_resolution(
     root: &ObjectId,
     decisions: &std::collections::BTreeMap<String, ResolutionDecision>,
 ) -> Result<ObjectId> {
-    // Validate completeness up front so users get a single actionable error.
-    let needed = superposition_variant_counts(store, root)?;
-    if !needed.is_empty() {
-        let mut missing = Vec::new();
-        for path in needed.keys() {
-            if !decisions.contains_key(path) {
-                missing.push(path.clone());
+    // Validate up front so users get a single actionable error.
+    let report = validate_resolution(store, root, decisions)?;
+    if !report.ok {
+        fn head(xs: &[String]) -> String {
+            const LIMIT: usize = 10;
+            if xs.len() <= LIMIT {
+                xs.join(", ")
+            } else {
+                format!("{} ... (+{})", xs[..LIMIT].join(", "), xs.len() - LIMIT)
             }
         }
-        if !missing.is_empty() {
-            missing.sort();
-            anyhow::bail!(
-                "missing resolution decisions for paths: {}",
-                missing.join(", ")
-            );
+
+        let mut parts = Vec::new();
+        if !report.missing.is_empty() {
+            parts.push(format!("missing=[{}]", head(&report.missing)));
         }
+        if !report.extraneous.is_empty() {
+            parts.push(format!("extraneous=[{}]", head(&report.extraneous)));
+        }
+        if !report.out_of_range.is_empty() {
+            parts.push(format!("out_of_range={}", report.out_of_range.len()));
+        }
+        if !report.invalid_keys.is_empty() {
+            parts.push(format!("invalid_keys={}", report.invalid_keys.len()));
+        }
+        anyhow::bail!("resolution invalid: {}", parts.join(" "));
     }
 
     fn find_variant_index_by_key(
