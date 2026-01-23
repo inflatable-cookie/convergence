@@ -53,6 +53,28 @@ enum UiMode {
     Superpositions,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum RootContext {
+    Local,
+    Remote,
+}
+
+impl RootContext {
+    fn toggle(self) -> Self {
+        match self {
+            RootContext::Local => RootContext::Remote,
+            RootContext::Remote => RootContext::Local,
+        }
+    }
+
+    fn label(self) -> &'static str {
+        match self {
+            RootContext::Local => "local",
+            RootContext::Remote => "remote",
+        }
+    }
+}
+
 impl UiMode {
     fn prompt(self) -> &'static str {
         match self {
@@ -125,12 +147,14 @@ fn render_view_chrome(
 #[derive(Debug)]
 struct RootView {
     updated_at: String,
+    ctx: RootContext,
 }
 
 impl RootView {
-    fn new() -> Self {
+    fn new(ctx: RootContext) -> Self {
         Self {
             updated_at: now_ts(),
+            ctx,
         }
     }
 }
@@ -158,10 +182,19 @@ impl View for RootView {
 
     fn render(&self, frame: &mut ratatui::Frame, area: ratatui::layout::Rect) {
         let inner = render_view_chrome(frame, self.title(), self.updated_at(), area);
+
+        let primary = match self.ctx {
+            RootContext::Local => "Local: status, init, snap, snaps, show, restore",
+            RootContext::Remote => {
+                "Remote: remote, ping, publish, fetch, inbox, bundles, superpositions"
+            }
+        };
+
         let lines = vec![
             Line::from(""),
-            Line::from("Use: snaps, inbox, bundles, superpositions"),
-            Line::from("Global: help, ping, quit"),
+            Line::from(primary),
+            Line::from("Global: help, quit"),
+            Line::from("Tab: toggle local/remote"),
             Line::from("Nav: Esc back/clear, Up/Down select"),
             Line::from("Tip: prefix with `/` to force root commands."),
         ];
@@ -782,7 +815,7 @@ struct CommandDef {
     help: &'static str,
 }
 
-fn command_defs() -> Vec<CommandDef> {
+fn global_command_defs() -> Vec<CommandDef> {
     vec![
         CommandDef {
             name: "help",
@@ -790,6 +823,18 @@ fn command_defs() -> Vec<CommandDef> {
             usage: "help [command]",
             help: "Show help",
         },
+        CommandDef {
+            name: "quit",
+            aliases: &[],
+            usage: "quit",
+            help: "Exit",
+        },
+    ]
+}
+
+fn local_root_command_defs() -> Vec<CommandDef> {
+    let mut out = global_command_defs();
+    out.extend(vec![
         CommandDef {
             name: "status",
             aliases: &["st"],
@@ -832,13 +877,13 @@ fn command_defs() -> Vec<CommandDef> {
             usage: "clear",
             help: "Clear last output/log",
         },
-        CommandDef {
-            name: "quit",
-            aliases: &["q", "exit"],
-            usage: "quit",
-            help: "Quit",
-        },
-        // Remote-mode commands (Phase 013)
+    ]);
+    out
+}
+
+fn remote_root_command_defs() -> Vec<CommandDef> {
+    let mut out = global_command_defs();
+    out.extend(vec![
         CommandDef {
             name: "remote",
             aliases: &[],
@@ -899,30 +944,15 @@ fn command_defs() -> Vec<CommandDef> {
             usage: "superpositions --bundle-id <id> [--filter <q>]",
             help: "Open superpositions browser",
         },
-    ]
+    ]);
+    out
 }
 
-fn global_command_defs() -> Vec<CommandDef> {
-    vec![
-        CommandDef {
-            name: "help",
-            aliases: &["h", "?"],
-            usage: "help [command]",
-            help: "Show help",
-        },
-        CommandDef {
-            name: "ping",
-            aliases: &[],
-            usage: "ping",
-            help: "Ping remote health endpoint",
-        },
-        CommandDef {
-            name: "quit",
-            aliases: &[],
-            usage: "quit",
-            help: "Exit",
-        },
-    ]
+fn root_command_defs(ctx: RootContext) -> Vec<CommandDef> {
+    match ctx {
+        RootContext::Local => local_root_command_defs(),
+        RootContext::Remote => remote_root_command_defs(),
+    }
 }
 
 fn snaps_command_defs() -> Vec<CommandDef> {
@@ -1065,9 +1095,9 @@ fn superpositions_command_defs() -> Vec<CommandDef> {
     ]
 }
 
-fn mode_command_defs(mode: UiMode) -> Vec<CommandDef> {
+fn mode_command_defs(mode: UiMode, root_ctx: RootContext) -> Vec<CommandDef> {
     match mode {
-        UiMode::Root => command_defs(),
+        UiMode::Root => root_command_defs(root_ctx),
         UiMode::Snaps => {
             let mut out = snaps_command_defs();
             out.extend(global_command_defs());
@@ -1101,6 +1131,8 @@ struct App {
     workspace: Option<Workspace>,
     workspace_err: Option<String>,
 
+    root_ctx: RootContext,
+
     // Internal log (useful for debugging) but no longer the primary UI.
     log: Vec<ScrollEntry>,
 
@@ -1124,6 +1156,7 @@ impl Default for App {
         Self {
             workspace: None,
             workspace_err: None,
+            root_ctx: RootContext::Local,
             log: Vec::new(),
             last_command: None,
             last_result: None,
@@ -1132,7 +1165,7 @@ impl Default for App {
             suggestions: Vec::new(),
             suggestion_selected: 0,
             frames: vec![ViewFrame {
-                view: Box::new(RootView::new()),
+                view: Box::new(RootView::new(RootContext::Local)),
             }],
             quit: false,
         }
@@ -1212,7 +1245,25 @@ impl App {
     }
 
     fn prompt(&self) -> &'static str {
-        self.mode().prompt()
+        if self.mode() == UiMode::Root {
+            match self.root_ctx {
+                RootContext::Local => "local>",
+                RootContext::Remote => "remote>",
+            }
+        } else {
+            self.mode().prompt()
+        }
+    }
+
+    fn toggle_root_ctx(&mut self) {
+        let next = self.root_ctx.toggle();
+        self.root_ctx = next;
+        if self.mode() == UiMode::Root
+            && let Some(v) = self.current_view_mut::<RootView>()
+        {
+            v.ctx = next;
+            v.updated_at = now_ts();
+        }
     }
 
     fn push_entry(&mut self, kind: EntryKind, lines: Vec<String>) {
@@ -1274,9 +1325,9 @@ impl App {
         }
 
         let mut defs = if forced_root {
-            command_defs()
+            root_command_defs(self.root_ctx)
         } else {
-            mode_command_defs(self.mode())
+            mode_command_defs(self.mode(), self.root_ctx)
         };
         defs.sort_by(|a, b| a.name.cmp(b.name));
 
@@ -1358,9 +1409,9 @@ impl App {
 
         let mode = self.mode();
         let mut defs = if forced_root || mode == UiMode::Root {
-            command_defs()
+            root_command_defs(self.root_ctx)
         } else {
-            mode_command_defs(mode)
+            mode_command_defs(mode, self.root_ctx)
         };
         defs.sort_by(|a, b| a.name.cmp(b.name));
 
@@ -1393,46 +1444,68 @@ impl App {
     }
 
     fn dispatch_root(&mut self, cmd: &str, args: &[String]) {
-        match cmd {
-            "status" => self.cmd_status(args),
-            "init" => self.cmd_init(args),
-            "snap" => self.cmd_snap(args),
-            "snaps" => self.cmd_snaps(args),
-            "show" => self.cmd_show(args),
-            "restore" => self.cmd_restore(args),
+        match self.root_ctx {
+            RootContext::Local => match cmd {
+                "status" => self.cmd_status(args),
+                "init" => self.cmd_init(args),
+                "snap" => self.cmd_snap(args),
+                "snaps" => self.cmd_snaps(args),
+                "show" => self.cmd_show(args),
+                "restore" => self.cmd_restore(args),
 
-            "remote" => self.cmd_remote(args),
-            "ping" => self.cmd_ping(args),
-            "publish" => self.cmd_publish(args),
-            "fetch" => self.cmd_fetch(args),
-            "inbox" => self.cmd_inbox(args),
-            "bundles" => self.cmd_bundles(args),
-            "bundle" => self.cmd_bundle(args),
-            "approve" => self.cmd_approve(args),
-            "promote" => self.cmd_promote(args),
-            "superpositions" => self.cmd_superpositions(args),
-            "supers" => self.cmd_superpositions(args),
+                "clear" => {
+                    self.log.clear();
+                    self.last_command = None;
+                    self.last_result = None;
+                }
+                "quit" => {
+                    self.quit = true;
+                }
 
-            "clear" => {
-                self.log.clear();
-                self.last_command = None;
-                self.last_result = None;
-            }
-            "quit" => {
-                self.quit = true;
-            }
-            _ => {
-                self.push_error(format!("unknown command: {}", cmd));
-            }
+                "remote" | "ping" | "publish" | "fetch" | "inbox" | "bundles" | "bundle"
+                | "approve" | "promote" | "superpositions" | "supers" => {
+                    self.push_error("remote command; press Tab to switch to remote".to_string());
+                }
+
+                _ => {
+                    self.push_error(format!("unknown command: {}", cmd));
+                }
+            },
+            RootContext::Remote => match cmd {
+                "remote" => self.cmd_remote(args),
+                "ping" => self.cmd_ping(args),
+                "publish" => self.cmd_publish(args),
+                "fetch" => self.cmd_fetch(args),
+                "inbox" => self.cmd_inbox(args),
+                "bundles" => self.cmd_bundles(args),
+                "bundle" => self.cmd_bundle(args),
+                "approve" => self.cmd_approve(args),
+                "promote" => self.cmd_promote(args),
+                "superpositions" => self.cmd_superpositions(args),
+                "supers" => self.cmd_superpositions(args),
+
+                "clear" => {
+                    self.log.clear();
+                    self.last_command = None;
+                    self.last_result = None;
+                }
+                "quit" => {
+                    self.quit = true;
+                }
+
+                "status" | "init" | "snap" | "snaps" | "show" | "restore" => {
+                    self.push_error("local command; press Tab to switch to local".to_string());
+                }
+
+                _ => {
+                    self.push_error(format!("unknown command: {}", cmd));
+                }
+            },
         }
     }
 
     fn dispatch_global(&mut self, cmd: &str, _args: &[String]) -> bool {
         match cmd {
-            "ping" => {
-                self.cmd_ping(&[]);
-                true
-            }
             "quit" => {
                 self.quit = true;
                 true
@@ -1549,6 +1622,7 @@ impl App {
             lines.push("- `Esc` goes back (or clears input).".to_string());
             lines.push("- With suggestions open: Up/Down selects; Tab accepts.".to_string());
             lines.push("- History: Ctrl+p / Ctrl+n.".to_string());
+            lines.push("- At root: Tab toggles local/remote.".to_string());
             lines.push("- Prefix with `/` to force root commands.".to_string());
             self.open_modal("Help", lines);
             return;
@@ -3221,7 +3295,13 @@ fn handle_key(app: &mut App, key: KeyEvent) {
         }
 
         KeyCode::Tab => {
-            if !app.input.buf.is_empty() && !app.suggestions.is_empty() {
+            if app.input.buf.is_empty() && app.mode() == UiMode::Root {
+                app.toggle_root_ctx();
+                app.push_output(vec![format!(
+                    "switched to {} context",
+                    app.root_ctx.label()
+                )]);
+            } else if !app.input.buf.is_empty() && !app.suggestions.is_empty() {
                 app.apply_selected_suggestion();
             }
         }
