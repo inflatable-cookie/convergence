@@ -868,8 +868,18 @@ fn run() -> Result<()> {
 
                     let mut pub_id = None;
                     if publish {
-                        let pubrec =
-                            client.publish_snap(&ws.store, &snap, &remote.scope, &remote.gate)?;
+                        let pubrec = client.publish_snap_with_resolution(
+                            &ws.store,
+                            &snap,
+                            &remote.scope,
+                            &remote.gate,
+                            Some(converge::remote::PublicationResolution {
+                                bundle_id: bundle_id.clone(),
+                                root_manifest: root.as_str().to_string(),
+                                resolved_root_manifest: snap.root_manifest.as_str().to_string(),
+                                created_at: snap.created_at.clone(),
+                            }),
+                        )?;
                         pub_id = Some(pubrec.id);
                     }
 

@@ -24,6 +24,9 @@ struct CreatePublicationRequest {
     snap_id: String,
     scope: String,
     gate: String,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    resolution: Option<PublicationResolution>,
 }
 
 #[derive(Debug, serde::Serialize)]
@@ -44,6 +47,17 @@ pub struct Publication {
     pub scope: String,
     pub gate: String,
     pub publisher: String,
+    pub created_at: String,
+
+    #[serde(default)]
+    pub resolution: Option<PublicationResolution>,
+}
+
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
+pub struct PublicationResolution {
+    pub bundle_id: String,
+    pub root_manifest: String,
+    pub resolved_root_manifest: String,
     pub created_at: String,
 }
 
@@ -331,6 +345,17 @@ impl RemoteClient {
         scope: &str,
         gate: &str,
     ) -> Result<Publication> {
+        self.publish_snap_with_resolution(store, snap, scope, gate, None)
+    }
+
+    pub fn publish_snap_with_resolution(
+        &self,
+        store: &LocalStore,
+        snap: &SnapRecord,
+        scope: &str,
+        gate: &str,
+        resolution: Option<PublicationResolution>,
+    ) -> Result<Publication> {
         let (blobs, manifests) = collect_objects(store, &snap.root_manifest)?;
         let manifest_order = manifest_postorder(store, &snap.root_manifest)?;
 
@@ -413,6 +438,7 @@ impl RemoteClient {
                 snap_id: snap.id.clone(),
                 scope: scope.to_string(),
                 gate: gate.to_string(),
+                resolution,
             })
             .send()
             .context("create publication")?

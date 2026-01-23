@@ -84,6 +84,17 @@ struct Publication {
     gate: String,
     publisher: String,
     created_at: String,
+
+    #[serde(default)]
+    resolution: Option<PublicationResolution>,
+}
+
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+struct PublicationResolution {
+    bundle_id: String,
+    root_manifest: String,
+    resolved_root_manifest: String,
+    created_at: String,
 }
 
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
@@ -1176,6 +1187,9 @@ struct CreatePublicationRequest {
     snap_id: String,
     scope: String,
     gate: String,
+
+    #[serde(default)]
+    resolution: Option<PublicationResolution>,
 }
 
 async fn create_publication(
@@ -1232,6 +1246,7 @@ async fn create_publication(
         gate: payload.gate,
         publisher: subject.user,
         created_at,
+        resolution: payload.resolution,
     };
     repo.publications.push(pubrec.clone());
 

@@ -489,7 +489,20 @@ impl App {
                     return;
                 }
             };
-            if let Err(err) = client.publish_snap(&store, &snap, &remote.scope, &remote.gate) {
+            let resolution = crate::remote::PublicationResolution {
+                bundle_id: bundle_id.clone(),
+                root_manifest: root_manifest.as_str().to_string(),
+                resolved_root_manifest: snap.root_manifest.as_str().to_string(),
+                created_at: snap.created_at.clone(),
+            };
+
+            if let Err(err) = client.publish_snap_with_resolution(
+                &store,
+                &snap,
+                &remote.scope,
+                &remote.gate,
+                Some(resolution),
+            ) {
                 self.super_error = Some(format!("publish resolved snap: {:#}", err));
                 return;
             }
