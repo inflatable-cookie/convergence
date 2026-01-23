@@ -19,31 +19,31 @@ Out of scope:
 
 ### A) Inbox mode
 
-- [ ] List publications with selection + details.
-- [ ] Mode-local commands:
-  - `bundle`: fetch bundle for selected publication
-  - `fetch`: fetch selected snap
-  - `back`
+- [x] List publications with selection + details.
+- [x] Mode-local commands:
+  - [x] `bundle`: fetch bundle for selected publication
+  - [x] `fetch`: fetch selected snap
+  - [x] `back`
 
 ### B) Bundles mode
 
-- [ ] List bundles with selection + details (promotable + reasons).
-- [ ] Mode-local commands:
-  - `approve`
-  - `promote [--to-gate ...]`
-  - `superpositions`: enter superpositions mode for selected bundle
-  - `back`
+- [x] List bundles with selection + details (promotable + reasons).
+- [x] Mode-local commands:
+  - [x] `approve`
+  - [x] `promote [--to-gate ...]`
+  - [x] `superpositions`: enter superpositions mode for selected bundle
+  - [x] `back`
 
 ### C) Superpositions mode
 
-- [ ] List conflicted paths with selection.
-- [ ] Detail view shows variants + current decision + validation state.
-- [ ] Mode-local commands:
-  - `pick <n>` / `clear`
-  - `next-missing` / `next-invalid`
-  - `validate`
-  - `apply [--publish]`
-  - `back`
+- [x] List conflicted paths with selection.
+- [x] Detail view shows variants + current decision + validation state.
+- [x] Mode-local commands:
+  - [x] `pick <n>` / `clear`
+  - [x] `next-missing` / `next-invalid`
+  - [x] `validate`
+  - [x] `apply [--publish]`
+  - [x] `back`
 
 ## Exit Criteria
 

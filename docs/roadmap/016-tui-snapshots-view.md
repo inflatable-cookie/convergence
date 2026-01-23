@@ -20,7 +20,7 @@ Out of scope:
 
 - [x] List snaps (id prefix, timestamp, message) with keyboard selection.
 - [x] Show details for selected snap (full id, created_at, root_manifest, stats, message).
-- [ ] Add a simple filter/search within snaps mode.
+- [x] Add a simple filter/search within snaps mode.
 
 ### B) Mode-local commands
 

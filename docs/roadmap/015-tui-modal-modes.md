@@ -28,7 +28,7 @@ Out of scope:
 ### A) Mode + view framework
 
 - [x] Introduce a `UiMode` (or `ViewId`) enum and a mode stack.
-- [ ] Define a small `View` interface (render + input handling + optional command handlers).
+- [x] Define a small `View` interface (render + input handling + optional command handlers).
 - [x] Add root navigation commands that push/pop modes:
   - `snaps` -> Snapshot Browser
   - `inbox` -> Inbox Browser

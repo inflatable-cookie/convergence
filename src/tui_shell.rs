@@ -1,3 +1,4 @@
+use std::any::Any;
 use std::io::{self, IsTerminal};
 use std::time::Duration;
 
@@ -63,10 +64,22 @@ impl UiMode {
     }
 }
 
-#[derive(Debug)]
 struct ViewFrame {
-    mode: UiMode,
-    panel: Option<Panel>,
+    view: Box<dyn View>,
+}
+
+trait View: Any {
+    fn as_any(&self) -> &dyn Any;
+    fn as_any_mut(&mut self) -> &mut dyn Any;
+
+    fn mode(&self) -> UiMode;
+    fn title(&self) -> &str;
+    fn updated_at(&self) -> &str;
+
+    fn move_up(&mut self) {}
+    fn move_down(&mut self) {}
+
+    fn render(&self, frame: &mut ratatui::Frame, area: ratatui::layout::Rect);
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -83,127 +96,585 @@ struct ScrollEntry {
     lines: Vec<String>,
 }
 
-#[derive(Debug)]
-enum Panel {
-    Snaps {
-        title: String,
-        updated_at: String,
-        filter: Option<String>,
-        items: Vec<crate::model::SnapRecord>,
-        selected: usize,
-    },
-    Inbox {
-        title: String,
-        updated_at: String,
-        scope: String,
-        gate: String,
-        filter: Option<String>,
-        items: Vec<crate::remote::Publication>,
-        selected: usize,
-    },
-    Bundles {
-        title: String,
-        updated_at: String,
-        scope: String,
-        gate: String,
-        filter: Option<String>,
-        items: Vec<crate::remote::Bundle>,
-        selected: usize,
-    },
-    Superpositions {
-        title: String,
-        updated_at: String,
-        bundle_id: String,
-        filter: Option<String>,
-        root_manifest: ObjectId,
-        variants: std::collections::BTreeMap<String, Vec<crate::model::SuperpositionVariant>>,
-        decisions: std::collections::BTreeMap<String, ResolutionDecision>,
-        validation: Option<ResolutionValidation>,
-        items: Vec<(String, usize)>,
-        selected: usize,
-    },
+fn render_view_chrome(
+    frame: &mut ratatui::Frame,
+    title: &str,
+    updated_at: &str,
+    area: ratatui::layout::Rect,
+) -> ratatui::layout::Rect {
+    let header = Line::from(vec![
+        Span::styled(title, Style::default().fg(Color::Yellow)),
+        Span::raw("  "),
+        Span::styled(updated_at, Style::default().fg(Color::Gray)),
+    ]);
+
+    let outer = Block::default().borders(Borders::ALL).title(header);
+    let inner = outer.inner(area);
+    frame.render_widget(outer, area);
+    inner
 }
 
-impl Panel {
-    fn title(&self) -> &str {
-        match self {
-            Panel::Snaps { title, .. } => title,
-            Panel::Inbox { title, .. } => title,
-            Panel::Bundles { title, .. } => title,
-            Panel::Superpositions { title, .. } => title,
+#[derive(Debug)]
+struct RootView {
+    updated_at: String,
+}
+
+impl RootView {
+    fn new() -> Self {
+        Self {
+            updated_at: now_ts(),
         }
+    }
+}
+
+impl View for RootView {
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+
+    fn as_any_mut(&mut self) -> &mut dyn Any {
+        self
+    }
+
+    fn mode(&self) -> UiMode {
+        UiMode::Root
+    }
+
+    fn title(&self) -> &str {
+        "Root"
     }
 
     fn updated_at(&self) -> &str {
-        match self {
-            Panel::Snaps { updated_at, .. } => updated_at,
-            Panel::Inbox { updated_at, .. } => updated_at,
-            Panel::Bundles { updated_at, .. } => updated_at,
-            Panel::Superpositions { updated_at, .. } => updated_at,
-        }
+        &self.updated_at
     }
 
-    fn selected(&self) -> Option<usize> {
-        match self {
-            Panel::Snaps {
-                selected, items, ..
-            } => {
-                if items.is_empty() {
-                    None
-                } else {
-                    Some((*selected).min(items.len().saturating_sub(1)))
-                }
-            }
-            Panel::Inbox {
-                selected, items, ..
-            } => {
-                if items.is_empty() {
-                    None
-                } else {
-                    Some((*selected).min(items.len().saturating_sub(1)))
-                }
-            }
-            Panel::Bundles {
-                selected, items, ..
-            } => {
-                if items.is_empty() {
-                    None
-                } else {
-                    Some((*selected).min(items.len().saturating_sub(1)))
-                }
-            }
-            Panel::Superpositions {
-                selected, items, ..
-            } => {
-                if items.is_empty() {
-                    None
-                } else {
-                    Some((*selected).min(items.len().saturating_sub(1)))
-                }
-            }
-        }
+    fn render(&self, frame: &mut ratatui::Frame, area: ratatui::layout::Rect) {
+        let inner = render_view_chrome(frame, self.title(), self.updated_at(), area);
+        let lines = vec![
+            Line::from(""),
+            Line::from("Use: snaps, inbox, bundles, superpositions"),
+            Line::from("Global: help, ping, quit"),
+            Line::from("Tip: prefix with `/` to force root commands."),
+        ];
+        frame.render_widget(Paragraph::new(lines).wrap(Wrap { trim: false }), inner);
+    }
+}
+
+#[derive(Debug)]
+struct SnapsView {
+    updated_at: String,
+    filter: Option<String>,
+    all_items: Vec<crate::model::SnapRecord>,
+    items: Vec<crate::model::SnapRecord>,
+    selected: usize,
+}
+
+impl View for SnapsView {
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+
+    fn as_any_mut(&mut self) -> &mut dyn Any {
+        self
+    }
+
+    fn mode(&self) -> UiMode {
+        UiMode::Snaps
+    }
+
+    fn title(&self) -> &str {
+        "Snaps"
+    }
+
+    fn updated_at(&self) -> &str {
+        &self.updated_at
     }
 
     fn move_up(&mut self) {
-        match self {
-            Panel::Snaps { selected, .. }
-            | Panel::Inbox { selected, .. }
-            | Panel::Bundles { selected, .. }
-            | Panel::Superpositions { selected, .. } => {
-                *selected = selected.saturating_sub(1);
-            }
-        }
+        self.selected = self.selected.saturating_sub(1);
     }
 
     fn move_down(&mut self) {
-        match self {
-            Panel::Snaps { selected, .. }
-            | Panel::Inbox { selected, .. }
-            | Panel::Bundles { selected, .. }
-            | Panel::Superpositions { selected, .. } => {
-                *selected = selected.saturating_add(1);
+        if self.items.is_empty() {
+            self.selected = 0;
+            return;
+        }
+        let max = self.items.len().saturating_sub(1);
+        self.selected = (self.selected + 1).min(max);
+    }
+
+    fn render(&self, frame: &mut ratatui::Frame, area: ratatui::layout::Rect) {
+        let inner = render_view_chrome(frame, self.title(), self.updated_at(), area);
+        let parts = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([Constraint::Percentage(65), Constraint::Percentage(35)])
+            .split(inner);
+
+        let mut state = ListState::default();
+        if !self.items.is_empty() {
+            state.select(Some(self.selected.min(self.items.len().saturating_sub(1))));
+        }
+
+        let mut rows = Vec::new();
+        for s in &self.items {
+            let sid = s.id.chars().take(8).collect::<String>();
+            let msg = s.message.clone().unwrap_or_default();
+            if msg.is_empty() {
+                rows.push(ListItem::new(format!("{} {}", sid, s.created_at)));
+            } else {
+                rows.push(ListItem::new(format!("{} {} {}", sid, s.created_at, msg)));
             }
         }
+        if rows.is_empty() {
+            rows.push(ListItem::new("(no snaps)"));
+        }
+
+        let list = List::new(rows)
+            .block(Block::default().borders(Borders::BOTTOM).title(format!(
+                "snaps{} (commands: filter, open, show, restore, back)",
+                self.filter
+                    .as_ref()
+                    .map(|f| format!(" filter={}", f))
+                    .unwrap_or_default()
+            )))
+            .highlight_style(Style::default().bg(Color::DarkGray));
+        frame.render_stateful_widget(list, parts[0], &mut state);
+
+        let details = if self.items.is_empty() {
+            vec![Line::from("(no selection)")]
+        } else {
+            let idx = self.selected.min(self.items.len().saturating_sub(1));
+            let s = &self.items[idx];
+            let mut out = Vec::new();
+            out.push(Line::from(format!("id: {}", s.id)));
+            out.push(Line::from(format!("created_at: {}", s.created_at)));
+            if let Some(msg) = &s.message
+                && !msg.is_empty()
+            {
+                out.push(Line::from(format!("message: {}", msg)));
+            }
+            out.push(Line::from(format!(
+                "root_manifest: {}",
+                s.root_manifest.as_str()
+            )));
+            out.push(Line::from(format!(
+                "stats: files={} dirs={} symlinks={} bytes={}",
+                s.stats.files, s.stats.dirs, s.stats.symlinks, s.stats.bytes
+            )));
+            out
+        };
+        frame.render_widget(Paragraph::new(details).wrap(Wrap { trim: false }), parts[1]);
+    }
+}
+
+#[derive(Debug)]
+struct InboxView {
+    updated_at: String,
+    scope: String,
+    gate: String,
+    filter: Option<String>,
+    items: Vec<crate::remote::Publication>,
+    selected: usize,
+}
+
+impl View for InboxView {
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+
+    fn as_any_mut(&mut self) -> &mut dyn Any {
+        self
+    }
+
+    fn mode(&self) -> UiMode {
+        UiMode::Inbox
+    }
+
+    fn title(&self) -> &str {
+        "Inbox"
+    }
+
+    fn updated_at(&self) -> &str {
+        &self.updated_at
+    }
+
+    fn move_up(&mut self) {
+        self.selected = self.selected.saturating_sub(1);
+    }
+
+    fn move_down(&mut self) {
+        if self.items.is_empty() {
+            self.selected = 0;
+            return;
+        }
+        let max = self.items.len().saturating_sub(1);
+        self.selected = (self.selected + 1).min(max);
+    }
+
+    fn render(&self, frame: &mut ratatui::Frame, area: ratatui::layout::Rect) {
+        let inner = render_view_chrome(frame, self.title(), self.updated_at(), area);
+        let parts = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([Constraint::Percentage(65), Constraint::Percentage(35)])
+            .split(inner);
+
+        let mut state = ListState::default();
+        if !self.items.is_empty() {
+            state.select(Some(self.selected.min(self.items.len().saturating_sub(1))));
+        }
+
+        let mut rows = Vec::new();
+        for p in &self.items {
+            let rid = p.id.chars().take(8).collect::<String>();
+            let sid = p.snap_id.chars().take(8).collect::<String>();
+            let res = if p.resolution.is_some() {
+                " resolved"
+            } else {
+                ""
+            };
+            rows.push(ListItem::new(format!("{} {}{}", rid, sid, res)));
+        }
+        if rows.is_empty() {
+            rows.push(ListItem::new("(empty)"));
+        }
+
+        let list = List::new(rows)
+            .block(Block::default().borders(Borders::BOTTOM).title(format!(
+                "scope={} gate={}{}",
+                self.scope,
+                self.gate,
+                self.filter
+                    .as_ref()
+                    .map(|f| format!(" filter={}", f))
+                    .unwrap_or_default()
+            )))
+            .highlight_style(Style::default().bg(Color::DarkGray));
+        frame.render_stateful_widget(list, parts[0], &mut state);
+
+        let details = if self.items.is_empty() {
+            vec![Line::from("(no selection)")]
+        } else {
+            let idx = self.selected.min(self.items.len().saturating_sub(1));
+            let p = &self.items[idx];
+            let mut out = Vec::new();
+            out.push(Line::from(format!("id: {}", p.id)));
+            out.push(Line::from(format!("snap: {}", p.snap_id)));
+            out.push(Line::from(format!("publisher: {}", p.publisher)));
+            out.push(Line::from(format!("created_at: {}", p.created_at)));
+            if let Some(r) = &p.resolution {
+                out.push(Line::from(""));
+                out.push(Line::from("resolution:"));
+                out.push(Line::from(format!("  bundle_id: {}", r.bundle_id)));
+            }
+            out
+        };
+        frame.render_widget(Paragraph::new(details).wrap(Wrap { trim: false }), parts[1]);
+    }
+}
+
+#[derive(Debug)]
+struct BundlesView {
+    updated_at: String,
+    scope: String,
+    gate: String,
+    filter: Option<String>,
+    items: Vec<crate::remote::Bundle>,
+    selected: usize,
+}
+
+impl View for BundlesView {
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+
+    fn as_any_mut(&mut self) -> &mut dyn Any {
+        self
+    }
+
+    fn mode(&self) -> UiMode {
+        UiMode::Bundles
+    }
+
+    fn title(&self) -> &str {
+        "Bundles"
+    }
+
+    fn updated_at(&self) -> &str {
+        &self.updated_at
+    }
+
+    fn move_up(&mut self) {
+        self.selected = self.selected.saturating_sub(1);
+    }
+
+    fn move_down(&mut self) {
+        if self.items.is_empty() {
+            self.selected = 0;
+            return;
+        }
+        let max = self.items.len().saturating_sub(1);
+        self.selected = (self.selected + 1).min(max);
+    }
+
+    fn render(&self, frame: &mut ratatui::Frame, area: ratatui::layout::Rect) {
+        let inner = render_view_chrome(frame, self.title(), self.updated_at(), area);
+        let parts = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([Constraint::Percentage(65), Constraint::Percentage(35)])
+            .split(inner);
+
+        let mut state = ListState::default();
+        if !self.items.is_empty() {
+            state.select(Some(self.selected.min(self.items.len().saturating_sub(1))));
+        }
+
+        let mut rows = Vec::new();
+        for b in &self.items {
+            let bid = b.id.chars().take(8).collect::<String>();
+            let tag = if b.promotable {
+                "promotable"
+            } else {
+                "blocked"
+            };
+            rows.push(ListItem::new(format!("{} {}", bid, tag)));
+        }
+        if rows.is_empty() {
+            rows.push(ListItem::new("(empty)"));
+        }
+
+        let list = List::new(rows)
+            .block(Block::default().borders(Borders::BOTTOM).title(format!(
+                "scope={} gate={}{}",
+                self.scope,
+                self.gate,
+                self.filter
+                    .as_ref()
+                    .map(|f| format!(" filter={}", f))
+                    .unwrap_or_default()
+            )))
+            .highlight_style(Style::default().bg(Color::DarkGray));
+        frame.render_stateful_widget(list, parts[0], &mut state);
+
+        let details = if self.items.is_empty() {
+            vec![Line::from("(no selection)")]
+        } else {
+            let idx = self.selected.min(self.items.len().saturating_sub(1));
+            let b = &self.items[idx];
+            let mut out = Vec::new();
+            out.push(Line::from(format!("id: {}", b.id)));
+            out.push(Line::from(format!("created_at: {}", b.created_at)));
+            out.push(Line::from(format!("created_by: {}", b.created_by)));
+            out.push(Line::from(format!("promotable: {}", b.promotable)));
+            if !b.reasons.is_empty() {
+                out.push(Line::from(format!("reasons: {}", b.reasons.join(", "))));
+            }
+            out
+        };
+        frame.render_widget(Paragraph::new(details).wrap(Wrap { trim: false }), parts[1]);
+    }
+}
+
+#[derive(Debug)]
+struct SuperpositionsView {
+    updated_at: String,
+    bundle_id: String,
+    filter: Option<String>,
+    root_manifest: ObjectId,
+    variants: std::collections::BTreeMap<String, Vec<crate::model::SuperpositionVariant>>,
+    decisions: std::collections::BTreeMap<String, ResolutionDecision>,
+    validation: Option<ResolutionValidation>,
+    items: Vec<(String, usize)>,
+    selected: usize,
+}
+
+impl View for SuperpositionsView {
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+
+    fn as_any_mut(&mut self) -> &mut dyn Any {
+        self
+    }
+
+    fn mode(&self) -> UiMode {
+        UiMode::Superpositions
+    }
+
+    fn title(&self) -> &str {
+        "Superpositions"
+    }
+
+    fn updated_at(&self) -> &str {
+        &self.updated_at
+    }
+
+    fn move_up(&mut self) {
+        self.selected = self.selected.saturating_sub(1);
+    }
+
+    fn move_down(&mut self) {
+        if self.items.is_empty() {
+            self.selected = 0;
+            return;
+        }
+        let max = self.items.len().saturating_sub(1);
+        self.selected = (self.selected + 1).min(max);
+    }
+
+    fn render(&self, frame: &mut ratatui::Frame, area: ratatui::layout::Rect) {
+        let inner = render_view_chrome(frame, self.title(), self.updated_at(), area);
+        let parts = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([Constraint::Percentage(65), Constraint::Percentage(35)])
+            .split(inner);
+
+        let mut state = ListState::default();
+        if !self.items.is_empty() {
+            state.select(Some(self.selected.min(self.items.len().saturating_sub(1))));
+        }
+
+        let mut rows = Vec::new();
+        for (p, n) in &self.items {
+            let mark = match self.decisions.get(p) {
+                None => " ".to_string(),
+                Some(ResolutionDecision::Index(i)) => {
+                    let n = (*i as usize) + 1;
+                    if n <= 9 {
+                        format!("{}", n)
+                    } else {
+                        "*".to_string()
+                    }
+                }
+                Some(ResolutionDecision::Key(k)) => {
+                    let idx = self
+                        .variants
+                        .get(p)
+                        .and_then(|vs| vs.iter().position(|v| v.key() == *k));
+                    match idx {
+                        Some(i) if i < 9 => format!("{}", i + 1),
+                        Some(_) => "*".to_string(),
+                        None => "!".to_string(),
+                    }
+                }
+            };
+            rows.push(ListItem::new(format!("[{}] {} ({})", mark, p, n)));
+        }
+        if rows.is_empty() {
+            rows.push(ListItem::new("(none)"));
+        }
+
+        let list = List::new(rows)
+            .block(Block::default().borders(Borders::BOTTOM).title(format!(
+                "bundle={}{}{} (Alt+1..9 pick, Alt+0 clear, Alt+n next missing, Alt+f next invalid)",
+                self.bundle_id.chars().take(8).collect::<String>(),
+                self.filter
+                    .as_ref()
+                    .map(|f| format!(" filter={}", f))
+                    .unwrap_or_default(),
+                self.validation
+                    .as_ref()
+                    .map(|v| {
+                        format!(
+                            " missing={} invalid={}",
+                            v.missing.len(),
+                            v.invalid_keys.len() + v.out_of_range.len()
+                        )
+                    })
+                    .unwrap_or_default()
+            )))
+            .highlight_style(Style::default().bg(Color::DarkGray));
+        frame.render_stateful_widget(list, parts[0], &mut state);
+
+        let details = if self.items.is_empty() {
+            vec![Line::from("(no selection)")]
+        } else {
+            let idx = self.selected.min(self.items.len().saturating_sub(1));
+            let (p, n) = &self.items[idx];
+            let mut out = Vec::new();
+            out.push(Line::from(format!("path: {}", p)));
+            out.push(Line::from(format!("variants: {}", n)));
+            out.push(Line::from(format!(
+                "root_manifest: {}",
+                self.root_manifest.as_str()
+            )));
+
+            if let Some(vr) = &self.validation {
+                out.push(Line::from(""));
+                out.push(Line::from(format!(
+                    "validation: {}",
+                    if vr.ok { "ok" } else { "invalid" }
+                )));
+                if !vr.missing.is_empty() {
+                    out.push(Line::from(format!("missing: {}", vr.missing.len())));
+                }
+                if !vr.invalid_keys.is_empty() {
+                    out.push(Line::from(format!(
+                        "invalid_keys: {}",
+                        vr.invalid_keys.len()
+                    )));
+                }
+                if !vr.out_of_range.is_empty() {
+                    out.push(Line::from(format!(
+                        "out_of_range: {}",
+                        vr.out_of_range.len()
+                    )));
+                }
+                if !vr.extraneous.is_empty() {
+                    out.push(Line::from(format!("extraneous: {}", vr.extraneous.len())));
+                }
+            }
+
+            let chosen = self.decisions.get(p);
+            out.push(Line::from(""));
+            match chosen {
+                None => {
+                    out.push(Line::from("decision: (missing)"));
+                }
+                Some(ResolutionDecision::Index(i)) => {
+                    out.push(Line::from(format!("decision: index {}", i)));
+                }
+                Some(ResolutionDecision::Key(k)) => {
+                    let key_json = serde_json::to_string(k).unwrap_or_else(|_| "<key>".to_string());
+                    out.push(Line::from(format!("decision: key {}", key_json)));
+                }
+            }
+
+            if let Some(vs) = self.variants.get(p) {
+                out.push(Line::from(""));
+                out.push(Line::from("variants:"));
+                for (i, v) in vs.iter().enumerate() {
+                    let key_json =
+                        serde_json::to_string(&v.key()).unwrap_or_else(|_| "<key>".to_string());
+                    out.push(Line::from(format!("  #{} source={}", i + 1, v.source)));
+                    out.push(Line::from(format!("    key={}", key_json)));
+                    match &v.kind {
+                        crate::model::SuperpositionVariantKind::File { blob, mode, size } => {
+                            out.push(Line::from(format!(
+                                "    file blob={} mode={:#o} size={}",
+                                blob.as_str(),
+                                mode,
+                                size
+                            )));
+                        }
+                        crate::model::SuperpositionVariantKind::Dir { manifest } => {
+                            out.push(Line::from(format!(
+                                "    dir manifest={}",
+                                manifest.as_str()
+                            )));
+                        }
+                        crate::model::SuperpositionVariantKind::Symlink { target } => {
+                            out.push(Line::from(format!("    symlink target={}", target)));
+                        }
+                        crate::model::SuperpositionVariantKind::Tombstone => {
+                            out.push(Line::from("    tombstone"));
+                        }
+                    }
+                }
+            }
+
+            out
+        };
+        frame.render_widget(Paragraph::new(details).wrap(Wrap { trim: false }), parts[1]);
     }
 }
 
@@ -454,6 +925,18 @@ fn snaps_command_defs() -> Vec<CommandDef> {
             help: "Return to root",
         },
         CommandDef {
+            name: "filter",
+            aliases: &[],
+            usage: "filter <q>",
+            help: "Filter snaps by id/message/time",
+        },
+        CommandDef {
+            name: "clear-filter",
+            aliases: &["unfilter"],
+            usage: "clear-filter",
+            help: "Clear snap filter",
+        },
+        CommandDef {
             name: "open",
             aliases: &[],
             usage: "open <snap_id_prefix>",
@@ -474,6 +957,105 @@ fn snaps_command_defs() -> Vec<CommandDef> {
     ]
 }
 
+fn inbox_command_defs() -> Vec<CommandDef> {
+    vec![
+        CommandDef {
+            name: "back",
+            aliases: &[],
+            usage: "back",
+            help: "Return to root",
+        },
+        CommandDef {
+            name: "bundle",
+            aliases: &[],
+            usage: "bundle [<publication_id>]",
+            help: "Create bundle from selection",
+        },
+        CommandDef {
+            name: "fetch",
+            aliases: &[],
+            usage: "fetch [<snap_id>]",
+            help: "Fetch selected snap",
+        },
+    ]
+}
+
+fn bundles_command_defs() -> Vec<CommandDef> {
+    vec![
+        CommandDef {
+            name: "back",
+            aliases: &[],
+            usage: "back",
+            help: "Return to root",
+        },
+        CommandDef {
+            name: "approve",
+            aliases: &[],
+            usage: "approve [<bundle_id>]",
+            help: "Approve selected bundle",
+        },
+        CommandDef {
+            name: "promote",
+            aliases: &[],
+            usage: "promote [--to-gate <id>]",
+            help: "Promote selected bundle",
+        },
+        CommandDef {
+            name: "superpositions",
+            aliases: &["supers"],
+            usage: "superpositions",
+            help: "Open superpositions for selected bundle",
+        },
+    ]
+}
+
+fn superpositions_command_defs() -> Vec<CommandDef> {
+    vec![
+        CommandDef {
+            name: "back",
+            aliases: &[],
+            usage: "back",
+            help: "Return to root",
+        },
+        CommandDef {
+            name: "pick",
+            aliases: &[],
+            usage: "pick <n>",
+            help: "Pick variant for selected path",
+        },
+        CommandDef {
+            name: "clear",
+            aliases: &[],
+            usage: "clear",
+            help: "Clear decision for selected path",
+        },
+        CommandDef {
+            name: "next-missing",
+            aliases: &[],
+            usage: "next-missing",
+            help: "Jump to next missing decision",
+        },
+        CommandDef {
+            name: "next-invalid",
+            aliases: &[],
+            usage: "next-invalid",
+            help: "Jump to next invalid decision",
+        },
+        CommandDef {
+            name: "validate",
+            aliases: &[],
+            usage: "validate",
+            help: "Recompute validation",
+        },
+        CommandDef {
+            name: "apply",
+            aliases: &[],
+            usage: "apply [--publish]",
+            help: "Apply resolution and optionally publish",
+        },
+    ]
+}
+
 fn mode_command_defs(mode: UiMode) -> Vec<CommandDef> {
     match mode {
         UiMode::Root => command_defs(),
@@ -482,13 +1064,18 @@ fn mode_command_defs(mode: UiMode) -> Vec<CommandDef> {
             out.extend(global_command_defs());
             out
         }
-        UiMode::Inbox | UiMode::Bundles | UiMode::Superpositions => {
-            let mut out = vec![CommandDef {
-                name: "back",
-                aliases: &[],
-                usage: "back",
-                help: "Return to root",
-            }];
+        UiMode::Inbox => {
+            let mut out = inbox_command_defs();
+            out.extend(global_command_defs());
+            out
+        }
+        UiMode::Bundles => {
+            let mut out = bundles_command_defs();
+            out.extend(global_command_defs());
+            out
+        }
+        UiMode::Superpositions => {
+            let mut out = superpositions_command_defs();
             out.extend(global_command_defs());
             out
         }
@@ -533,8 +1120,7 @@ impl Default for App {
             suggestions: Vec::new(),
             suggestion_selected: 0,
             frames: vec![ViewFrame {
-                mode: UiMode::Root,
-                panel: None,
+                view: Box::new(RootView::new()),
             }],
             quit: false,
         }
@@ -569,21 +1155,41 @@ impl App {
     }
 
     fn mode(&self) -> UiMode {
-        self.frames.last().map(|f| f.mode).unwrap_or(UiMode::Root)
+        self.frames
+            .last()
+            .map(|f| f.view.mode())
+            .unwrap_or(UiMode::Root)
     }
 
-    fn panel(&self) -> Option<&Panel> {
-        self.frames.last().and_then(|f| f.panel.as_ref())
+    fn view(&self) -> &dyn View {
+        self.frames
+            .last()
+            .map(|f| f.view.as_ref())
+            .expect("app always has a root frame")
     }
 
-    fn panel_mut(&mut self) -> Option<&mut Panel> {
-        self.frames.last_mut().and_then(|f| f.panel.as_mut())
+    fn view_mut(&mut self) -> &mut dyn View {
+        self.frames
+            .last_mut()
+            .map(|f| f.view.as_mut())
+            .expect("app always has a root frame")
     }
 
-    fn push_mode(&mut self, mode: UiMode, panel: Panel) {
+    fn current_view_mut<T: Any>(&mut self) -> Option<&mut T> {
+        self.frames
+            .last_mut()
+            .and_then(|f| f.view.as_any_mut().downcast_mut::<T>())
+    }
+
+    fn current_view<T: Any>(&self) -> Option<&T> {
+        self.frames
+            .last()
+            .and_then(|f| f.view.as_any().downcast_ref::<T>())
+    }
+
+    fn push_view<V: View>(&mut self, view: V) {
         self.frames.push(ViewFrame {
-            mode,
-            panel: Some(panel),
+            view: Box::new(view),
         });
     }
 
@@ -818,6 +1424,8 @@ impl App {
                     self.pop_mode();
                     self.push_output(vec!["back".to_string()]);
                 }
+                "filter" => self.cmd_snaps_filter(args),
+                "clear-filter" => self.cmd_snaps_clear_filter(args),
                 "open" => self.cmd_snaps_open(args),
                 "show" => self.cmd_snaps_show(args),
                 "restore" => self.cmd_snaps_restore(args),
@@ -830,11 +1438,50 @@ impl App {
                     }
                 }
             },
-            UiMode::Inbox | UiMode::Bundles | UiMode::Superpositions => match cmd {
+            UiMode::Inbox => match cmd {
                 "back" => {
                     self.pop_mode();
                     self.push_output(vec!["back".to_string()]);
                 }
+                "bundle" => self.cmd_inbox_bundle_mode(args),
+                "fetch" => self.cmd_inbox_fetch_mode(args),
+                _ => {
+                    if !self.dispatch_global(cmd, args) {
+                        self.push_error(format!(
+                            "unknown command in {:?} mode: {} (try /help)",
+                            mode, cmd
+                        ));
+                    }
+                }
+            },
+            UiMode::Bundles => match cmd {
+                "back" => {
+                    self.pop_mode();
+                    self.push_output(vec!["back".to_string()]);
+                }
+                "approve" => self.cmd_bundles_approve_mode(args),
+                "promote" => self.cmd_bundles_promote_mode(args),
+                "superpositions" | "supers" => self.cmd_bundles_superpositions_mode(args),
+                _ => {
+                    if !self.dispatch_global(cmd, args) {
+                        self.push_error(format!(
+                            "unknown command in {:?} mode: {} (try /help)",
+                            mode, cmd
+                        ));
+                    }
+                }
+            },
+            UiMode::Superpositions => match cmd {
+                "back" => {
+                    self.pop_mode();
+                    self.push_output(vec!["back".to_string()]);
+                }
+                "pick" => self.cmd_superpositions_pick_mode(args),
+                "clear" => self.cmd_superpositions_clear_mode(args),
+                "next-missing" => self.cmd_superpositions_next_missing_mode(args),
+                "next-invalid" => self.cmd_superpositions_next_invalid_mode(args),
+                "validate" => self.cmd_superpositions_validate_mode(args),
+                "apply" => self.cmd_superpositions_apply_mode(args),
                 _ => {
                     if !self.dispatch_global(cmd, args) {
                         self.push_error(format!(
@@ -1063,16 +1710,13 @@ impl App {
                     snaps
                 };
 
-                self.push_mode(
-                    UiMode::Snaps,
-                    Panel::Snaps {
-                        title: "Snaps".to_string(),
-                        updated_at: now_ts(),
-                        filter: None,
-                        items,
-                        selected: 0,
-                    },
-                );
+                self.push_view(SnapsView {
+                    updated_at: now_ts(),
+                    filter: None,
+                    all_items: items.clone(),
+                    items,
+                    selected: 0,
+                });
                 self.push_output(vec!["opened snaps".to_string()]);
             }
             Err(err) => {
@@ -1090,36 +1734,115 @@ impl App {
         let q = args[0].to_lowercase();
 
         let selected_id = {
-            let Some(Panel::Snaps {
-                items,
-                selected,
-                updated_at,
-                ..
-            }) = self.panel_mut()
-            else {
+            let Some(v) = self.current_view_mut::<SnapsView>() else {
                 self.push_error("not in snaps mode".to_string());
                 return;
             };
 
-            let mut found = None;
-            for (i, s) in items.iter().enumerate() {
-                if s.id.to_lowercase().starts_with(&q) {
-                    found = Some(i);
-                    break;
-                }
-            }
+            let filter = &mut v.filter;
+            let all_items = &mut v.all_items;
+            let items = &mut v.items;
+            let selected = &mut v.selected;
+            let updated_at = &mut v.updated_at;
 
-            let Some(i) = found else {
+            if let Some(i) = items
+                .iter()
+                .position(|s| s.id.to_lowercase().starts_with(&q))
+            {
+                *selected = i;
+                *updated_at = now_ts();
+                items[i].id.clone()
+            } else if let Some(i) = all_items
+                .iter()
+                .position(|s| s.id.to_lowercase().starts_with(&q))
+            {
+                *filter = None;
+                *items = all_items.clone();
+                *selected = i;
+                *updated_at = now_ts();
+                items[i].id.clone()
+            } else {
                 self.push_error(format!("no snap matches {}", args[0]));
                 return;
-            };
-
-            *selected = i;
-            *updated_at = now_ts();
-            items[i].id.clone()
+            }
         };
 
         self.push_output(vec![format!("selected {}", selected_id)]);
+    }
+
+    fn cmd_snaps_filter(&mut self, args: &[String]) {
+        let q = args.join(" ").trim().to_string();
+
+        let out: std::result::Result<String, String> = match self.current_view_mut::<SnapsView>() {
+            Some(SnapsView {
+                filter,
+                all_items,
+                items,
+                selected,
+                updated_at,
+                ..
+            }) => {
+                if q.is_empty() {
+                    let label = filter.clone().unwrap_or_else(|| "(none)".to_string());
+                    Ok(format!("filter: {} ({} items)", label, items.len()))
+                } else {
+                    let q_lc = q.to_lowercase();
+                    let mut next = Vec::new();
+                    for s in all_items.iter() {
+                        let mut ok = s.id.to_lowercase().contains(&q_lc)
+                            || s.created_at.to_lowercase().contains(&q_lc);
+                        if !ok && let Some(msg) = &s.message {
+                            ok = msg.to_lowercase().contains(&q_lc);
+                        }
+                        if ok {
+                            next.push(s.clone());
+                        }
+                    }
+
+                    *filter = Some(q);
+                    *items = next;
+                    *selected = 0;
+                    *updated_at = now_ts();
+                    Ok(format!("filtered to {} snaps", items.len()))
+                }
+            }
+            _ => Err("not in snaps mode".to_string()),
+        };
+
+        match out {
+            Ok(line) => self.push_output(vec![line]),
+            Err(err) => self.push_error(err),
+        }
+    }
+
+    fn cmd_snaps_clear_filter(&mut self, args: &[String]) {
+        if !args.is_empty() {
+            self.push_error("usage: clear-filter".to_string());
+            return;
+        }
+
+        let out: std::result::Result<String, String> = match self.current_view_mut::<SnapsView>() {
+            Some(SnapsView {
+                filter,
+                all_items,
+                items,
+                selected,
+                updated_at,
+                ..
+            }) => {
+                *filter = None;
+                *items = all_items.clone();
+                *selected = 0;
+                *updated_at = now_ts();
+                Ok(format!("cleared filter ({} snaps)", items.len()))
+            }
+            _ => Err("not in snaps mode".to_string()),
+        };
+
+        match out {
+            Ok(line) => self.push_output(vec![line]),
+            Err(err) => self.push_error(err),
+        }
     }
 
     fn cmd_snaps_show(&mut self, args: &[String]) {
@@ -1128,9 +1851,9 @@ impl App {
             return;
         }
 
-        let Some(Panel::Snaps {
+        let Some(SnapsView {
             items, selected, ..
-        }) = self.panel()
+        }) = self.current_view::<SnapsView>()
         else {
             self.push_error("not in snaps mode".to_string());
             return;
@@ -1180,9 +1903,9 @@ impl App {
         }
 
         if snap_id.is_none()
-            && let Some(Panel::Snaps {
+            && let Some(SnapsView {
                 items, selected, ..
-            }) = self.panel()
+            }) = self.current_view::<SnapsView>()
             && !items.is_empty()
         {
             let idx = (*selected).min(items.len().saturating_sub(1));
@@ -1197,6 +1920,299 @@ impl App {
         match ws.restore_snap(&snap_id, force) {
             Ok(()) => self.push_output(vec![format!("restored {}", snap_id)]),
             Err(err) => self.push_error(format!("restore: {:#}", err)),
+        }
+    }
+
+    fn cmd_inbox_bundle_mode(&mut self, args: &[String]) {
+        if args.len() > 1 {
+            self.push_error("usage: bundle [<publication_id>]".to_string());
+            return;
+        }
+
+        let pub_id = if let Some(id) = args.first() {
+            id.clone()
+        } else {
+            let Some(v) = self.current_view::<InboxView>() else {
+                self.push_error("not in inbox mode".to_string());
+                return;
+            };
+            if v.items.is_empty() {
+                self.push_error("(no selection)".to_string());
+                return;
+            }
+            let idx = v.selected.min(v.items.len().saturating_sub(1));
+            v.items[idx].id.clone()
+        };
+
+        self.cmd_bundle(&["--publication".to_string(), pub_id]);
+    }
+
+    fn cmd_inbox_fetch_mode(&mut self, args: &[String]) {
+        if args.len() > 1 {
+            self.push_error("usage: fetch [<snap_id>]".to_string());
+            return;
+        }
+
+        let snap_id = if let Some(id) = args.first() {
+            id.clone()
+        } else {
+            let Some(v) = self.current_view::<InboxView>() else {
+                self.push_error("not in inbox mode".to_string());
+                return;
+            };
+            if v.items.is_empty() {
+                self.push_error("(no selection)".to_string());
+                return;
+            }
+            let idx = v.selected.min(v.items.len().saturating_sub(1));
+            v.items[idx].snap_id.clone()
+        };
+
+        self.cmd_fetch(&["--snap-id".to_string(), snap_id]);
+    }
+
+    fn cmd_bundles_approve_mode(&mut self, args: &[String]) {
+        if args.len() > 1 {
+            self.push_error("usage: approve [<bundle_id>]".to_string());
+            return;
+        }
+
+        let bundle_id = if let Some(id) = args.first() {
+            id.clone()
+        } else {
+            let Some(v) = self.current_view::<BundlesView>() else {
+                self.push_error("not in bundles mode".to_string());
+                return;
+            };
+            if v.items.is_empty() {
+                self.push_error("(no selection)".to_string());
+                return;
+            }
+            let idx = v.selected.min(v.items.len().saturating_sub(1));
+            v.items[idx].id.clone()
+        };
+
+        self.cmd_approve(&["--bundle-id".to_string(), bundle_id]);
+    }
+
+    fn cmd_bundles_promote_mode(&mut self, args: &[String]) {
+        let Some(v) = self.current_view::<BundlesView>() else {
+            self.push_error("not in bundles mode".to_string());
+            return;
+        };
+        if v.items.is_empty() {
+            self.push_error("(no selection)".to_string());
+            return;
+        }
+        let idx = v.selected.min(v.items.len().saturating_sub(1));
+        let bundle_id = v.items[idx].id.clone();
+
+        let mut argv = vec!["--bundle-id".to_string(), bundle_id];
+        argv.extend(args.iter().cloned());
+        self.cmd_promote(&argv);
+    }
+
+    fn cmd_bundles_superpositions_mode(&mut self, args: &[String]) {
+        if !args.is_empty() {
+            self.push_error("usage: superpositions".to_string());
+            return;
+        }
+
+        let Some(v) = self.current_view::<BundlesView>() else {
+            self.push_error("not in bundles mode".to_string());
+            return;
+        };
+        if v.items.is_empty() {
+            self.push_error("(no selection)".to_string());
+            return;
+        }
+        let idx = v.selected.min(v.items.len().saturating_sub(1));
+        let bundle_id = v.items[idx].id.clone();
+
+        self.cmd_superpositions(&["--bundle-id".to_string(), bundle_id]);
+    }
+
+    fn cmd_superpositions_pick_mode(&mut self, args: &[String]) {
+        if args.len() != 1 {
+            self.push_error("usage: pick <n>".to_string());
+            return;
+        }
+        let n = match args[0].parse::<usize>() {
+            Ok(n) => n,
+            Err(_) => {
+                self.push_error("invalid variant number".to_string());
+                return;
+            }
+        };
+        if n == 0 {
+            self.push_error("variant numbers are 1-based".to_string());
+            return;
+        }
+        superpositions_pick_variant(self, n - 1);
+    }
+
+    fn cmd_superpositions_clear_mode(&mut self, args: &[String]) {
+        if !args.is_empty() {
+            self.push_error("usage: clear".to_string());
+            return;
+        }
+        superpositions_clear_decision(self);
+    }
+
+    fn cmd_superpositions_next_missing_mode(&mut self, args: &[String]) {
+        if !args.is_empty() {
+            self.push_error("usage: next-missing".to_string());
+            return;
+        }
+        superpositions_jump_next_missing(self);
+    }
+
+    fn cmd_superpositions_next_invalid_mode(&mut self, args: &[String]) {
+        if !args.is_empty() {
+            self.push_error("usage: next-invalid".to_string());
+            return;
+        }
+        superpositions_jump_next_invalid(self);
+    }
+
+    fn cmd_superpositions_validate_mode(&mut self, args: &[String]) {
+        if !args.is_empty() {
+            self.push_error("usage: validate".to_string());
+            return;
+        }
+
+        let Some(ws) = self.require_workspace() else {
+            return;
+        };
+
+        let out: std::result::Result<String, String> = match self
+            .current_view_mut::<SuperpositionsView>()
+        {
+            Some(v) => {
+                v.validation = validate_resolution(&ws.store, &v.root_manifest, &v.decisions).ok();
+                v.updated_at = now_ts();
+                let ok = v.validation.as_ref().is_some_and(|r| r.ok);
+                Ok(format!("validation: {}", if ok { "ok" } else { "invalid" }))
+            }
+            None => Err("not in superpositions mode".to_string()),
+        };
+
+        match out {
+            Ok(line) => self.push_output(vec![line]),
+            Err(err) => self.push_error(err),
+        }
+    }
+
+    fn cmd_superpositions_apply_mode(&mut self, args: &[String]) {
+        let mut publish = false;
+        for a in args {
+            match a.as_str() {
+                "--publish" => publish = true,
+                _ => {
+                    self.push_error("usage: apply [--publish]".to_string());
+                    return;
+                }
+            }
+        }
+
+        let Some(ws) = self.require_workspace() else {
+            return;
+        };
+
+        let Some((bundle_id, root_manifest)) = self
+            .current_view::<SuperpositionsView>()
+            .map(|v| (v.bundle_id.clone(), v.root_manifest.clone()))
+        else {
+            self.push_error("not in superpositions mode".to_string());
+            return;
+        };
+
+        let resolution = match ws.store.get_resolution(&bundle_id) {
+            Ok(r) => r,
+            Err(err) => {
+                self.push_error(format!("load resolution: {:#}", err));
+                return;
+            }
+        };
+        if resolution.root_manifest != root_manifest {
+            self.push_error("resolution root_manifest mismatch".to_string());
+            return;
+        }
+
+        let resolved_root = match crate::resolve::apply_resolution(
+            &ws.store,
+            &root_manifest,
+            &resolution.decisions,
+        ) {
+            Ok(r) => r,
+            Err(err) => {
+                self.push_error(format!("apply resolution: {:#}", err));
+                return;
+            }
+        };
+
+        let created_at = now_ts();
+        let snap_id = crate::model::compute_snap_id(&created_at, &resolved_root, None);
+        let snap = crate::model::SnapRecord {
+            version: 1,
+            id: snap_id,
+            created_at: created_at.clone(),
+            root_manifest: resolved_root,
+            message: None,
+            stats: crate::model::SnapStats::default(),
+        };
+
+        if let Err(err) = ws.store.put_snap(&snap) {
+            self.push_error(format!("write snap: {:#}", err));
+            return;
+        }
+
+        let mut pub_id: Option<String> = None;
+        if publish {
+            let remote = match self.remote_config() {
+                Some(r) => r,
+                None => {
+                    self.push_error("no remote configured".to_string());
+                    return;
+                }
+            };
+            let client = match RemoteClient::new(remote.clone()) {
+                Ok(c) => c,
+                Err(err) => {
+                    self.push_error(format!("init remote client: {:#}", err));
+                    return;
+                }
+            };
+
+            let res_meta = crate::remote::PublicationResolution {
+                bundle_id: bundle_id.clone(),
+                root_manifest: root_manifest.as_str().to_string(),
+                resolved_root_manifest: snap.root_manifest.as_str().to_string(),
+                created_at: snap.created_at.clone(),
+            };
+
+            match client.publish_snap_with_resolution(
+                &ws.store,
+                &snap,
+                &remote.scope,
+                &remote.gate,
+                Some(res_meta),
+            ) {
+                Ok(p) => pub_id = Some(p.id),
+                Err(err) => {
+                    self.push_error(format!("publish: {:#}", err));
+                    return;
+                }
+            }
+        }
+
+        if let Some(pid) = pub_id {
+            self.push_output(vec![format!(
+                "resolved snap {} (published {})",
+                snap.id, pid
+            )]);
+        } else {
+            self.push_output(vec![format!("resolved snap {}", snap.id)]);
         }
     }
 
@@ -1655,18 +2671,14 @@ impl App {
         }
 
         let count = pubs.len();
-        self.push_mode(
-            UiMode::Inbox,
-            Panel::Inbox {
-                title: "Inbox".to_string(),
-                updated_at: now_ts(),
-                scope,
-                gate,
-                filter,
-                items: pubs,
-                selected: 0,
-            },
-        );
+        self.push_view(InboxView {
+            updated_at: now_ts(),
+            scope,
+            gate,
+            filter,
+            items: pubs,
+            selected: 0,
+        });
         self.push_output(vec![format!("opened inbox ({} items)", count)]);
     }
 
@@ -1772,18 +2784,14 @@ impl App {
         }
 
         let count = bundles.len();
-        self.push_mode(
-            UiMode::Bundles,
-            Panel::Bundles {
-                title: "Bundles".to_string(),
-                updated_at: now_ts(),
-                scope,
-                gate,
-                filter,
-                items: bundles,
-                selected: 0,
-            },
-        );
+        self.push_view(BundlesView {
+            updated_at: now_ts(),
+            scope,
+            gate,
+            filter,
+            items: bundles,
+            selected: 0,
+        });
         self.push_output(vec![format!("opened bundles ({} items)", count)]);
     }
 
@@ -2069,21 +3077,17 @@ impl App {
         }
 
         let count = items.len();
-        self.push_mode(
-            UiMode::Superpositions,
-            Panel::Superpositions {
-                title: "Superpositions".to_string(),
-                updated_at: now_ts(),
-                bundle_id,
-                filter,
-                root_manifest: root,
-                variants,
-                decisions,
-                validation,
-                items,
-                selected: 0,
-            },
-        );
+        self.push_view(SuperpositionsView {
+            updated_at: now_ts(),
+            bundle_id,
+            filter,
+            root_manifest: root,
+            variants,
+            decisions,
+            validation,
+            items,
+            selected: 0,
+        });
         self.push_output(vec![format!("opened superpositions ({} paths)", count)]);
     }
 }
@@ -2197,20 +3201,16 @@ fn handle_key(app: &mut App, key: KeyEvent) {
         }
 
         KeyCode::Up => {
-            if app.input.buf.is_empty()
-                && let Some(p) = app.panel_mut()
-            {
-                p.move_up();
+            if app.input.buf.is_empty() {
+                app.view_mut().move_up();
                 return;
             }
             app.input.history_up();
             app.recompute_suggestions();
         }
         KeyCode::Down => {
-            if app.input.buf.is_empty()
-                && let Some(p) = app.panel_mut()
-            {
-                p.move_down();
+            if app.input.buf.is_empty() {
+                app.view_mut().move_down();
                 return;
             }
             app.input.history_down();
@@ -2250,35 +3250,24 @@ fn handle_key(app: &mut App, key: KeyEvent) {
         KeyCode::Char(c)
             if key.modifiers.contains(KeyModifiers::ALT) && app.input.buf.is_empty() =>
         {
-            let selected = app.panel().and_then(|p| p.selected());
-            if let Some(idx) = selected {
-                let is_superpositions = app
-                    .panel()
-                    .is_some_and(|p| matches!(p, Panel::Superpositions { .. }));
-
-                if is_superpositions {
-                    if c.is_ascii_digit() {
-                        let n = c.to_digit(10).unwrap_or(0) as usize;
-                        // Alt+0 clears; Alt+1..9 selects variant.
-                        if n == 0 {
-                            superpositions_clear_decision(app);
-                        } else {
-                            superpositions_pick_variant(app, n - 1);
-                        }
-                        return;
-                    }
-
-                    if c == 'f' {
-                        superpositions_jump_next_invalid(app);
-                        return;
-                    }
-
-                    if c == 'n' {
-                        superpositions_jump_next_missing(app);
-                        return;
+            if app.mode() == UiMode::Superpositions {
+                if c.is_ascii_digit() {
+                    let n = c.to_digit(10).unwrap_or(0) as usize;
+                    // Alt+0 clears; Alt+1..9 selects variant.
+                    if n == 0 {
+                        superpositions_clear_decision(app);
+                    } else {
+                        superpositions_pick_variant(app, n - 1);
                     }
                 }
-                let _ = idx;
+
+                if c == 'f' {
+                    superpositions_jump_next_invalid(app);
+                }
+
+                if c == 'n' {
+                    superpositions_jump_next_missing(app);
+                }
             }
         }
 
@@ -2296,23 +3285,17 @@ fn superpositions_clear_decision(app: &mut App) {
         return;
     };
 
-    let (bundle_id, root_manifest, path) = match app.panel() {
-        Some(Panel::Superpositions {
-            bundle_id,
-            root_manifest,
-            items,
-            selected,
-            ..
-        }) => {
-            if items.is_empty() {
+    let (bundle_id, root_manifest, path) = match app.current_view::<SuperpositionsView>() {
+        Some(v) => {
+            if v.items.is_empty() {
                 app.push_error("no selected superposition".to_string());
                 return;
             }
-            let idx = (*selected).min(items.len().saturating_sub(1));
-            let path = items[idx].0.clone();
-            (bundle_id.clone(), root_manifest.clone(), path)
+            let idx = v.selected.min(v.items.len().saturating_sub(1));
+            let path = v.items[idx].0.clone();
+            (v.bundle_id.clone(), v.root_manifest.clone(), path)
         }
-        _ => return,
+        None => return,
     };
 
     // Load or init resolution.
@@ -2348,21 +3331,10 @@ fn superpositions_clear_decision(app: &mut App) {
         return;
     }
 
-    {
-        let Some(Panel::Superpositions {
-            root_manifest,
-            decisions,
-            validation,
-            updated_at,
-            ..
-        }) = app.panel_mut()
-        else {
-            return;
-        };
-
-        decisions.remove(&path);
-        *validation = validate_resolution(&ws.store, root_manifest, decisions).ok();
-        *updated_at = now_ts();
+    if let Some(v) = app.current_view_mut::<SuperpositionsView>() {
+        v.decisions.remove(&path);
+        v.validation = validate_resolution(&ws.store, &v.root_manifest, &v.decisions).ok();
+        v.updated_at = now_ts();
     }
 
     app.push_output(vec![format!("cleared decision for {}", path)]);
@@ -2373,40 +3345,34 @@ fn superpositions_pick_variant(app: &mut App, variant_index: usize) {
         return;
     };
 
-    let (bundle_id, root_manifest, path, key, variants_len) = match app.panel() {
-        Some(Panel::Superpositions {
-            bundle_id,
-            root_manifest,
-            variants,
-            items,
-            selected,
-            ..
-        }) => {
-            if items.is_empty() {
-                app.push_error("no selected superposition".to_string());
-                return;
+    let (bundle_id, root_manifest, path, key, variants_len) =
+        match app.current_view::<SuperpositionsView>() {
+            Some(v) => {
+                if v.items.is_empty() {
+                    app.push_error("no selected superposition".to_string());
+                    return;
+                }
+                let idx = v.selected.min(v.items.len().saturating_sub(1));
+                let path = v.items[idx].0.clone();
+                let Some(vs) = v.variants.get(&path) else {
+                    app.push_error("variants not loaded".to_string());
+                    return;
+                };
+                let variants_len = vs.len();
+                let Some(vr) = vs.get(variant_index) else {
+                    app.push_error(format!("variant out of range (variants: {})", variants_len));
+                    return;
+                };
+                (
+                    v.bundle_id.clone(),
+                    v.root_manifest.clone(),
+                    path,
+                    vr.key(),
+                    variants_len,
+                )
             }
-            let idx = (*selected).min(items.len().saturating_sub(1));
-            let path = items[idx].0.clone();
-            let Some(vs) = variants.get(&path) else {
-                app.push_error("variants not loaded".to_string());
-                return;
-            };
-            let variants_len = vs.len();
-            let Some(v) = vs.get(variant_index) else {
-                app.push_error(format!("variant out of range (variants: {})", variants_len));
-                return;
-            };
-            (
-                bundle_id.clone(),
-                root_manifest.clone(),
-                path,
-                v.key(),
-                variants_len,
-            )
-        }
-        _ => return,
-    };
+            None => return,
+        };
 
     // Load or init resolution.
     let mut res = if ws.store.has_resolution(&bundle_id) {
@@ -2442,21 +3408,10 @@ fn superpositions_pick_variant(app: &mut App, variant_index: usize) {
         return;
     }
 
-    {
-        let Some(Panel::Superpositions {
-            root_manifest,
-            decisions,
-            validation,
-            updated_at,
-            ..
-        }) = app.panel_mut()
-        else {
-            return;
-        };
-
-        decisions.insert(path.clone(), decision);
-        *validation = validate_resolution(&ws.store, root_manifest, decisions).ok();
-        *updated_at = now_ts();
+    if let Some(v) = app.current_view_mut::<SuperpositionsView>() {
+        v.decisions.insert(path.clone(), decision);
+        v.validation = validate_resolution(&ws.store, &v.root_manifest, &v.decisions).ok();
+        v.updated_at = now_ts();
     }
 
     app.push_output(vec![format!(
@@ -2468,39 +3423,29 @@ fn superpositions_pick_variant(app: &mut App, variant_index: usize) {
 }
 
 fn superpositions_jump_next_missing(app: &mut App) {
-    let next = match app.panel() {
-        Some(Panel::Superpositions {
-            items,
-            selected,
-            decisions,
-            ..
-        }) => {
-            if items.is_empty() {
+    let next = match app.current_view::<SuperpositionsView>() {
+        Some(v) => {
+            if v.items.is_empty() {
                 return;
             }
-            let start = (*selected).min(items.len().saturating_sub(1));
-            (1..=items.len()).find_map(|off| {
-                let idx = (start + off) % items.len();
-                let path = &items[idx].0;
-                if !decisions.contains_key(path) {
+            let start = v.selected.min(v.items.len().saturating_sub(1));
+            (1..=v.items.len()).find_map(|off| {
+                let idx = (start + off) % v.items.len();
+                let path = &v.items[idx].0;
+                if !v.decisions.contains_key(path) {
                     Some(idx)
                 } else {
                     None
                 }
             })
         }
-        _ => return,
+        None => return,
     };
 
     if let Some(idx) = next {
-        if let Some(Panel::Superpositions {
-            selected,
-            updated_at,
-            ..
-        }) = app.panel_mut()
-        {
-            *selected = idx;
-            *updated_at = now_ts();
+        if let Some(v) = app.current_view_mut::<SuperpositionsView>() {
+            v.selected = idx;
+            v.updated_at = now_ts();
         }
         app.push_output(vec!["jumped to missing".to_string()]);
     } else {
@@ -2509,18 +3454,13 @@ fn superpositions_jump_next_missing(app: &mut App) {
 }
 
 fn superpositions_jump_next_invalid(app: &mut App) {
-    let next = match app.panel() {
-        Some(Panel::Superpositions {
-            items,
-            selected,
-            validation,
-            ..
-        }) => {
-            if items.is_empty() {
+    let next = match app.current_view::<SuperpositionsView>() {
+        Some(v) => {
+            if v.items.is_empty() {
                 return;
             }
 
-            let Some(vr) = validation.as_ref() else {
+            let Some(vr) = v.validation.as_ref() else {
                 return;
             };
 
@@ -2532,10 +3472,10 @@ fn superpositions_jump_next_invalid(app: &mut App) {
                 invalid.insert(d.path.as_str());
             }
 
-            let start = (*selected).min(items.len().saturating_sub(1));
-            (1..=items.len()).find_map(|off| {
-                let idx = (start + off) % items.len();
-                let path = items[idx].0.as_str();
+            let start = v.selected.min(v.items.len().saturating_sub(1));
+            (1..=v.items.len()).find_map(|off| {
+                let idx = (start + off) % v.items.len();
+                let path = v.items[idx].0.as_str();
                 if invalid.contains(path) {
                     Some(idx)
                 } else {
@@ -2543,18 +3483,13 @@ fn superpositions_jump_next_invalid(app: &mut App) {
                 }
             })
         }
-        _ => return,
+        None => return,
     };
 
     if let Some(idx) = next {
-        if let Some(Panel::Superpositions {
-            selected,
-            updated_at,
-            ..
-        }) = app.panel_mut()
-        {
-            *selected = idx;
-            *updated_at = now_ts();
+        if let Some(v) = app.current_view_mut::<SuperpositionsView>() {
+            v.selected = idx;
+            v.updated_at = now_ts();
         }
         app.push_output(vec!["jumped to invalid".to_string()]);
     } else {
@@ -2597,23 +3532,7 @@ fn draw(frame: &mut ratatui::Frame, app: &App) {
     frame.render_widget(header, chunks[0]);
 
     // Main view (modal)
-    if let Some(p) = app.panel() {
-        draw_panel(frame, app, p, chunks[1]);
-    } else {
-        let lines = vec![
-            Line::from(Span::styled("Root", Style::default().fg(Color::Yellow))),
-            Line::from(""),
-            Line::from("Use: snaps, inbox, bundles, superpositions"),
-            Line::from("Global: help, ping, quit"),
-            Line::from("Tip: prefix with `/` to force root commands."),
-        ];
-        frame.render_widget(
-            Paragraph::new(lines)
-                .wrap(Wrap { trim: false })
-                .block(Block::default().borders(Borders::ALL).title("Root")),
-            chunks[1],
-        );
-    }
+    app.view().render(frame, chunks[1]);
 
     // Status / last result
     {
@@ -2696,6 +3615,8 @@ fn draw(frame: &mut ratatui::Frame, app: &App) {
     frame.set_cursor_position((chunks[4].x + x, y));
 }
 
+// Legacy view rendering (pre-View trait). Kept temporarily for reference.
+#[cfg(any())]
 fn draw_panel(frame: &mut ratatui::Frame, _app: &App, panel: &Panel, area: ratatui::layout::Rect) {
     let header = Line::from(vec![
         Span::styled(panel.title(), Style::default().fg(Color::Yellow)),
