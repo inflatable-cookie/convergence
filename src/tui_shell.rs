@@ -11,9 +11,10 @@ use crossterm::terminal::{
 use ratatui::Terminal;
 use ratatui::backend::CrosstermBackend;
 use ratatui::layout::{Constraint, Direction, Layout};
-use ratatui::style::{Color, Style};
+use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Borders, List, ListItem, ListState, Paragraph, Wrap};
+use ratatui::widgets::block::BorderType;
+use ratatui::widgets::{Block, Borders, Clear, List, ListItem, ListState, Paragraph, Wrap};
 
 use crate::model::{ObjectId, RemoteConfig, Resolution, ResolutionDecision};
 use crate::remote::RemoteClient;
@@ -94,6 +95,13 @@ struct ScrollEntry {
     ts: String,
     kind: EntryKind,
     lines: Vec<String>,
+}
+
+#[derive(Debug)]
+struct Modal {
+    title: String,
+    lines: Vec<String>,
+    scroll: usize,
 }
 
 fn render_view_chrome(
@@ -1099,6 +1107,8 @@ struct App {
     last_command: Option<String>,
     last_result: Option<ScrollEntry>,
 
+    modal: Option<Modal>,
+
     input: Input,
 
     suggestions: Vec<CommandDef>,
@@ -1117,6 +1127,7 @@ impl Default for App {
             log: Vec::new(),
             last_command: None,
             last_result: None,
+            modal: None,
             input: Input::default(),
             suggestions: Vec::new(),
             suggestion_selected: 0,
@@ -1231,6 +1242,18 @@ impl App {
 
     fn push_error(&mut self, msg: String) {
         self.push_entry(EntryKind::Error, vec![msg]);
+    }
+
+    fn open_modal(&mut self, title: impl Into<String>, lines: Vec<String>) {
+        self.modal = Some(Modal {
+            title: title.into(),
+            lines,
+            scroll: 0,
+        });
+    }
+
+    fn close_modal(&mut self) {
+        self.modal = None;
     }
 
     fn recompute_suggestions(&mut self) {
@@ -1527,7 +1550,7 @@ impl App {
             lines.push("- With suggestions open: Up/Down selects; Tab accepts.".to_string());
             lines.push("- History: Ctrl+p / Ctrl+n.".to_string());
             lines.push("- Prefix with `/` to force root commands.".to_string());
-            self.push_output(lines);
+            self.open_modal("Help", lines);
             return;
         }
 
@@ -1540,10 +1563,14 @@ impl App {
             return;
         };
 
-        self.push_output(vec![
-            format!("{} - {}", d.name, d.help),
-            format!("usage: {}", d.usage),
-        ]);
+        self.open_modal(
+            "Help",
+            vec![
+                format!("{} - {}", d.name, d.help),
+                "".to_string(),
+                format!("usage: {}", d.usage),
+            ],
+        );
     }
 
     fn remote_config(&mut self) -> Option<RemoteConfig> {
@@ -3171,6 +3198,11 @@ fn run_loop(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, app: &mut App
 }
 
 fn handle_key(app: &mut App, key: KeyEvent) {
+    if app.modal.is_some() {
+        handle_modal_key(app, key);
+        return;
+    }
+
     match key.code {
         KeyCode::Char('q') => {
             app.quit = true;
@@ -3291,6 +3323,33 @@ fn handle_key(app: &mut App, key: KeyEvent) {
             app.recompute_suggestions();
         }
 
+        _ => {}
+    }
+}
+
+fn handle_modal_key(app: &mut App, key: KeyEvent) {
+    let Some(m) = app.modal.as_mut() else {
+        return;
+    };
+
+    match key.code {
+        KeyCode::Esc | KeyCode::Enter => {
+            app.close_modal();
+        }
+        KeyCode::Up => {
+            m.scroll = m.scroll.saturating_sub(1);
+        }
+        KeyCode::Down => {
+            if m.scroll < m.lines.len().saturating_sub(1) {
+                m.scroll += 1;
+            }
+        }
+        KeyCode::PageUp => {
+            m.scroll = m.scroll.saturating_sub(10);
+        }
+        KeyCode::PageDown => {
+            m.scroll = (m.scroll + 10).min(m.lines.len().saturating_sub(1));
+        }
         _ => {}
     }
 }
@@ -3625,9 +3684,114 @@ fn draw(frame: &mut ratatui::Frame, app: &App) {
     frame.render_widget(input, chunks[4]);
 
     // Cursor
+    if let Some(m) = &app.modal {
+        dim_frame(frame);
+        draw_modal(frame, m);
+        return;
+    }
+
     let x = prompt.len() as u16 + 1 + app.input.cursor as u16;
     let y = chunks[4].y + 1;
     frame.set_cursor_position((chunks[4].x + x, y));
+}
+
+fn dim_frame(frame: &mut ratatui::Frame) {
+    let area = frame.area();
+    let buf = frame.buffer_mut();
+    for y in area.y..area.y.saturating_add(area.height) {
+        for x in area.x..area.x.saturating_add(area.width) {
+            if let Some(cell) = buf.cell_mut((x, y)) {
+                cell.modifier |= Modifier::DIM;
+            }
+        }
+    }
+}
+
+fn draw_modal(frame: &mut ratatui::Frame, modal: &Modal) {
+    let area = frame.area();
+    let popup = centered_rect(80, 80, area);
+
+    let framed = expand_rect(popup, 1, 1, area);
+    frame.render_widget(Clear, framed);
+    frame.render_widget(
+        Block::default()
+            .borders(Borders::ALL)
+            .border_type(BorderType::Double)
+            .style(Style::default().bg(Color::Black)),
+        framed,
+    );
+
+    frame.render_widget(Clear, popup);
+
+    let outer = Block::default()
+        .borders(Borders::ALL)
+        .title(Line::from(vec![
+            Span::styled(modal.title.as_str(), Style::default().fg(Color::Yellow)),
+            Span::raw("  "),
+            Span::styled("Esc to close", Style::default().fg(Color::Gray)),
+        ]))
+        .style(Style::default().bg(Color::Black));
+    let inner = outer.inner(popup);
+    frame.render_widget(outer, popup);
+
+    let mut lines = Vec::new();
+    for s in &modal.lines {
+        lines.push(Line::from(s.as_str()));
+    }
+    if lines.is_empty() {
+        lines.push(Line::from(""));
+    }
+
+    let scroll = modal.scroll.min(lines.len().saturating_sub(1)) as u16;
+    frame.render_widget(
+        Paragraph::new(lines)
+            .wrap(Wrap { trim: false })
+            .scroll((scroll, 0)),
+        inner,
+    );
+}
+
+fn expand_rect(
+    r: ratatui::layout::Rect,
+    dx: u16,
+    dy: u16,
+    bounds: ratatui::layout::Rect,
+) -> ratatui::layout::Rect {
+    let x0 = r.x.saturating_sub(dx);
+    let y0 = r.y.saturating_sub(dy);
+    let x1 = (r.x + r.width + dx).min(bounds.x + bounds.width);
+    let y1 = (r.y + r.height + dy).min(bounds.y + bounds.height);
+
+    ratatui::layout::Rect {
+        x: x0,
+        y: y0,
+        width: x1.saturating_sub(x0),
+        height: y1.saturating_sub(y0),
+    }
+}
+
+fn centered_rect(
+    percent_x: u16,
+    percent_y: u16,
+    r: ratatui::layout::Rect,
+) -> ratatui::layout::Rect {
+    let popup_layout = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Percentage((100 - percent_y) / 2),
+            Constraint::Percentage(percent_y),
+            Constraint::Percentage((100 - percent_y) / 2),
+        ])
+        .split(r);
+
+    Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([
+            Constraint::Percentage((100 - percent_x) / 2),
+            Constraint::Percentage(percent_x),
+            Constraint::Percentage((100 - percent_x) / 2),
+        ])
+        .split(popup_layout[1])[1]
 }
 
 // Legacy view rendering (pre-View trait). Kept temporarily for reference.
