@@ -154,6 +154,7 @@ impl View for RootView {
             Line::from(""),
             Line::from("Use: snaps, inbox, bundles, superpositions"),
             Line::from("Global: help, ping, quit"),
+            Line::from("Nav: Esc back/clear, Up/Down select"),
             Line::from("Tip: prefix with `/` to force root commands."),
         ];
         frame.render_widget(Paragraph::new(lines).wrap(Wrap { trim: false }), inner);
@@ -340,7 +341,7 @@ impl View for InboxView {
 
         let list = List::new(rows)
             .block(Block::default().borders(Borders::BOTTOM).title(format!(
-                "scope={} gate={}{}",
+                "scope={} gate={}{} (commands: bundle, fetch, back)",
                 self.scope,
                 self.gate,
                 self.filter
@@ -444,7 +445,7 @@ impl View for BundlesView {
 
         let list = List::new(rows)
             .block(Block::default().borders(Borders::BOTTOM).title(format!(
-                "scope={} gate={}{}",
+                "scope={} gate={}{} (commands: approve, promote, superpositions, back)",
                 self.scope,
                 self.gate,
                 self.filter
@@ -565,7 +566,7 @@ impl View for SuperpositionsView {
 
         let list = List::new(rows)
             .block(Block::default().borders(Borders::BOTTOM).title(format!(
-                "bundle={}{}{} (Alt+1..9 pick, Alt+0 clear, Alt+n next missing, Alt+f next invalid)",
+                "bundle={}{}{} (commands: pick, clear, validate, apply, back; keys: Alt+1..9 pick, Alt+0 clear, Alt+n next missing, Alt+f next invalid)",
                 self.bundle_id.chars().take(8).collect::<String>(),
                 self.filter
                     .as_ref()
@@ -1523,6 +1524,8 @@ impl App {
             lines.push("".to_string());
             lines.push("Notes:".to_string());
             lines.push("- `Esc` goes back (or clears input).".to_string());
+            lines.push("- With suggestions open: Up/Down selects; Tab accepts.".to_string());
+            lines.push("- History: Ctrl+p / Ctrl+n.".to_string());
             lines.push("- Prefix with `/` to force root commands.".to_string());
             self.push_output(lines);
             return;
@@ -3187,8 +3190,6 @@ fn handle_key(app: &mut App, key: KeyEvent) {
 
         KeyCode::Tab => {
             if !app.input.buf.is_empty() && !app.suggestions.is_empty() {
-                app.suggestion_selected =
-                    (app.suggestion_selected + 1) % app.suggestions.len().max(1);
                 app.apply_selected_suggestion();
             }
         }
@@ -3205,12 +3206,26 @@ fn handle_key(app: &mut App, key: KeyEvent) {
                 app.view_mut().move_up();
                 return;
             }
+            if !app.suggestions.is_empty() {
+                let n = app.suggestions.len();
+                if n > 0 {
+                    app.suggestion_selected = (app.suggestion_selected + n - 1) % n;
+                }
+                return;
+            }
             app.input.history_up();
             app.recompute_suggestions();
         }
         KeyCode::Down => {
             if app.input.buf.is_empty() {
                 app.view_mut().move_down();
+                return;
+            }
+            if !app.suggestions.is_empty() {
+                let n = app.suggestions.len();
+                if n > 0 {
+                    app.suggestion_selected = (app.suggestion_selected + 1) % n;
+                }
                 return;
             }
             app.input.history_down();
