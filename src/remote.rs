@@ -5,6 +5,10 @@ use anyhow::{Context, Result};
 use crate::model::{ObjectId, RemoteConfig, SnapRecord};
 use crate::store::LocalStore;
 
+fn is_false(v: &bool) -> bool {
+    !*v
+}
+
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
 pub struct MissingObjectsResponse {
     pub missing_blobs: Vec<String>,
@@ -26,6 +30,9 @@ struct CreatePublicationRequest {
     snap_id: String,
     scope: String,
     gate: String,
+
+    #[serde(default, skip_serializing_if = "is_false")]
+    metadata_only: bool,
 
     #[serde(skip_serializing_if = "Option::is_none")]
     resolution: Option<PublicationResolution>,
@@ -105,6 +112,9 @@ pub struct GateDef {
 
     #[serde(default)]
     pub allow_superpositions: bool,
+
+    #[serde(default)]
+    pub allow_metadata_only_publications: bool,
 
     #[serde(default)]
     pub required_approvals: u32,
@@ -369,6 +379,16 @@ impl RemoteClient {
         self.publish_snap_with_resolution(store, snap, scope, gate, None)
     }
 
+    pub fn publish_snap_metadata_only(
+        &self,
+        store: &LocalStore,
+        snap: &SnapRecord,
+        scope: &str,
+        gate: &str,
+    ) -> Result<Publication> {
+        self.publish_snap_inner(store, snap, scope, gate, None, true)
+    }
+
     pub fn publish_snap_with_resolution(
         &self,
         store: &LocalStore,
@@ -376,6 +396,18 @@ impl RemoteClient {
         scope: &str,
         gate: &str,
         resolution: Option<PublicationResolution>,
+    ) -> Result<Publication> {
+        self.publish_snap_inner(store, snap, scope, gate, resolution, false)
+    }
+
+    fn publish_snap_inner(
+        &self,
+        store: &LocalStore,
+        snap: &SnapRecord,
+        scope: &str,
+        gate: &str,
+        resolution: Option<PublicationResolution>,
+        metadata_only: bool,
     ) -> Result<Publication> {
         let (blobs, manifests, recipes) = collect_objects(store, &snap.root_manifest)?;
         let manifest_order = manifest_postorder(store, &snap.root_manifest)?;
@@ -404,26 +436,37 @@ impl RemoteClient {
         let resp = resp.error_for_status().context("missing objects status")?;
         let missing: MissingObjectsResponse = resp.json().context("parse missing objects")?;
 
-        for id in missing.missing_blobs {
-            let bytes = store.get_blob(&ObjectId(id.clone()))?;
-            with_retries(&format!("upload blob {}", id), || {
-                self.client
-                    .put(self.url(&format!("/repos/{}/objects/blobs/{}", repo, id)))
-                    .header(reqwest::header::AUTHORIZATION, self.auth())
-                    .body(bytes.clone())
-                    .send()
-                    .context("send")?
-                    .error_for_status()
-                    .context("status")
-            })?;
+        if !metadata_only {
+            for id in missing.missing_blobs {
+                let bytes = store.get_blob(&ObjectId(id.clone()))?;
+                with_retries(&format!("upload blob {}", id), || {
+                    self.client
+                        .put(self.url(&format!("/repos/{}/objects/blobs/{}", repo, id)))
+                        .header(reqwest::header::AUTHORIZATION, self.auth())
+                        .body(bytes.clone())
+                        .send()
+                        .context("send")?
+                        .error_for_status()
+                        .context("status")
+                })?;
+            }
         }
 
         for id in missing.missing_recipes {
             let rid = ObjectId(id.clone());
             let bytes = store.get_recipe_bytes(&rid)?;
+
+            let path = if metadata_only {
+                format!(
+                    "/repos/{}/objects/recipes/{}?allow_missing_blobs=true",
+                    repo, id
+                )
+            } else {
+                format!("/repos/{}/objects/recipes/{}", repo, id)
+            };
             with_retries(&format!("upload recipe {}", id), || {
                 self.client
-                    .put(self.url(&format!("/repos/{}/objects/recipes/{}", repo, id)))
+                    .put(self.url(&path))
                     .header(reqwest::header::AUTHORIZATION, self.auth())
                     .body(bytes.clone())
                     .send()
@@ -442,9 +485,18 @@ impl RemoteClient {
             }
 
             let bytes = store.get_manifest_bytes(&mid)?;
+
+            let path = if metadata_only {
+                format!(
+                    "/repos/{}/objects/manifests/{}?allow_missing_blobs=true",
+                    repo, id
+                )
+            } else {
+                format!("/repos/{}/objects/manifests/{}", repo, id)
+            };
             with_retries(&format!("upload manifest {}", id), || {
                 self.client
-                    .put(self.url(&format!("/repos/{}/objects/manifests/{}", repo, id)))
+                    .put(self.url(&path))
                     .header(reqwest::header::AUTHORIZATION, self.auth())
                     .body(bytes.clone())
                     .send()
@@ -482,6 +534,7 @@ impl RemoteClient {
                     snap_id: snap.id.clone(),
                     scope: scope.to_string(),
                     gate: gate.to_string(),
+                    metadata_only,
                     resolution: resolution.clone(),
                 })
                 .send()

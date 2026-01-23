@@ -76,6 +76,9 @@ enum Commands {
         /// Override gate (defaults to remote config)
         #[arg(long)]
         gate: Option<String>,
+        /// Create a metadata-only publication (skip uploading blobs)
+        #[arg(long)]
+        metadata_only: bool,
         /// Emit JSON
         #[arg(long)]
         json: bool,
@@ -401,6 +404,7 @@ fn run() -> Result<()> {
             snap_id,
             scope,
             gate,
+            metadata_only,
             json,
         }) => {
             let ws = Workspace::discover(&std::env::current_dir().context("get current dir")?)?;
@@ -419,7 +423,11 @@ fn run() -> Result<()> {
             let scope = scope.unwrap_or_else(|| remote.scope.clone());
             let gate = gate.unwrap_or_else(|| remote.gate.clone());
 
-            let pubrec = client.publish_snap(&ws.store, &snap, &scope, &gate)?;
+            let pubrec = if metadata_only {
+                client.publish_snap_metadata_only(&ws.store, &snap, &scope, &gate)?
+            } else {
+                client.publish_snap(&ws.store, &snap, &scope, &gate)?
+            };
             if json {
                 println!(
                     "{}",

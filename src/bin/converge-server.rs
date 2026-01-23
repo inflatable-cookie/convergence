@@ -73,6 +73,9 @@ struct GateDef {
     allow_superpositions: bool,
 
     #[serde(default)]
+    allow_metadata_only_publications: bool,
+
+    #[serde(default)]
     required_approvals: u32,
 }
 
@@ -366,6 +369,7 @@ async fn create_repo(
             name: "Dev Intake".to_string(),
             upstream: vec![],
             allow_superpositions: false,
+            allow_metadata_only_publications: false,
             required_approvals: 0,
         }],
     };
@@ -635,6 +639,7 @@ async fn put_manifest(
     State(state): State<Arc<AppState>>,
     Extension(subject): Extension<Subject>,
     Path((repo_id, manifest_id)): Path<(String, String)>,
+    Query(q): Query<PutObjectQuery>,
     body: axum::body::Bytes,
 ) -> Result<StatusCode, Response> {
     validate_object_id(&manifest_id).map_err(bad_request)?;
@@ -663,10 +668,11 @@ async fn put_manifest(
         return Err(bad_request(anyhow::anyhow!("unsupported manifest version")));
     }
 
-    // Phase 2: require referenced objects to exist. This simplifies client behavior and
-    // ensures that a manifest is never persisted with dangling references.
+    // Default behavior: require referenced objects to exist.
+    // When allow_missing_blobs is set, we allow dangling blob references so that early
+    // gates can accept metadata-only publications.
     for entry in &manifest.entries {
-        validate_manifest_entry_refs(&state, &repo_id, &entry.kind)?;
+        validate_manifest_entry_refs(&state, &repo_id, &entry.kind, q.allow_missing_blobs)?;
     }
 
     let path = repo_data_dir(&state, &repo_id)
@@ -680,6 +686,7 @@ async fn put_recipe(
     State(state): State<Arc<AppState>>,
     Extension(subject): Extension<Subject>,
     Path((repo_id, recipe_id)): Path<(String, String)>,
+    Query(q): Query<PutObjectQuery>,
     body: axum::body::Bytes,
 ) -> Result<StatusCode, Response> {
     validate_object_id(&recipe_id).map_err(bad_request)?;
@@ -708,14 +715,17 @@ async fn put_recipe(
     }
 
     for c in &recipe.chunks {
-        let p = repo_data_dir(&state, &repo_id)
-            .join("objects/blobs")
-            .join(c.blob.as_str());
-        if !p.exists() {
-            return Err(bad_request(anyhow::anyhow!(
-                "missing referenced blob {}",
-                c.blob.as_str()
-            )));
+        validate_object_id(c.blob.as_str()).map_err(bad_request)?;
+        if !q.allow_missing_blobs {
+            let p = repo_data_dir(&state, &repo_id)
+                .join("objects/blobs")
+                .join(c.blob.as_str());
+            if !p.exists() {
+                return Err(bad_request(anyhow::anyhow!(
+                    "missing referenced blob {}",
+                    c.blob.as_str()
+                )));
+            }
         }
     }
 
@@ -726,24 +736,35 @@ async fn put_recipe(
     Ok(StatusCode::CREATED)
 }
 
+#[derive(Debug, Default, serde::Deserialize)]
+struct PutObjectQuery {
+    #[serde(default)]
+    allow_missing_blobs: bool,
+}
+
 fn validate_manifest_entry_refs(
     state: &AppState,
     repo_id: &str,
     kind: &converge::model::ManifestEntryKind,
+    allow_missing_blobs: bool,
 ) -> Result<(), Response> {
     match kind {
         converge::model::ManifestEntryKind::File { blob, .. } => {
-            let p = repo_data_dir(state, repo_id)
-                .join("objects/blobs")
-                .join(blob.as_str());
-            if !p.exists() {
-                return Err(bad_request(anyhow::anyhow!(
-                    "missing referenced blob {}",
-                    blob.as_str()
-                )));
+            validate_object_id(blob.as_str()).map_err(bad_request)?;
+            if !allow_missing_blobs {
+                let p = repo_data_dir(state, repo_id)
+                    .join("objects/blobs")
+                    .join(blob.as_str());
+                if !p.exists() {
+                    return Err(bad_request(anyhow::anyhow!(
+                        "missing referenced blob {}",
+                        blob.as_str()
+                    )));
+                }
             }
         }
         converge::model::ManifestEntryKind::FileChunks { recipe, .. } => {
+            validate_object_id(recipe.as_str()).map_err(bad_request)?;
             let p = repo_data_dir(state, repo_id)
                 .join("objects/recipes")
                 .join(format!("{}.json", recipe.as_str()));
@@ -755,6 +776,7 @@ fn validate_manifest_entry_refs(
             }
         }
         converge::model::ManifestEntryKind::Dir { manifest } => {
+            validate_object_id(manifest.as_str()).map_err(bad_request)?;
             let p = repo_data_dir(state, repo_id)
                 .join("objects/manifests")
                 .join(format!("{}.json", manifest.as_str()));
@@ -770,17 +792,21 @@ fn validate_manifest_entry_refs(
             for v in variants {
                 match &v.kind {
                     converge::model::SuperpositionVariantKind::File { blob, .. } => {
-                        let p = repo_data_dir(state, repo_id)
-                            .join("objects/blobs")
-                            .join(blob.as_str());
-                        if !p.exists() {
-                            return Err(bad_request(anyhow::anyhow!(
-                                "missing referenced blob {}",
-                                blob.as_str()
-                            )));
+                        validate_object_id(blob.as_str()).map_err(bad_request)?;
+                        if !allow_missing_blobs {
+                            let p = repo_data_dir(state, repo_id)
+                                .join("objects/blobs")
+                                .join(blob.as_str());
+                            if !p.exists() {
+                                return Err(bad_request(anyhow::anyhow!(
+                                    "missing referenced blob {}",
+                                    blob.as_str()
+                                )));
+                            }
                         }
                     }
                     converge::model::SuperpositionVariantKind::FileChunks { recipe, .. } => {
+                        validate_object_id(recipe.as_str()).map_err(bad_request)?;
                         let p = repo_data_dir(state, repo_id)
                             .join("objects/recipes")
                             .join(format!("{}.json", recipe.as_str()));
@@ -792,6 +818,7 @@ fn validate_manifest_entry_refs(
                         }
                     }
                     converge::model::SuperpositionVariantKind::Dir { manifest } => {
+                        validate_object_id(manifest.as_str()).map_err(bad_request)?;
                         let p = repo_data_dir(state, repo_id)
                             .join("objects/manifests")
                             .join(format!("{}.json", manifest.as_str()));
@@ -809,6 +836,150 @@ fn validate_manifest_entry_refs(
         }
     }
     Ok(())
+}
+
+fn read_recipe(
+    state: &AppState,
+    repo_id: &str,
+    recipe_id: &str,
+) -> Result<converge::model::FileRecipe, Response> {
+    validate_object_id(recipe_id).map_err(bad_request)?;
+    let path = repo_data_dir(state, repo_id)
+        .join("objects/recipes")
+        .join(format!("{}.json", recipe_id));
+    if !path.exists() {
+        return Err(bad_request(anyhow::anyhow!("unknown recipe")));
+    }
+    let bytes = std::fs::read(&path)
+        .with_context(|| format!("read {}", path.display()))
+        .map_err(|e| internal_error(anyhow::anyhow!(e)))?;
+    let actual = blake3::hash(&bytes).to_hex().to_string();
+    if actual != recipe_id {
+        return Err(internal_error(anyhow::anyhow!(
+            "recipe integrity check failed"
+        )));
+    }
+    let recipe: converge::model::FileRecipe =
+        serde_json::from_slice(&bytes).map_err(|e| internal_error(anyhow::anyhow!(e)))?;
+    Ok(recipe)
+}
+
+fn validate_manifest_tree_availability(
+    state: &AppState,
+    repo_id: &str,
+    root_manifest_id: &str,
+    require_blobs: bool,
+) -> Result<(), Response> {
+    fn visit_manifest(
+        state: &AppState,
+        repo_id: &str,
+        manifest_id: &str,
+        require_blobs: bool,
+        visited: &mut HashSet<String>,
+    ) -> Result<(), Response> {
+        if !visited.insert(manifest_id.to_string()) {
+            return Ok(());
+        }
+
+        let manifest = read_manifest(state, repo_id, manifest_id)?;
+        for e in manifest.entries {
+            match e.kind {
+                converge::model::ManifestEntryKind::File { blob, .. } => {
+                    validate_object_id(blob.as_str()).map_err(bad_request)?;
+                    if require_blobs {
+                        let p = repo_data_dir(state, repo_id)
+                            .join("objects/blobs")
+                            .join(blob.as_str());
+                        if !p.exists() {
+                            return Err(bad_request(anyhow::anyhow!(
+                                "missing referenced blob {}",
+                                blob.as_str()
+                            )));
+                        }
+                    }
+                }
+                converge::model::ManifestEntryKind::FileChunks { recipe, .. } => {
+                    let recipe = read_recipe(state, repo_id, recipe.as_str())?;
+                    for c in recipe.chunks {
+                        validate_object_id(c.blob.as_str()).map_err(bad_request)?;
+                        if require_blobs {
+                            let p = repo_data_dir(state, repo_id)
+                                .join("objects/blobs")
+                                .join(c.blob.as_str());
+                            if !p.exists() {
+                                return Err(bad_request(anyhow::anyhow!(
+                                    "missing referenced blob {}",
+                                    c.blob.as_str()
+                                )));
+                            }
+                        }
+                    }
+                }
+                converge::model::ManifestEntryKind::Dir { manifest } => {
+                    visit_manifest(state, repo_id, manifest.as_str(), require_blobs, visited)?;
+                }
+                converge::model::ManifestEntryKind::Symlink { .. } => {}
+                converge::model::ManifestEntryKind::Superposition { variants } => {
+                    for v in variants {
+                        match v.kind {
+                            converge::model::SuperpositionVariantKind::File { blob, .. } => {
+                                validate_object_id(blob.as_str()).map_err(bad_request)?;
+                                if require_blobs {
+                                    let p = repo_data_dir(state, repo_id)
+                                        .join("objects/blobs")
+                                        .join(blob.as_str());
+                                    if !p.exists() {
+                                        return Err(bad_request(anyhow::anyhow!(
+                                            "missing referenced blob {}",
+                                            blob.as_str()
+                                        )));
+                                    }
+                                }
+                            }
+                            converge::model::SuperpositionVariantKind::FileChunks { recipe, .. } => {
+                                let recipe = read_recipe(state, repo_id, recipe.as_str())?;
+                                for c in recipe.chunks {
+                                    validate_object_id(c.blob.as_str()).map_err(bad_request)?;
+                                    if require_blobs {
+                                        let p = repo_data_dir(state, repo_id)
+                                            .join("objects/blobs")
+                                            .join(c.blob.as_str());
+                                        if !p.exists() {
+                                            return Err(bad_request(anyhow::anyhow!(
+                                                "missing referenced blob {}",
+                                                c.blob.as_str()
+                                            )));
+                                        }
+                                    }
+                                }
+                            }
+                            converge::model::SuperpositionVariantKind::Dir { manifest } => {
+                                visit_manifest(
+                                    state,
+                                    repo_id,
+                                    manifest.as_str(),
+                                    require_blobs,
+                                    visited,
+                                )?;
+                            }
+                            converge::model::SuperpositionVariantKind::Symlink { .. } => {}
+                            converge::model::SuperpositionVariantKind::Tombstone => {}
+                        }
+                    }
+                }
+            }
+        }
+
+        Ok(())
+    }
+
+    visit_manifest(
+        state,
+        repo_id,
+        root_manifest_id,
+        require_blobs,
+        &mut HashSet::new(),
+    )
 }
 
 fn read_snap(
@@ -1053,7 +1224,8 @@ fn merge_dir_manifests(
 
     // Ensure references exist before persisting.
     for e in &merged.entries {
-        validate_manifest_entry_refs(state, repo_id, &e.kind)?;
+        // Bundles should be constructible even when blob bytes are pending.
+        validate_manifest_entry_refs(state, repo_id, &e.kind, true)?;
     }
 
     store_manifest(state, repo_id, &merged)
@@ -1296,6 +1468,9 @@ struct CreatePublicationRequest {
     gate: String,
 
     #[serde(default)]
+    metadata_only: bool,
+
+    #[serde(default)]
     resolution: Option<PublicationResolution>,
 }
 
@@ -1340,11 +1515,34 @@ async fn create_publication(
     if !repo.gate_graph.gates.iter().any(|g| g.id == payload.gate) {
         return Err(bad_request(anyhow::anyhow!("unknown gate")));
     }
+
+    let gate_def = repo
+        .gate_graph
+        .gates
+        .iter()
+        .find(|g| g.id == payload.gate)
+        .ok_or_else(|| bad_request(anyhow::anyhow!("unknown gate")))?;
+    if payload.metadata_only && !gate_def.allow_metadata_only_publications {
+        return Err(bad_request(anyhow::anyhow!(
+            "metadata-only publications not allowed in this gate"
+        )));
+    }
     if !repo.snaps.contains(&payload.snap_id) {
         return Err(bad_request(anyhow::anyhow!(
             "unknown snap (upload snap first)"
         )));
     }
+
+    // For non-metadata-only publications, require full availability of referenced objects.
+    // For metadata-only publications, we still require the manifest structure to be present
+    // (snaps/manifests/recipes), but allow blob bytes to be pending.
+    let snap = read_snap(state.as_ref(), &repo_id, &payload.snap_id)?;
+    validate_manifest_tree_availability(
+        state.as_ref(),
+        &repo_id,
+        snap.root_manifest.as_str(),
+        !payload.metadata_only,
+    )?;
 
     let pubrec = Publication {
         id,
@@ -1919,6 +2117,7 @@ fn default_repo_state(state: &AppState, repo_id: &str) -> Repo {
             name: "Dev Intake".to_string(),
             upstream: vec![],
             allow_superpositions: false,
+            allow_metadata_only_publications: false,
             required_approvals: 0,
         }],
     };

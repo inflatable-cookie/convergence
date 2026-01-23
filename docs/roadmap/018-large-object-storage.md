@@ -74,7 +74,7 @@ Defaults and configuration:
 
 ### D) Gate policies for large objects
 
-- [ ] Define per-gate object availability requirements:
+- [x] Define per-gate object availability requirements:
   - early gates may allow "metadata-only" publications (manifest references accepted, bytes may be pending)
   - later gates require full availability of referenced objects
 - [ ] Define a "pinned" concept for bundles/releases that prevents GC of required objects.

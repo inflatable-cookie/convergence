@@ -1122,7 +1122,7 @@ fn remote_root_command_defs() -> Vec<CommandDef> {
         CommandDef {
             name: "publish",
             aliases: &[],
-            usage: "publish [--snap-id <id>] [--scope <id>] [--gate <id>]",
+            usage: "publish [--snap-id <id>] [--scope <id>] [--gate <id>] [--metadata-only]",
             help: "Publish a snap to remote",
         },
         CommandDef {
@@ -3310,6 +3310,7 @@ impl App {
         let mut snap_id: Option<String> = None;
         let mut scope: Option<String> = None;
         let mut gate: Option<String> = None;
+        let mut metadata_only = false;
 
         let mut i = 0;
         while i < args.len() {
@@ -3337,6 +3338,9 @@ impl App {
                         return;
                     }
                     gate = Some(args[i].clone());
+                }
+                "--metadata-only" => {
+                    metadata_only = true;
                 }
                 a => {
                     self.push_error(format!("unknown arg: {}", a));
@@ -3382,7 +3386,13 @@ impl App {
         let scope = scope.unwrap_or(cfg.scope);
         let gate = gate.unwrap_or(cfg.gate);
 
-        match client.publish_snap(&ws.store, &snap, &scope, &gate) {
+        let res = if metadata_only {
+            client.publish_snap_metadata_only(&ws.store, &snap, &scope, &gate)
+        } else {
+            client.publish_snap(&ws.store, &snap, &scope, &gate)
+        };
+
+        match res {
             Ok(p) => {
                 self.push_output(vec![format!("published {}", p.id)]);
                 self.refresh_root_view();
