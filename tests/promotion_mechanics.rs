@@ -140,7 +140,7 @@ fn promotable_bundle_can_be_promoted() -> Result<()> {
         .json()
         .context("parse promotion state")?;
 
-    assert_eq!(state.get("team").is_some(), true);
+    assert!(state.get("team").is_some());
     Ok(())
 }
 

@@ -1,3 +1,5 @@
+#![allow(clippy::result_large_err)]
+
 use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -5,11 +7,11 @@ use std::{collections::HashMap, collections::HashSet};
 
 use anyhow::{Context, Result};
 use axum::extract::{Extension, Query, State};
-use axum::http::{header, StatusCode};
+use axum::http::{StatusCode, header};
 use axum::middleware::{self, Next};
 use axum::response::{IntoResponse, Response};
 use axum::routing::get;
-use axum::{extract::Path, Json, Router};
+use axum::{Json, Router, extract::Path};
 use clap::Parser;
 use tokio::sync::RwLock;
 
@@ -194,7 +196,10 @@ async fn run() -> Result<()> {
             "/repos/:repo_id/gate-graph",
             get(get_gate_graph).put(put_gate_graph),
         )
-        .route("/repos/:repo_id/scopes", get(list_scopes).post(create_scope))
+        .route(
+            "/repos/:repo_id/scopes",
+            get(list_scopes).post(create_scope),
+        )
         .route(
             "/repos/:repo_id/publications",
             get(list_publications).post(create_publication),
@@ -212,10 +217,7 @@ async fn run() -> Result<()> {
             "/repos/:repo_id/promotions",
             get(list_promotions).post(create_promotion),
         )
-        .route(
-            "/repos/:repo_id/promotion-state",
-            get(get_promotion_state),
-        )
+        .route("/repos/:repo_id/promotion-state", get(get_promotion_state))
         .route(
             "/repos/:repo_id/objects/blobs/:blob_id",
             axum::routing::put(put_blob).get(get_blob),
@@ -246,9 +248,7 @@ async fn run() -> Result<()> {
         .await
         .with_context(|| format!("bind {}", args.addr))?;
 
-    let local_addr = listener
-        .local_addr()
-        .context("read listener local addr")?;
+    let local_addr = listener.local_addr().context("read listener local addr")?;
     eprintln!("converge-server listening on {}", local_addr);
 
     if let Some(addr_file) = &args.addr_file {
@@ -290,8 +290,9 @@ async fn require_bearer(
     }
 
     let mut req = req;
-    req.extensions_mut()
-        .insert(Subject { user: state.user.clone() });
+    req.extensions_mut().insert(Subject {
+        user: state.user.clone(),
+    });
     next.run(req).await
 }
 
@@ -723,7 +724,11 @@ fn validate_manifest_entry_refs(
     Ok(())
 }
 
-fn read_snap(state: &AppState, repo_id: &str, snap_id: &str) -> Result<converge::model::SnapRecord, Response> {
+fn read_snap(
+    state: &AppState,
+    repo_id: &str,
+    snap_id: &str,
+) -> Result<converge::model::SnapRecord, Response> {
     validate_object_id(snap_id).map_err(bad_request)?;
     let path = repo_data_dir(state, repo_id)
         .join("objects/snaps")
@@ -756,7 +761,9 @@ fn read_manifest(
         .map_err(|e| internal_error(anyhow::anyhow!(e)))?;
     let actual = blake3::hash(&bytes).to_hex().to_string();
     if actual != manifest_id {
-        return Err(internal_error(anyhow::anyhow!("manifest integrity check failed")));
+        return Err(internal_error(anyhow::anyhow!(
+            "manifest integrity check failed"
+        )));
     }
     let manifest: converge::model::Manifest =
         serde_json::from_slice(&bytes).map_err(|e| internal_error(anyhow::anyhow!(e)))?;
@@ -873,12 +880,16 @@ fn merge_dir_manifests(
 
         let all_present = kinds.iter().all(|(_, k)| k.is_some());
         if all_present {
-            let all_dirs = kinds.iter().all(|(_, k)| matches!(k, Some(converge::model::ManifestEntryKind::Dir { .. })));
+            let all_dirs = kinds
+                .iter()
+                .all(|(_, k)| matches!(k, Some(converge::model::ManifestEntryKind::Dir { .. })));
             if all_dirs {
                 let child_inputs = kinds
                     .iter()
                     .map(|(pub_id, k)| {
-                        let converge::model::ManifestEntryKind::Dir { manifest } = k.clone().unwrap() else {
+                        let converge::model::ManifestEntryKind::Dir { manifest } =
+                            k.clone().unwrap()
+                        else {
                             unreachable!();
                         };
                         (pub_id.clone(), manifest.as_str().to_string())
@@ -1320,11 +1331,7 @@ async fn create_bundle(
         .ok_or_else(|| bad_request(anyhow::anyhow!("unknown gate")))?;
 
     let has_superpositions = manifest_has_superpositions(&state, &repo_id, &root_manifest)?;
-    let (promotable, reasons) = compute_promotability(
-        gate_def,
-        has_superpositions,
-        0,
-    );
+    let (promotable, reasons) = compute_promotability(gate_def, has_superpositions, 0);
 
     let id = {
         let mut hasher = blake3::Hasher::new();
@@ -1361,7 +1368,8 @@ async fn create_bundle(
         approvals: Vec::new(),
     };
 
-    let bytes = serde_json::to_vec_pretty(&bundle).map_err(|e| internal_error(anyhow::anyhow!(e)))?;
+    let bytes =
+        serde_json::to_vec_pretty(&bundle).map_err(|e| internal_error(anyhow::anyhow!(e)))?;
     let path = repo_data_dir(&state, &repo_id)
         .join("bundles")
         .join(format!("{}.json", id));
@@ -1392,15 +1400,15 @@ async fn list_bundles(
 
     let mut out = Vec::new();
     for b in &repo.bundles {
-        if let Some(scope) = &q.scope {
-            if &b.scope != scope {
-                continue;
-            }
+        if let Some(scope) = &q.scope
+            && &b.scope != scope
+        {
+            continue;
         }
-        if let Some(gate) = &q.gate {
-            if &b.gate != gate {
-                continue;
-            }
+        if let Some(gate) = &q.gate
+            && &b.gate != gate
+        {
+            continue;
         }
         out.push(b.clone());
     }
@@ -1434,8 +1442,8 @@ async fn get_bundle(
     let bytes = std::fs::read(&path)
         .with_context(|| format!("read {}", path.display()))
         .map_err(|e| internal_error(anyhow::anyhow!(e)))?;
-    let bundle: Bundle = serde_json::from_slice(&bytes)
-        .map_err(|e| internal_error(anyhow::anyhow!(e)))?;
+    let bundle: Bundle =
+        serde_json::from_slice(&bytes).map_err(|e| internal_error(anyhow::anyhow!(e)))?;
     Ok(Json(bundle))
 }
 
@@ -1625,15 +1633,15 @@ async fn list_promotions(
 
     let mut out = Vec::new();
     for p in &repo.promotions {
-        if let Some(scope) = &q.scope {
-            if &p.scope != scope {
-                continue;
-            }
+        if let Some(scope) = &q.scope
+            && &p.scope != scope
+        {
+            continue;
         }
-        if let Some(to_gate) = &q.to_gate {
-            if &p.to_gate != to_gate {
-                continue;
-            }
+        if let Some(to_gate) = &q.to_gate
+            && &p.to_gate != to_gate
+        {
+            continue;
         }
         out.push(p.clone());
     }
@@ -1679,8 +1687,8 @@ fn load_bundle_from_disk(
     let bytes = std::fs::read(&path)
         .with_context(|| format!("read {}", path.display()))
         .map_err(|e| internal_error(anyhow::anyhow!(e)))?;
-    let bundle: Bundle = serde_json::from_slice(&bytes)
-        .map_err(|e| internal_error(anyhow::anyhow!(e)))?;
+    let bundle: Bundle =
+        serde_json::from_slice(&bytes).map_err(|e| internal_error(anyhow::anyhow!(e)))?;
     Ok(bundle)
 }
 
@@ -1849,8 +1857,8 @@ fn load_bundles_from_disk(state: &AppState, repo_id: &str) -> Result<Vec<Bundle>
             continue;
         }
         let bytes = std::fs::read(&path).with_context(|| format!("read {}", path.display()))?;
-        let bundle: Bundle = serde_json::from_slice(&bytes)
-            .with_context(|| format!("parse {}", path.display()))?;
+        let bundle: Bundle =
+            serde_json::from_slice(&bytes).with_context(|| format!("parse {}", path.display()))?;
         out.push(bundle);
     }
     out.sort_by(|a, b| b.created_at.cmp(&a.created_at));
@@ -1885,7 +1893,10 @@ fn rebuild_promotion_state(promotions: &[Promotion]) -> HashMap<String, HashMap<
         let scope_entry = tmp.entry(p.scope.clone()).or_default();
         match scope_entry.get(&p.to_gate) {
             None => {
-                scope_entry.insert(p.to_gate.clone(), (p.promoted_at.clone(), p.bundle_id.clone()));
+                scope_entry.insert(
+                    p.to_gate.clone(),
+                    (p.promoted_at.clone(), p.bundle_id.clone()),
+                );
             }
             Some((prev_time, _prev_bundle)) => {
                 if p.promoted_at > *prev_time {
@@ -1949,9 +1960,7 @@ fn validate_repo_id(id: &str) -> Result<()> {
         .chars()
         .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
     {
-        return Err(anyhow::anyhow!(
-            "repo id must be lowercase alnum or '-'"
-        ));
+        return Err(anyhow::anyhow!("repo id must be lowercase alnum or '-'"));
     }
     Ok(())
 }

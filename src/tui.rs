@@ -6,14 +6,14 @@ use anyhow::{Context, Result};
 use crossterm::event::{self, Event, KeyCode, KeyEventKind};
 use crossterm::execute;
 use crossterm::terminal::{
-    disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen,
+    EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode,
 };
+use ratatui::Terminal;
 use ratatui::backend::CrosstermBackend;
 use ratatui::layout::{Alignment, Constraint, Direction, Layout, Rect};
 use ratatui::style::{Color, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Clear, List, ListItem, ListState, Paragraph, Wrap};
-use ratatui::Terminal;
 
 use crate::model::{
     ManifestEntryKind, ObjectId, Resolution, ResolutionDecision, SnapRecord, SnapStats,
@@ -286,44 +286,42 @@ impl App {
                 self.super_loaded = true;
 
                 // Best-effort load existing resolution decisions.
-                if let Some(bid) = self.super_bundle_id.clone() {
-                    if store.has_resolution(&bid) {
-                        match store.get_resolution(&bid) {
-                            Ok(r) => {
-                                if r.root_manifest == root {
-                                    let mut decisions = r.decisions;
-                                    // Best-effort upgrade of legacy index decisions to keys.
-                                    if r.version == 1 {
-                                        for c in &self.super_conflicts {
-                                            if let Some(ResolutionDecision::Index(i)) =
-                                                decisions.get(&c.path).cloned()
-                                            {
-                                                let idx = i as usize;
-                                                if idx < c.variants.len() {
-                                                    decisions.insert(
-                                                        c.path.clone(),
-                                                        ResolutionDecision::Key(
-                                                            c.variants[idx].key(),
-                                                        ),
-                                                    );
-                                                }
+                if let Some(bid) = self.super_bundle_id.clone()
+                    && store.has_resolution(&bid)
+                {
+                    match store.get_resolution(&bid) {
+                        Ok(r) => {
+                            if r.root_manifest == root {
+                                let mut decisions = r.decisions;
+                                // Best-effort upgrade of legacy index decisions to keys.
+                                if r.version == 1 {
+                                    for c in &self.super_conflicts {
+                                        if let Some(ResolutionDecision::Index(i)) =
+                                            decisions.get(&c.path).cloned()
+                                        {
+                                            let idx = i as usize;
+                                            if idx < c.variants.len() {
+                                                decisions.insert(
+                                                    c.path.clone(),
+                                                    ResolutionDecision::Key(c.variants[idx].key()),
+                                                );
                                             }
                                         }
                                     }
-
-                                    self.super_decisions = decisions;
-                                    self.super_resolution_created_at = Some(r.created_at);
-                                } else {
-                                    self.super_error = Some(
-                                        "existing resolution root_manifest does not match bundle"
-                                            .to_string(),
-                                    );
                                 }
+
+                                self.super_decisions = decisions;
+                                self.super_resolution_created_at = Some(r.created_at);
+                            } else {
+                                self.super_error = Some(
+                                    "existing resolution root_manifest does not match bundle"
+                                        .to_string(),
+                                );
                             }
-                            Err(err) => {
-                                self.super_error =
-                                    Some(format!("failed to load existing resolution: {:#}", err));
-                            }
+                        }
+                        Err(err) => {
+                            self.super_error =
+                                Some(format!("failed to load existing resolution: {:#}", err));
                         }
                     }
                 }
@@ -700,10 +698,10 @@ fn handle_key(app: &mut App, code: KeyCode) -> bool {
             }
             KeyCode::Char(' ') => {
                 let id = selected_publication(app).map(|p| p.id.clone());
-                if let Some(id) = id {
-                    if !app.inbox_selected_ids.insert(id.clone()) {
-                        app.inbox_selected_ids.remove(&id);
-                    }
+                if let Some(id) = id
+                    && !app.inbox_selected_ids.insert(id.clone())
+                {
+                    app.inbox_selected_ids.remove(&id);
                 }
             }
             KeyCode::Char('c') => {
@@ -725,8 +723,8 @@ fn handle_key(app: &mut App, code: KeyCode) -> bool {
                 let mut pubs = app
                     .inbox_selected_ids
                     .iter()
+                    .filter(|id| filtered.iter().any(|p| p.id.as_str() == id.as_str()))
                     .cloned()
-                    .filter(|id| filtered.iter().any(|p| p.id == *id))
                     .collect::<Vec<_>>();
 
                 if pubs.is_empty() {
@@ -1008,7 +1006,7 @@ fn selected_bundle(app: &App) -> Option<&Bundle> {
     Some(filtered[sel])
 }
 
-fn filtered_publications<'a>(app: &'a App) -> Vec<&'a Publication> {
+fn filtered_publications(app: &App) -> Vec<&Publication> {
     let filter = app.inbox_filter.to_lowercase();
     app.inbox_publications
         .iter()
@@ -1060,10 +1058,10 @@ fn next_invalid_superposition(app: &App, from: usize) -> Option<usize> {
     for off in 1..=n {
         let idx = (from + off) % n;
         let c = &app.super_conflicts[idx];
-        if let Some(d) = app.super_decisions.get(&c.path) {
-            if invalid_conflict_index(c, d) {
-                return Some(idx);
-            }
+        if let Some(d) = app.super_decisions.get(&c.path)
+            && invalid_conflict_index(c, d)
+        {
+            return Some(idx);
         }
     }
     None
@@ -1763,12 +1761,10 @@ fn draw_superpositions(frame: &mut ratatui::Frame, app: &App, area: Rect) {
         let mut decided_valid = 0usize;
         let mut invalid = 0usize;
         for c in &app.super_conflicts {
-            if let Some(d) = app.super_decisions.get(&c.path) {
-                if invalid_conflict_index(c, d) {
-                    invalid += 1;
-                } else {
-                    decided_valid += 1;
-                }
+            match app.super_decisions.get(&c.path) {
+                Some(d) if invalid_conflict_index(c, d) => invalid += 1,
+                Some(_) => decided_valid += 1,
+                None => {}
             }
         }
         lines.push(Line::from(vec![
@@ -1784,61 +1780,61 @@ fn draw_superpositions(frame: &mut ratatui::Frame, app: &App, area: Rect) {
         }
     }
 
-    if app.super_show_validation {
-        if let Some(report) = &app.super_validation {
-            lines.push(Line::from(""));
-            let status = if report.ok { "ok" } else { "invalid" };
-            let color = if report.ok { Color::Green } else { Color::Red };
+    if app.super_show_validation
+        && let Some(report) = &app.super_validation
+    {
+        lines.push(Line::from(""));
+        let status = if report.ok { "ok" } else { "invalid" };
+        let color = if report.ok { Color::Green } else { Color::Red };
+        lines.push(Line::from(vec![
+            Span::styled("validation: ", Style::default().fg(Color::Gray)),
+            Span::styled(status, Style::default().fg(color)),
+        ]));
+
+        if !report.missing.is_empty() {
             lines.push(Line::from(vec![
-                Span::styled("validation: ", Style::default().fg(Color::Gray)),
-                Span::styled(status, Style::default().fg(color)),
+                Span::styled("missing: ", Style::default().fg(Color::Gray)),
+                Span::raw(format!("{}", report.missing.len())),
             ]));
-
-            if !report.missing.is_empty() {
-                lines.push(Line::from(vec![
-                    Span::styled("missing: ", Style::default().fg(Color::Gray)),
-                    Span::raw(format!("{}", report.missing.len())),
-                ]));
-                for p in report.missing.iter().take(5) {
-                    lines.push(Line::from(format!("  {}", p)));
-                }
-                if report.missing.len() > 5 {
-                    lines.push(Line::from(format!(
-                        "  ... +{} more",
-                        report.missing.len() - 5
-                    )));
-                }
+            for p in report.missing.iter().take(5) {
+                lines.push(Line::from(format!("  {}", p)));
             }
-
-            if !report.invalid_keys.is_empty() {
-                lines.push(Line::from(vec![
-                    Span::styled("invalid_keys: ", Style::default().fg(Color::Gray)),
-                    Span::raw(format!("{}", report.invalid_keys.len())),
-                ]));
-                for d in report.invalid_keys.iter().take(5) {
-                    lines.push(Line::from(format!("  {}", d.path)));
-                }
-                if report.invalid_keys.len() > 5 {
-                    lines.push(Line::from(format!(
-                        "  ... +{} more",
-                        report.invalid_keys.len() - 5
-                    )));
-                }
+            if report.missing.len() > 5 {
+                lines.push(Line::from(format!(
+                    "  ... +{} more",
+                    report.missing.len() - 5
+                )));
             }
+        }
 
-            if !report.out_of_range.is_empty() {
-                lines.push(Line::from(vec![
-                    Span::styled("out_of_range: ", Style::default().fg(Color::Gray)),
-                    Span::raw(format!("{}", report.out_of_range.len())),
-                ]));
+        if !report.invalid_keys.is_empty() {
+            lines.push(Line::from(vec![
+                Span::styled("invalid_keys: ", Style::default().fg(Color::Gray)),
+                Span::raw(format!("{}", report.invalid_keys.len())),
+            ]));
+            for d in report.invalid_keys.iter().take(5) {
+                lines.push(Line::from(format!("  {}", d.path)));
             }
+            if report.invalid_keys.len() > 5 {
+                lines.push(Line::from(format!(
+                    "  ... +{} more",
+                    report.invalid_keys.len() - 5
+                )));
+            }
+        }
 
-            if !report.extraneous.is_empty() {
-                lines.push(Line::from(vec![
-                    Span::styled("extraneous: ", Style::default().fg(Color::Gray)),
-                    Span::raw(format!("{}", report.extraneous.len())),
-                ]));
-            }
+        if !report.out_of_range.is_empty() {
+            lines.push(Line::from(vec![
+                Span::styled("out_of_range: ", Style::default().fg(Color::Gray)),
+                Span::raw(format!("{}", report.out_of_range.len())),
+            ]));
+        }
+
+        if !report.extraneous.is_empty() {
+            lines.push(Line::from(vec![
+                Span::styled("extraneous: ", Style::default().fg(Color::Gray)),
+                Span::raw(format!("{}", report.extraneous.len())),
+            ]));
         }
     }
 

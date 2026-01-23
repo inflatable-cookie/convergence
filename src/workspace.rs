@@ -1,12 +1,12 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use anyhow::{anyhow, Context, Result};
+use anyhow::{Context, Result, anyhow};
 use time::format_description::well_known::Rfc3339;
 
 use crate::model::{
-    compute_snap_id, Manifest, ManifestEntry, ManifestEntryKind, ObjectId, SnapRecord, SnapStats,
-    SuperpositionVariantKind,
+    Manifest, ManifestEntry, ManifestEntryKind, ObjectId, SnapRecord, SnapStats,
+    SuperpositionVariantKind, compute_snap_id,
 };
 use crate::store::LocalStore;
 

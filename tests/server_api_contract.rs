@@ -48,11 +48,13 @@ fn server_api_contract_happy_path_and_auth_failures() -> Result<()> {
         .context("parse repos")?;
 
     assert!(repos.is_array());
-    assert!(repos
-        .as_array()
-        .unwrap()
-        .iter()
-        .any(|r| r.get("id") == Some(&serde_json::Value::String("test".to_string()))));
+    assert!(
+        repos
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|r| r.get("id") == Some(&serde_json::Value::String("test".to_string())))
+    );
 
     // Invalid repo id rejected.
     let bad = client

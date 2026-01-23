@@ -1,7 +1,7 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use anyhow::{anyhow, Context, Result};
+use anyhow::{Context, Result, anyhow};
 
 use crate::model::{Manifest, ObjectId, Resolution, SnapRecord, WorkspaceConfig};
 
@@ -31,14 +31,12 @@ impl LocalStore {
 
     pub fn init(workspace_root: &Path, force: bool) -> Result<Self> {
         let root = Self::converge_dir(workspace_root);
-        if root.exists() {
-            if !force {
-                return Err(anyhow!(
-                    "{} already exists at {} (use --force to re-init)",
-                    STORE_DIR,
-                    root.display()
-                ));
-            }
+        if root.exists() && !force {
+            return Err(anyhow!(
+                "{} already exists at {} (use --force to re-init)",
+                STORE_DIR,
+                root.display()
+            ));
         }
 
         fs::create_dir_all(root.join("objects/blobs")).context("create blobs dir")?;

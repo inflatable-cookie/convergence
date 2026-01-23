@@ -204,11 +204,11 @@ pub fn apply_resolution(
                         available.push(kj);
                     }
                     anyhow::bail!(
-                            "resolution variant_key not found for {} (wanted source={}); available keys: {}",
-                            path,
-                            key.source,
-                            available.join(", ")
-                        );
+                        "resolution variant_key not found for {} (wanted source={}); available keys: {}",
+                        path,
+                        key.source,
+                        available.join(", ")
+                    );
                 }
             },
         }

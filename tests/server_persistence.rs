@@ -14,14 +14,11 @@ fn read_addr_file(addr_file: &std::path::Path) -> Result<String> {
             anyhow::bail!("addr file not written at {}", addr_file.display());
         }
 
-        match std::fs::read_to_string(addr_file) {
-            Ok(s) => {
-                let s = s.trim();
-                if !s.is_empty() {
-                    return Ok(format!("http://{}", s));
-                }
+        if let Ok(s) = std::fs::read_to_string(addr_file) {
+            let s = s.trim();
+            if !s.is_empty() {
+                return Ok(format!("http://{}", s));
             }
-            Err(_) => {}
         }
 
         thread::sleep(Duration::from_millis(10));

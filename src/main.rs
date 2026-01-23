@@ -325,10 +325,10 @@ fn run() -> Result<()> {
             } else {
                 println!("id: {}", snap.id);
                 println!("created_at: {}", snap.created_at);
-                if let Some(msg) = snap.message {
-                    if !msg.is_empty() {
-                        println!("message: {}", msg);
-                    }
+                if let Some(msg) = snap.message
+                    && !msg.is_empty()
+                {
+                    println!("message: {}", msg);
                 }
                 println!("root_manifest: {}", snap.root_manifest.as_str());
                 println!(
@@ -724,13 +724,13 @@ fn run() -> Result<()> {
                     for (p, d) in existing {
                         if let converge::model::ResolutionDecision::Index(i) = d {
                             let i = i as usize;
-                            if let Some(vs) = variants.get(&p) {
-                                if i < vs.len() {
-                                    r.decisions.insert(
-                                        p,
-                                        converge::model::ResolutionDecision::Key(vs[i].key()),
-                                    );
-                                }
+                            if let Some(vs) = variants.get(&p)
+                                && i < vs.len()
+                            {
+                                r.decisions.insert(
+                                    p,
+                                    converge::model::ResolutionDecision::Key(vs[i].key()),
+                                );
                             }
                         }
                     }
@@ -743,12 +743,10 @@ fn run() -> Result<()> {
                             "{}",
                             serde_json::to_string_pretty(&r).context("serialize resolution")?
                         );
+                    } else if let Some(v) = variant {
+                        println!("Picked variant #{} for {}", v, path);
                     } else {
-                        if let Some(v) = variant {
-                            println!("Picked variant #{} for {}", v, path);
-                        } else {
-                            println!("Picked key for {}", path);
-                        }
+                        println!("Picked key for {}", path);
                     }
                 }
 
