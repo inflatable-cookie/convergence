@@ -1,0 +1,3 @@
+[profile.ci]
+# Optimized for CI logs: show output on failure.
+failure-output = "immediate-final"

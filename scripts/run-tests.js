@@ -13,12 +13,32 @@ function hasNextest() {
 
 const args = process.argv.slice(2);
 
+function mapArgsForNextest(argv) {
+  // `pnpm test -q` forwards `-q` to the script. `cargo test -q` accepts it, but nextest does not.
+  // Map to nextest's equivalent `--cargo-quiet`.
+  const out = [];
+  let passthrough = false;
+  for (const a of argv) {
+    if (a === '--') {
+      passthrough = true;
+      out.push(a);
+      continue;
+    }
+    if (!passthrough && (a === '-q' || a === '--quiet')) {
+      out.push('--cargo-quiet');
+      continue;
+    }
+    out.push(a);
+  }
+  return out;
+}
+
 if (process.env.FORCE_CARGO_TEST === '1') {
   run('cargo', ['test', ...args]);
 }
 
 if (hasNextest()) {
-  run('cargo', ['nextest', 'run', ...args]);
+  run('cargo', ['nextest', 'run', ...mapArgsForNextest(args)]);
 } else {
   run('cargo', ['test', ...args]);
 }
