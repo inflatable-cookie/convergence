@@ -135,6 +135,18 @@ struct Promotion {
 struct Lane {
     id: String,
     members: HashSet<String>,
+
+    #[serde(default)]
+    heads: HashMap<String, LaneHead>,
+}
+
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+struct LaneHead {
+    snap_id: String,
+    updated_at: String,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    client_id: Option<String>,
 }
 
 fn can_read(repo: &Repo, user: &str) -> bool {
@@ -208,6 +220,14 @@ async fn run() -> Result<()> {
         .route("/repos/:repo_id", get(get_repo))
         .route("/repos/:repo_id/permissions", get(get_repo_permissions))
         .route("/repos/:repo_id/lanes", get(list_lanes))
+        .route(
+            "/repos/:repo_id/lanes/:lane_id/heads/me",
+            axum::routing::post(update_lane_head_me),
+        )
+        .route(
+            "/repos/:repo_id/lanes/:lane_id/heads/:user",
+            get(get_lane_head),
+        )
         .route("/repos/:repo_id/gates", get(list_gates))
         .route(
             "/repos/:repo_id/gate-graph",
@@ -370,6 +390,7 @@ async fn create_repo(
     let default_lane = Lane {
         id: "default".to_string(),
         members,
+        heads: HashMap::new(),
     };
     let mut lanes = HashMap::new();
     lanes.insert(default_lane.id.clone(), default_lane);
@@ -488,6 +509,78 @@ async fn list_lanes(
     let mut out: Vec<Lane> = repo.lanes.values().cloned().collect();
     out.sort_by(|a, b| a.id.cmp(&b.id));
     Ok(Json(out))
+}
+
+#[derive(Debug, serde::Deserialize)]
+struct UpdateLaneHeadRequest {
+    snap_id: String,
+
+    #[serde(default)]
+    client_id: Option<String>,
+}
+
+async fn update_lane_head_me(
+    State(state): State<Arc<AppState>>,
+    Extension(subject): Extension<Subject>,
+    Path((repo_id, lane_id)): Path<(String, String)>,
+    Json(payload): Json<UpdateLaneHeadRequest>,
+) -> Result<Json<LaneHead>, Response> {
+    validate_lane_id(&lane_id).map_err(bad_request)?;
+    validate_object_id(&payload.snap_id).map_err(bad_request)?;
+
+    let mut repos = state.repos.write().await;
+    let repo = repos.get_mut(&repo_id).ok_or_else(not_found)?;
+    if !can_publish(repo, &subject.user) {
+        return Err(forbidden());
+    }
+
+    let lane = repo
+        .lanes
+        .get_mut(&lane_id)
+        .ok_or_else(not_found)?;
+    if !lane.members.contains(&subject.user) {
+        return Err(forbidden());
+    }
+
+    if !repo.snaps.contains(&payload.snap_id) {
+        return Err(bad_request(anyhow::anyhow!(
+            "unknown snap (upload snap first)"
+        )));
+    }
+
+    let updated_at = time::OffsetDateTime::now_utc()
+        .format(&time::format_description::well_known::Rfc3339)
+        .map_err(|e| internal_error(anyhow::anyhow!(e)))?;
+
+    let head = LaneHead {
+        snap_id: payload.snap_id,
+        updated_at,
+        client_id: payload.client_id,
+    };
+    lane.heads.insert(subject.user.clone(), head.clone());
+    persist_repo(state.as_ref(), repo).map_err(internal_error)?;
+    Ok(Json(head))
+}
+
+async fn get_lane_head(
+    State(state): State<Arc<AppState>>,
+    Extension(subject): Extension<Subject>,
+    Path((repo_id, lane_id, user)): Path<(String, String, String)>,
+) -> Result<Json<LaneHead>, Response> {
+    validate_lane_id(&lane_id).map_err(bad_request)?;
+
+    let repos = state.repos.read().await;
+    let repo = repos.get(&repo_id).ok_or_else(not_found)?;
+    if !can_read(repo, &subject.user) {
+        return Err(forbidden());
+    }
+    let lane = repo.lanes.get(&lane_id).ok_or_else(not_found)?;
+    if !lane.members.contains(&subject.user) {
+        return Err(forbidden());
+    }
+
+    let head = lane.heads.get(&user).ok_or_else(not_found)?;
+    Ok(Json(head.clone()))
 }
 
 async fn list_gates(
@@ -1593,6 +1686,13 @@ async fn gc_repo(
         }
     }
 
+    // Lane heads are unpublished collaboration roots.
+    for lane in repo.lanes.values() {
+        for h in lane.heads.values() {
+            keep_snaps.insert(h.snap_id.clone());
+        }
+    }
+
     // Collect objects from kept bundle roots.
     for root in &bundle_roots {
         collect_objects_from_manifest_tree(
@@ -2534,6 +2634,7 @@ fn default_repo_state(state: &AppState, repo_id: &str) -> Repo {
     let default_lane = Lane {
         id: "default".to_string(),
         members,
+        heads: HashMap::new(),
     };
     let mut lanes = HashMap::new();
     lanes.insert(default_lane.id.clone(), default_lane);
@@ -2740,6 +2841,19 @@ fn validate_gate_id(id: &str) -> Result<()> {
         .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
     {
         return Err(anyhow::anyhow!("gate id must be lowercase alnum or '-'"));
+    }
+    Ok(())
+}
+
+fn validate_lane_id(id: &str) -> Result<()> {
+    if id.is_empty() {
+        return Err(anyhow::anyhow!("lane id cannot be empty"));
+    }
+    if !id
+        .chars()
+        .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
+    {
+        return Err(anyhow::anyhow!("lane id must be lowercase alnum or '-'"));
     }
     Ok(())
 }

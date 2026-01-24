@@ -102,6 +102,32 @@ pub struct Promotion {
     pub promoted_at: String,
 }
 
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+pub struct LaneHead {
+    pub snap_id: String,
+    pub updated_at: String,
+
+    #[serde(default)]
+    pub client_id: Option<String>,
+}
+
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+pub struct Lane {
+    pub id: String,
+    pub members: HashSet<String>,
+
+    #[serde(default)]
+    pub heads: HashMap<String, LaneHead>,
+}
+
+#[derive(Debug, serde::Serialize)]
+struct UpdateLaneHeadRequest {
+    snap_id: String,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    client_id: Option<String>,
+}
+
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
 pub struct GateGraph {
     pub version: u32,
@@ -160,6 +186,80 @@ impl RemoteClient {
 
     pub fn remote(&self) -> &RemoteConfig {
         &self.remote
+    }
+
+    pub fn list_lanes(&self) -> Result<Vec<Lane>> {
+        let repo = &self.remote.repo_id;
+        let resp = self
+            .client
+            .get(self.url(&format!("/repos/{}/lanes", repo)))
+            .header(reqwest::header::AUTHORIZATION, self.auth())
+            .send()
+            .context("list lanes")?;
+
+        if resp.status() == reqwest::StatusCode::NOT_FOUND {
+            anyhow::bail!(
+                "remote repo not found (create it with `converge remote create-repo` or POST /repos)"
+            );
+        }
+
+        let lanes: Vec<Lane> = resp
+            .error_for_status()
+            .context("list lanes status")?
+            .json()
+            .context("parse lanes")?;
+        Ok(lanes)
+    }
+
+    pub fn update_lane_head_me(
+        &self,
+        lane_id: &str,
+        snap_id: &str,
+        client_id: Option<String>,
+    ) -> Result<LaneHead> {
+        let repo = &self.remote.repo_id;
+        let resp = self
+            .client
+            .post(self.url(&format!("/repos/{}/lanes/{}/heads/me", repo, lane_id)))
+            .header(reqwest::header::AUTHORIZATION, self.auth())
+            .json(&UpdateLaneHeadRequest {
+                snap_id: snap_id.to_string(),
+                client_id,
+            })
+            .send()
+            .context("update lane head")?;
+
+        if resp.status() == reqwest::StatusCode::NOT_FOUND {
+            anyhow::bail!("remote lane not found (check `converge lanes` or /repos/:repo/lanes)");
+        }
+
+        let head: LaneHead = resp
+            .error_for_status()
+            .context("update lane head status")?
+            .json()
+            .context("parse lane head")?;
+        Ok(head)
+    }
+
+    pub fn get_lane_head(&self, lane_id: &str, user: &str) -> Result<LaneHead> {
+        let repo = &self.remote.repo_id;
+        let resp = self
+            .client
+            .get(self.url(&format!("/repos/{}/lanes/{}/heads/{}", repo, lane_id, user)))
+            .header(reqwest::header::AUTHORIZATION, self.auth())
+            .send()
+            .context("get lane head")?;
+
+        if resp.status() == reqwest::StatusCode::NOT_FOUND {
+            anyhow::bail!("lane head not found");
+        }
+
+        let head: LaneHead = resp
+            .error_for_status()
+            .context("get lane head status")?
+            .json()
+            .context("parse lane head")?;
+        Ok(head)
     }
 
     fn auth(&self) -> String {
@@ -454,6 +554,103 @@ impl RemoteClient {
         self.publish_snap_inner(store, snap, scope, gate, resolution, false)
     }
 
+    pub fn upload_snap_objects(&self, store: &LocalStore, snap: &SnapRecord) -> Result<()> {
+        // Reuse the publish upload path but skip publication creation.
+        let (blobs, manifests, recipes) = collect_objects(store, &snap.root_manifest)?;
+        let manifest_order = manifest_postorder(store, &snap.root_manifest)?;
+
+        let repo = &self.remote.repo_id;
+        let resp = with_retries("missing objects request", || {
+            self.client
+                .post(self.url(&format!("/repos/{}/objects/missing", repo)))
+                .header(reqwest::header::AUTHORIZATION, self.auth())
+                .json(&MissingObjectsRequest {
+                    blobs: blobs.iter().cloned().collect(),
+                    manifests: manifests.iter().cloned().collect(),
+                    recipes: recipes.iter().cloned().collect(),
+                    snaps: vec![snap.id.clone()],
+                })
+                .send()
+                .context("send")
+        })?;
+
+        if resp.status() == reqwest::StatusCode::NOT_FOUND {
+            anyhow::bail!(
+                "remote repo not found (create it with `converge remote create-repo` or POST /repos)"
+            );
+        }
+        let resp = resp.error_for_status().context("missing objects status")?;
+        let missing: MissingObjectsResponse = resp.json().context("parse missing objects")?;
+
+        for id in missing.missing_blobs {
+            let bytes = store.get_blob(&ObjectId(id.clone()))?;
+            with_retries(&format!("upload blob {}", id), || {
+                self.client
+                    .put(self.url(&format!("/repos/{}/objects/blobs/{}", repo, id)))
+                    .header(reqwest::header::AUTHORIZATION, self.auth())
+                    .body(bytes.clone())
+                    .send()
+                    .context("send")?
+                    .error_for_status()
+                    .context("status")
+            })?;
+        }
+
+        for id in missing.missing_recipes {
+            let rid = ObjectId(id.clone());
+            let bytes = store.get_recipe_bytes(&rid)?;
+            with_retries(&format!("upload recipe {}", id), || {
+                self.client
+                    .put(self.url(&format!("/repos/{}/objects/recipes/{}", repo, id)))
+                    .header(reqwest::header::AUTHORIZATION, self.auth())
+                    .body(bytes.clone())
+                    .send()
+                    .context("send")?
+                    .error_for_status()
+                    .context("status")
+            })?;
+        }
+
+        let mut missing_manifests: HashSet<String> =
+            missing.missing_manifests.into_iter().collect();
+        for mid in manifest_order {
+            let id = mid.as_str();
+            if !missing_manifests.remove(id) {
+                continue;
+            }
+            let bytes = store.get_manifest_bytes(&mid)?;
+            with_retries(&format!("upload manifest {}", id), || {
+                self.client
+                    .put(self.url(&format!("/repos/{}/objects/manifests/{}", repo, id)))
+                    .header(reqwest::header::AUTHORIZATION, self.auth())
+                    .body(bytes.clone())
+                    .send()
+                    .context("send")?
+                    .error_for_status()
+                    .context("status")
+            })?;
+        }
+        if !missing_manifests.is_empty() {
+            anyhow::bail!("missing manifest postorder invariant violated");
+        }
+
+        // Upload snap record last.
+        if missing.missing_snaps.contains(&snap.id) {
+            with_retries("upload snap", || {
+                self.client
+                    .put(self.url(&format!("/repos/{}/objects/snaps/{}", repo, snap.id)))
+                    .header(reqwest::header::AUTHORIZATION, self.auth())
+                    .json(snap)
+                    .send()
+                    .context("send")?
+                    .error_for_status()
+                    .context("status")
+            })?;
+        }
+
+        Ok(())
+    }
+
     fn publish_snap_inner(
         &self,
         store: &LocalStore,
@@ -615,27 +812,9 @@ impl RemoteClient {
 
         let mut fetched = Vec::new();
         for p in pubs {
-            if store.has_snap(&p.snap_id) {
-                continue;
+            if let Some(id) = self.fetch_snap_by_id(store, repo, &p.snap_id)? {
+                fetched.push(id);
             }
-
-            let snap_bytes = with_retries(&format!("fetch snap {}", p.snap_id), || {
-                self.client
-                    .get(self.url(&format!("/repos/{}/objects/snaps/{}", repo, p.snap_id)))
-                    .header(reqwest::header::AUTHORIZATION, self.auth())
-                    .send()
-                    .context("send")?
-                    .error_for_status()
-                    .context("status")?
-                    .bytes()
-                    .context("bytes")
-            })?;
-
-            let snap: SnapRecord = serde_json::from_slice(&snap_bytes).context("parse snap")?;
-            store.put_snap(&snap)?;
-
-            fetch_manifest_tree(store, self, repo, &ObjectId(snap.root_manifest.0.clone()))?;
-            fetched.push(snap.id);
         }
 
         Ok(fetched)
@@ -644,6 +823,63 @@ impl RemoteClient {
     pub fn fetch_manifest_tree(&self, store: &LocalStore, root_manifest: &ObjectId) -> Result<()> {
         let repo = &self.remote.repo_id;
         fetch_manifest_tree(store, self, repo, root_manifest)
+    }
+
+    pub fn fetch_lane_heads(
+        &self,
+        store: &LocalStore,
+        lane_id: &str,
+        user: Option<&str>,
+    ) -> Result<Vec<String>> {
+        let repo = &self.remote.repo_id;
+
+        let snap_ids: Vec<String> = if let Some(user) = user {
+            vec![self.get_lane_head(lane_id, user)?.snap_id]
+        } else {
+            let lanes = self.list_lanes()?;
+            let lane = lanes
+                .into_iter()
+                .find(|l| l.id == lane_id)
+                .with_context(|| format!("lane not found: {}", lane_id))?;
+            lane.heads.values().map(|h| h.snap_id.clone()).collect()
+        };
+
+        let mut fetched = Vec::new();
+        for sid in snap_ids {
+            if let Some(id) = self.fetch_snap_by_id(store, repo, &sid)? {
+                fetched.push(id);
+            }
+        }
+        Ok(fetched)
+    }
+
+    fn fetch_snap_by_id(
+        &self,
+        store: &LocalStore,
+        repo: &str,
+        snap_id: &str,
+    ) -> Result<Option<String>> {
+        if store.has_snap(snap_id) {
+            return Ok(None);
+        }
+
+        let snap_bytes = with_retries(&format!("fetch snap {}", snap_id), || {
+            self.client
+                .get(self.url(&format!("/repos/{}/objects/snaps/{}", repo, snap_id)))
+                .header(reqwest::header::AUTHORIZATION, self.auth())
+                .send()
+                .context("send")?
+                .error_for_status()
+                .context("status")?
+                .bytes()
+                .context("bytes")
+        })?;
+
+        let snap: SnapRecord = serde_json::from_slice(&snap_bytes).context("parse snap")?;
+        store.put_snap(&snap)?;
+
+        fetch_manifest_tree(store, self, repo, &ObjectId(snap.root_manifest.0.clone()))?;
+        Ok(Some(snap.id))
     }
 }
 

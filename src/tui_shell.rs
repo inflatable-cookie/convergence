@@ -59,6 +59,7 @@ enum UiMode {
     Snaps,
     Inbox,
     Bundles,
+    Lanes,
     Superpositions,
 }
 
@@ -91,6 +92,7 @@ impl UiMode {
             UiMode::Snaps => "snaps>",
             UiMode::Inbox => "inbox>",
             UiMode::Bundles => "bundles>",
+            UiMode::Lanes => "lanes>",
             UiMode::Superpositions => "supers>",
         }
     }
@@ -172,6 +174,14 @@ struct Modal {
     input: Input,
 }
 
+#[derive(Clone, Copy, Debug, Default)]
+struct ChangeSummary {
+    added: usize,
+    modified: usize,
+    deleted: usize,
+    renamed: usize,
+}
+
 fn render_view_chrome(
     frame: &mut ratatui::Frame,
     title: &str,
@@ -179,15 +189,139 @@ fn render_view_chrome(
     area: ratatui::layout::Rect,
 ) -> ratatui::layout::Rect {
     let header = Line::from(vec![
-        Span::styled(title, Style::default().fg(Color::Yellow)),
+        Span::styled(title.to_string(), Style::default().fg(Color::Yellow)),
         Span::raw("  "),
         Span::styled(fmt_ts_ui(updated_at), Style::default().fg(Color::Gray)),
     ]);
 
+    render_view_chrome_with_header(frame, header, area)
+}
+
+fn render_view_chrome_with_header<'a>(
+    frame: &mut ratatui::Frame,
+    header: Line<'a>,
+    area: ratatui::layout::Rect,
+) -> ratatui::layout::Rect {
     let outer = Block::default().borders(Borders::ALL).title(header);
     let inner = outer.inner(area);
     frame.render_widget(outer, area);
     inner
+}
+
+fn extract_change_summary(mut lines: Vec<String>) -> (ChangeSummary, Vec<String>) {
+    let mut sum = ChangeSummary::default();
+
+    // Local status_lines emits either:
+    // - "changes: X added, Y modified, Z deleted"
+    // - "changes: X added, Y modified, Z deleted, R renamed"
+    for i in 0..lines.len() {
+        let line = lines[i].trim();
+        if !line.starts_with("changes:") {
+            continue;
+        }
+
+        let rest = line.trim_start_matches("changes:").trim();
+        let parts: Vec<&str> = rest.split(',').map(|p| p.trim()).collect();
+        for p in parts {
+            let mut it = p.split_whitespace();
+            let Some(n) = it.next() else {
+                continue;
+            };
+            let Ok(n) = n.parse::<usize>() else {
+                continue;
+            };
+            let Some(kind) = it.next() else {
+                continue;
+            };
+            match kind {
+                "added" => sum.added = n,
+                "modified" => sum.modified = n,
+                "deleted" => sum.deleted = n,
+                "renamed" => sum.renamed = n,
+                _ => {}
+            }
+        }
+
+        lines.remove(i);
+        break;
+    }
+
+    (sum, lines)
+}
+
+fn extract_baseline_compact(lines: &[String]) -> Option<String> {
+    for l in lines {
+        let l = l.trim();
+        if let Some(rest) = l.strip_prefix("baseline:") {
+            let rest = rest.trim();
+            if rest.starts_with('(') {
+                return None;
+            }
+            // Expected: "<short> <time>".
+            return Some(rest.to_string());
+        }
+    }
+    None
+}
+
+fn extract_change_keys(lines: &[String]) -> Vec<String> {
+    let mut out = Vec::new();
+    for l in lines {
+        let line = l.trim();
+        let base = line.split_once(" (").map(|(a, _)| a).unwrap_or(line);
+
+        if let Some(rest) = base.strip_prefix("A ") {
+            out.push(format!("A {}", rest.trim()));
+            continue;
+        }
+        if let Some(rest) = base.strip_prefix("M ") {
+            out.push(format!("M {}", rest.trim()));
+            continue;
+        }
+        if let Some(rest) = base.strip_prefix("D ") {
+            out.push(format!("D {}", rest.trim()));
+            continue;
+        }
+        if let Some(rest) = base.strip_prefix("R* ") {
+            out.push(format!("R {}", rest.trim()));
+            continue;
+        }
+        if let Some(rest) = base.strip_prefix("R ") {
+            out.push(format!("R {}", rest.trim()));
+            continue;
+        }
+    }
+    out
+}
+
+fn jaccard_similarity(a: &[String], b: &[String]) -> f64 {
+    use std::collections::HashSet;
+    let sa: HashSet<&str> = a.iter().map(|s| s.as_str()).collect();
+    let sb: HashSet<&str> = b.iter().map(|s| s.as_str()).collect();
+    if sa.is_empty() && sb.is_empty() {
+        return 1.0;
+    }
+    let inter = sa.intersection(&sb).count();
+    let union = sa.union(&sb).count();
+    if union == 0 {
+        1.0
+    } else {
+        inter as f64 / union as f64
+    }
+}
+
+fn collapse_blank_lines(lines: Vec<String>) -> Vec<String> {
+    let mut out = Vec::new();
+    let mut prev_blank = false;
+    for l in lines {
+        let blank = l.trim().is_empty();
+        if blank && prev_blank {
+            continue;
+        }
+        prev_blank = blank;
+        out.push(l);
+    }
+    out
 }
 
 fn ts_ui_format() -> &'static [FormatItem<'static>] {
@@ -250,6 +384,9 @@ struct RootView {
     ctx: RootContext,
     scroll: usize,
     lines: Vec<String>,
+    change_summary: ChangeSummary,
+    baseline_compact: Option<String>,
+    change_keys: Vec<String>,
 }
 
 impl RootView {
@@ -259,10 +396,17 @@ impl RootView {
             ctx,
             scroll: 0,
             lines: Vec::new(),
+            change_summary: ChangeSummary::default(),
+            baseline_compact: None,
+            change_keys: Vec::new(),
         }
     }
 
     fn refresh(&mut self, ws: Option<&Workspace>, ctx: &RenderCtx) {
+        let prev_lines_len = self.lines.len();
+        let prev_baseline = self.baseline_compact.clone();
+        let prev_keys = self.change_keys.clone();
+
         let lines = match (self.ctx, ws) {
             (_, None) => vec!["No workspace".to_string()],
             (RootContext::Local, Some(ws)) => {
@@ -272,9 +416,52 @@ impl RootView {
                 .unwrap_or_else(|e| vec![format!("dashboard: {:#}", e)]),
         };
 
-        self.lines = lines;
+        if self.ctx == RootContext::Local {
+            let (summary, lines) = extract_change_summary(lines);
+            self.change_summary = summary;
+            self.baseline_compact = extract_baseline_compact(&lines);
+
+            let new_lines = collapse_blank_lines(lines);
+            let new_keys = extract_change_keys(&new_lines);
+            self.change_keys = new_keys.clone();
+
+            // Preserve scroll position unless the change list shifts substantially.
+            let significant = {
+                if prev_baseline != self.baseline_compact {
+                    true
+                } else {
+                    let old_count = prev_keys.len();
+                    let new_count = new_keys.len();
+                    if old_count >= 10 && new_count >= 10 {
+                        let jac = jaccard_similarity(&prev_keys, &new_keys);
+                        jac < 0.40
+                    } else {
+                        // For small lists, treat size spikes as significant.
+                        let delta = old_count.abs_diff(new_count);
+                        delta >= 25 && (delta as f64) / ((old_count.max(new_count)) as f64) > 0.50
+                    }
+                }
+            };
+
+            let new_len = new_lines.len();
+            let max_scroll = new_len.saturating_sub(1);
+            if significant && self.scroll > 0 {
+                self.scroll = 0;
+            } else if prev_lines_len > 0 && new_len > 0 {
+                self.scroll = self.scroll.min(max_scroll);
+            } else {
+                self.scroll = 0;
+            }
+
+            self.lines = new_lines;
+        } else {
+            self.change_summary = ChangeSummary::default();
+            self.baseline_compact = None;
+            self.change_keys.clear();
+            self.lines = lines;
+            self.scroll = 0;
+        }
         self.updated_at = now_ts();
-        self.scroll = 0;
     }
 }
 
@@ -313,16 +500,108 @@ impl View for RootView {
     }
 
     fn render(&self, frame: &mut ratatui::Frame, area: ratatui::layout::Rect, _ctx: &RenderCtx) {
-        let inner = render_view_chrome(frame, self.title(), self.updated_at(), area);
+        let inner = match self.ctx {
+            RootContext::Local => {
+                let title = self.title();
 
-        let parts = Layout::default()
-            .direction(Direction::Vertical)
-            .constraints([Constraint::Min(0), Constraint::Length(3)])
-            .split(inner);
+                let baseline = self.baseline_compact.as_deref().unwrap_or("");
+                let baseline_prefix = if baseline.is_empty() { "" } else { "  " };
+
+                // Header width heuristic: only show baseline if it fits.
+                let a = format!("A:{}", self.change_summary.added);
+                let m = format!("M:{}", self.change_summary.modified);
+                let d = format!("D:{}", self.change_summary.deleted);
+                let r = format!("R:{}", self.change_summary.renamed);
+                let base_len = title.len()
+                    + 2
+                    + a.len()
+                    + 2
+                    + m.len()
+                    + 2
+                    + d.len()
+                    + 2
+                    + r.len();
+                let include_baseline = !baseline.is_empty()
+                    && (area.width as usize) >= (base_len + baseline_prefix.len() + baseline.len());
+
+                let header = Line::from(vec![
+                    Span::styled(title.to_string(), Style::default().fg(Color::Yellow)),
+                    Span::raw("  "),
+                    Span::styled(
+                        a,
+                        Style::default().fg(Color::Green),
+                    ),
+                    Span::raw(" "),
+                    Span::styled(
+                        m,
+                        Style::default().fg(Color::Yellow),
+                    ),
+                    Span::raw(" "),
+                    Span::styled(
+                        d,
+                        Style::default().fg(Color::Red),
+                    ),
+                    Span::raw(" "),
+                    Span::styled(
+                        r,
+                        Style::default().fg(Color::Cyan),
+                    ),
+                    Span::raw(if include_baseline { baseline_prefix } else { "" }),
+                    Span::styled(
+                        if include_baseline {
+                            baseline.to_string()
+                        } else {
+                            String::new()
+                        },
+                        Style::default().fg(Color::White),
+                    ),
+                ]);
+                render_view_chrome_with_header(frame, header, area)
+            }
+            RootContext::Remote => {
+                let header = Line::from(vec![
+                    Span::styled(
+                        self.title().to_string(),
+                        Style::default().fg(root_ctx_color(RootContext::Remote)),
+                    ),
+                    Span::raw("  "),
+                    Span::styled(fmt_ts_ui(self.updated_at()), Style::default().fg(Color::Gray)),
+                ]);
+                render_view_chrome_with_header(frame, header, area)
+            }
+        };
+
+        let mut include_baseline_line = true;
+        if self.ctx == RootContext::Local {
+            let title = self.title();
+            let baseline = self.baseline_compact.as_deref().unwrap_or("");
+            if !baseline.is_empty() {
+                let a = format!("A:{}", self.change_summary.added);
+                let m = format!("M:{}", self.change_summary.modified);
+                let d = format!("D:{}", self.change_summary.deleted);
+                let r = format!("R:{}", self.change_summary.renamed);
+                let base_len = title.len()
+                    + 2
+                    + a.len()
+                    + 2
+                    + m.len()
+                    + 2
+                    + d.len()
+                    + 2
+                    + r.len();
+                let include_baseline = (area.width as usize) >= (base_len + 2 + baseline.len());
+                if include_baseline {
+                    include_baseline_line = false;
+                }
+            }
+        }
 
         let mut lines = Vec::new();
         for s in &self.lines {
-            lines.push(Line::from(s.as_str()));
+            if !include_baseline_line && s.trim_start().starts_with("baseline:") {
+                continue;
+            }
+            lines.push(style_root_line(s));
         }
         if lines.is_empty() {
             lines.push(Line::from(""));
@@ -333,26 +612,151 @@ impl View for RootView {
             Paragraph::new(lines)
                 .wrap(Wrap { trim: false })
                 .scroll((scroll, 0)),
-            parts[0],
-        );
-
-        let footer = match self.ctx {
-            RootContext::Local => vec![
-                Line::from("Commands: status/refresh, help"),
-                Line::from("Tab toggles local/remote; Up/Down scroll"),
-            ],
-            RootContext::Remote => vec![
-                Line::from("Commands: refresh, status (details), help"),
-                Line::from("Tab toggles local/remote; Up/Down scroll"),
-            ],
-        };
-        frame.render_widget(
-            Paragraph::new(footer)
-                .wrap(Wrap { trim: false })
-                .block(Block::default().borders(Borders::TOP)),
-            parts[1],
+            inner,
         );
     }
+}
+
+fn root_ctx_color(ctx: RootContext) -> Color {
+    match ctx {
+        RootContext::Local => Color::Yellow,
+        RootContext::Remote => Color::Blue,
+    }
+}
+
+fn input_hint_left(app: &App) -> Option<String> {
+    if !app.input.buf.is_empty() {
+        return None;
+    }
+    if app.modal.is_some() {
+        return None;
+    }
+
+    match app.mode() {
+        UiMode::Root => match app.root_ctx {
+            RootContext::Local => {
+                let mut changes = 0usize;
+                if let Some(v) = app.current_view::<RootView>() {
+                    changes = v.change_summary.added
+                        + v.change_summary.modified
+                        + v.change_summary.deleted
+                        + v.change_summary.renamed;
+                }
+
+                if changes > 0 {
+                    Some("snap, snaps, help".to_string())
+                } else if app.remote_configured {
+                    Some("sync, publish, snaps".to_string())
+                } else {
+                    Some("snaps, help".to_string())
+                }
+            }
+            RootContext::Remote => Some("lanes, inbox, bundles".to_string()),
+        },
+        UiMode::Snaps => Some("show, restore, msg".to_string()),
+        UiMode::Inbox => Some("fetch, bundle, help".to_string()),
+        UiMode::Bundles => Some("approve, promote, pin".to_string()),
+        UiMode::Lanes => Some("fetch, back".to_string()),
+        UiMode::Superpositions => Some("resolve, publish, help".to_string()),
+    }
+}
+
+fn input_hint_right(app: &App) -> Option<(Line<'static>, usize)> {
+    if !app.input.buf.is_empty() {
+        return None;
+    }
+    if app.modal.is_some() {
+        return None;
+    }
+    if app.mode() != UiMode::Root {
+        return None;
+    }
+
+    match app.root_ctx {
+        RootContext::Local => Some((
+            Line::from(vec![
+                Span::styled(
+                    "Tab:".to_string(),
+                    Style::default().fg(Color::Gray).add_modifier(Modifier::DIM),
+                ),
+                Span::raw(" "),
+                Span::styled("remote".to_string(), Style::default().fg(Color::Blue)),
+            ]),
+            "Tab: remote".len(),
+        )),
+        RootContext::Remote => Some((
+            Line::from(vec![
+                Span::styled(
+                    "Tab:".to_string(),
+                    Style::default().fg(Color::Gray).add_modifier(Modifier::DIM),
+                ),
+                Span::raw(" "),
+                Span::styled("local".to_string(), Style::default().fg(Color::Yellow)),
+            ]),
+            "Tab: local".len(),
+        )),
+    }
+}
+
+fn style_root_line(s: &str) -> Line<'static> {
+    // Style change lines like: "A path (+3 -1)", "R* old -> new (+1 -2)".
+    let (main, delta) = if let Some((left, right)) = s.rsplit_once(" (")
+        && right.ends_with(')')
+    {
+        (left, Some(&right[..right.len() - 1]))
+    } else {
+        (s, None)
+    };
+
+    let mut spans: Vec<Span<'static>> = Vec::new();
+    let (prefix, rest) = if let Some(r) = main.strip_prefix("R* ") {
+        ("R*", r)
+    } else if let Some(r) = main.strip_prefix("R ") {
+        ("R", r)
+    } else if let Some(r) = main.strip_prefix("A ") {
+        ("A", r)
+    } else if let Some(r) = main.strip_prefix("M ") {
+        ("M", r)
+    } else if let Some(r) = main.strip_prefix("D ") {
+        ("D", r)
+    } else {
+        ("", main)
+    };
+
+    if !prefix.is_empty() {
+        let style = match prefix {
+            "A" => Style::default().fg(Color::Green),
+            "D" => Style::default().fg(Color::Red),
+            "M" => Style::default().fg(Color::Yellow),
+            "R" | "R*" => Style::default().fg(Color::Cyan),
+            _ => Style::default(),
+        };
+        spans.push(Span::styled(prefix.to_string(), style));
+        spans.push(Span::raw(" "));
+    }
+    spans.push(Span::raw(rest.to_string()));
+
+    if let Some(delta) = delta {
+        spans.push(Span::raw(" ("));
+        let mut first = true;
+        for tok in delta.split_whitespace() {
+            if !first {
+                spans.push(Span::raw(" "));
+            }
+            first = false;
+            let style = if tok.starts_with('+') {
+                Style::default().fg(Color::Green)
+            } else if tok.starts_with('-') {
+                Style::default().fg(Color::Red)
+            } else {
+                Style::default().fg(Color::Gray)
+            };
+            spans.push(Span::styled(tok.to_string(), style));
+        }
+        spans.push(Span::raw(")"));
+    }
+
+    Line::from(spans)
 }
 
 #[derive(Debug)]
@@ -482,6 +886,127 @@ struct InboxView {
     filter: Option<String>,
     items: Vec<crate::remote::Publication>,
     selected: usize,
+}
+
+#[derive(Clone, Debug)]
+struct LaneHeadItem {
+    lane_id: String,
+    user: String,
+    head: Option<crate::remote::LaneHead>,
+    local: bool,
+}
+
+#[derive(Debug)]
+struct LanesView {
+    updated_at: String,
+    items: Vec<LaneHeadItem>,
+    selected: usize,
+}
+
+impl View for LanesView {
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+
+    fn as_any_mut(&mut self) -> &mut dyn Any {
+        self
+    }
+
+    fn mode(&self) -> UiMode {
+        UiMode::Lanes
+    }
+
+    fn title(&self) -> &str {
+        "Lanes"
+    }
+
+    fn updated_at(&self) -> &str {
+        &self.updated_at
+    }
+
+    fn move_up(&mut self) {
+        self.selected = self.selected.saturating_sub(1);
+    }
+
+    fn move_down(&mut self) {
+        if self.items.is_empty() {
+            self.selected = 0;
+            return;
+        }
+        let max = self.items.len().saturating_sub(1);
+        self.selected = (self.selected + 1).min(max);
+    }
+
+    fn render(&self, frame: &mut ratatui::Frame, area: ratatui::layout::Rect, ctx: &RenderCtx) {
+        let inner = render_view_chrome(frame, self.title(), self.updated_at(), area);
+        let parts = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([Constraint::Percentage(65), Constraint::Percentage(35)])
+            .split(inner);
+
+        let mut state = ListState::default();
+        if !self.items.is_empty() {
+            state.select(Some(self.selected.min(self.items.len().saturating_sub(1))));
+        }
+
+        let mut rows = Vec::new();
+        for it in &self.items {
+            let head = it
+                .head
+                .as_ref()
+                .map(|h| h.snap_id.chars().take(8).collect::<String>())
+                .unwrap_or_else(|| "-".to_string());
+            let ts = it
+                .head
+                .as_ref()
+                .map(|h| fmt_ts_list(&h.updated_at, ctx))
+                .unwrap_or_else(|| "".to_string());
+            let local = if it.local { " local" } else { "" };
+            if ts.is_empty() {
+                rows.push(ListItem::new(format!(
+                    "{:<10} {:<10} {}{}",
+                    it.lane_id, it.user, head, local
+                )));
+            } else {
+                rows.push(ListItem::new(format!(
+                    "{:<10} {:<10} {} {}{}",
+                    it.lane_id, it.user, head, ts, local
+                )));
+            }
+        }
+        if rows.is_empty() {
+            rows.push(ListItem::new("(empty)"));
+        }
+
+        let list = List::new(rows)
+            .block(Block::default().borders(Borders::BOTTOM).title(
+                "(commands: fetch, back)".to_string(),
+            ))
+            .highlight_style(Style::default().bg(Color::DarkGray));
+        frame.render_stateful_widget(list, parts[0], &mut state);
+
+        let details = if self.items.is_empty() {
+            vec![Line::from("(no selection)")]
+        } else {
+            let idx = self.selected.min(self.items.len().saturating_sub(1));
+            let it = &self.items[idx];
+            let mut out = Vec::new();
+            out.push(Line::from(format!("lane: {}", it.lane_id)));
+            out.push(Line::from(format!("user: {}", it.user)));
+            if let Some(h) = &it.head {
+                out.push(Line::from(format!("snap: {}", h.snap_id)));
+                out.push(Line::from(format!("updated_at: {}", fmt_ts_ui(&h.updated_at))));
+                if let Some(cid) = &h.client_id {
+                    out.push(Line::from(format!("client_id: {}", cid)));
+                }
+            } else {
+                out.push(Line::from("snap: (none)"));
+            }
+            out.push(Line::from(format!("local: {}", it.local)));
+            out
+        };
+        frame.render_widget(Paragraph::new(details).wrap(Wrap { trim: false }), parts[1]);
+    }
 }
 
 impl View for InboxView {
@@ -1049,6 +1574,18 @@ fn local_root_command_defs() -> Vec<CommandDef> {
             help: "Create a snap",
         },
         CommandDef {
+            name: "publish",
+            aliases: &[],
+            usage: "publish [--snap-id <id>] [--scope <id>] [--gate <id>] [--metadata-only]",
+            help: "Publish a snap to remote",
+        },
+        CommandDef {
+            name: "sync",
+            aliases: &[],
+            usage: "sync [--snap-id <id>] [--lane <id>] [--client-id <id>]",
+            help: "Sync a snap to your lane head",
+        },
+        CommandDef {
             name: "msg",
             aliases: &[],
             usage: "msg [<snap_id_prefix>] [<message...>|--clear]",
@@ -1118,7 +1655,7 @@ enum StatusChange {
     Added(String),
     Modified(String),
     Deleted(String),
-    Renamed { from: String, to: String },
+    Renamed { from: String, to: String, modified: bool },
 }
 
 impl StatusChange {
@@ -1129,6 +1666,126 @@ impl StatusChange {
             StatusChange::Deleted(p) => ("D", p.as_str()),
             StatusChange::Renamed { from, .. } => ("R", from.as_str()),
         }
+    }
+}
+
+fn blob_prefix_suffix_score(a: &[u8], b: &[u8]) -> (usize, usize, usize, f64) {
+    if a.is_empty() && b.is_empty() {
+        return (0, 0, 0, 1.0);
+    }
+
+    let min = a.len().min(b.len());
+    let max = a.len().max(b.len());
+    if max == 0 {
+        return (0, 0, 0, 1.0);
+    }
+
+    let mut prefix = 0usize;
+    while prefix < min && a[prefix] == b[prefix] {
+        prefix += 1;
+    }
+
+    let mut suffix = 0usize;
+    while suffix < (min - prefix)
+        && a[a.len() - 1 - suffix] == b[b.len() - 1 - suffix]
+    {
+        suffix += 1;
+    }
+
+    let score = ((prefix + suffix) as f64) / (max as f64);
+    (prefix, suffix, max, score)
+}
+
+fn min_blob_rename_score(max_len: usize) -> f64 {
+    // Adaptive threshold: small files should still rename-match after small edits.
+    // Keep it conservative to avoid spurious matches.
+    if max_len <= 512 {
+        0.65
+    } else if max_len <= 4 * 1024 {
+        0.70
+    } else if max_len <= 16 * 1024 {
+        0.78
+    } else {
+        0.85
+    }
+}
+
+fn min_blob_rename_matched_bytes(max_len: usize) -> usize {
+    // Guardrail for tiny files where many candidates might otherwise tie.
+    if max_len <= 128 {
+        max_len / 2
+    } else if max_len <= 4 * 1024 {
+        32
+    } else {
+        0
+    }
+}
+
+fn default_chunk_size_bytes() -> usize {
+    // Keep in sync with workspace defaults.
+    4 * 1024 * 1024
+}
+
+fn chunk_size_bytes_from_workspace(ws: &Workspace) -> usize {
+    let cfg = ws.store.read_config().ok();
+    let chunk_size = cfg
+        .as_ref()
+        .and_then(|c| c.chunking.as_ref().map(|x| x.chunk_size))
+        .unwrap_or(default_chunk_size_bytes() as u64);
+    let chunk_size = chunk_size.max(64 * 1024);
+    usize::try_from(chunk_size).unwrap_or(default_chunk_size_bytes())
+}
+
+fn recipe_prefix_suffix_score(
+    a: &crate::model::FileRecipe,
+    b: &crate::model::FileRecipe,
+) -> (usize, usize, usize, f64) {
+    let a_ids: Vec<&str> = a.chunks.iter().map(|c| c.blob.as_str()).collect();
+    let b_ids: Vec<&str> = b.chunks.iter().map(|c| c.blob.as_str()).collect();
+
+    if a_ids.is_empty() && b_ids.is_empty() {
+        return (0, 0, 0, 1.0);
+    }
+
+    let min = a_ids.len().min(b_ids.len());
+    let max = a_ids.len().max(b_ids.len());
+    if max == 0 {
+        return (0, 0, 0, 1.0);
+    }
+
+    let mut prefix = 0usize;
+    while prefix < min && a_ids[prefix] == b_ids[prefix] {
+        prefix += 1;
+    }
+
+    let mut suffix = 0usize;
+    while suffix < (min - prefix)
+        && a_ids[a_ids.len() - 1 - suffix] == b_ids[b_ids.len() - 1 - suffix]
+    {
+        suffix += 1;
+    }
+
+    let score = ((prefix + suffix) as f64) / (max as f64);
+    (prefix, suffix, max, score)
+}
+
+fn min_recipe_rename_score(max_chunks: usize) -> f64 {
+    if max_chunks <= 8 {
+        0.60
+    } else if max_chunks <= 32 {
+        0.75
+    } else {
+        0.90
+    }
+}
+
+fn min_recipe_rename_matched_chunks(max_chunks: usize) -> usize {
+    if max_chunks <= 8 {
+        2
+    } else if max_chunks <= 32 {
+        4
+    } else {
+        0
     }
 }
 
@@ -1203,6 +1860,8 @@ fn diff_trees_with_renames(
     base_root: Option<&ObjectId>,
     cur_root: &ObjectId,
     cur_manifests: &std::collections::HashMap<ObjectId, Manifest>,
+    workspace_root: Option<&std::path::Path>,
+    chunk_size_bytes: usize,
 ) -> Result<Vec<StatusChange>> {
     let raw = diff_trees(store, base_root, cur_root, cur_manifests)?;
     let Some(base_root) = base_root else {
@@ -1215,6 +1874,73 @@ fn diff_trees_with_renames(
             })
             .collect());
     };
+
+    fn load_blob_bytes(
+        store: &LocalStore,
+        workspace_root: Option<&std::path::Path>,
+        rel_path: &str,
+        blob_id: &str,
+    ) -> Option<Vec<u8>> {
+        let oid = ObjectId(blob_id.to_string());
+        if store.has_blob(&oid) {
+            return store.get_blob(&oid).ok();
+        }
+        let root = workspace_root?;
+        let bytes = std::fs::read(root.join(std::path::Path::new(rel_path))).ok()?;
+        if crate::store::hash_bytes(&bytes).as_str() != blob_id {
+            return None;
+        }
+        Some(bytes)
+    }
+
+    fn load_recipe(
+        store: &LocalStore,
+        workspace_root: Option<&std::path::Path>,
+        rel_path: &str,
+        recipe_id: &str,
+        chunk_size_bytes: usize,
+    ) -> Option<crate::model::FileRecipe> {
+        let oid = ObjectId(recipe_id.to_string());
+        if store.has_recipe(&oid) {
+            return store.get_recipe(&oid).ok();
+        }
+
+        let root = workspace_root?;
+        let abs = root.join(std::path::Path::new(rel_path));
+        let meta = std::fs::symlink_metadata(&abs).ok()?;
+        let size = meta.len();
+        let f = std::fs::File::open(&abs).ok()?;
+        let mut r = std::io::BufReader::new(f);
+
+        let mut buf = vec![0u8; chunk_size_bytes.max(64 * 1024)];
+        let mut chunks = Vec::new();
+        let mut total: u64 = 0;
+        loop {
+            let n = std::io::Read::read(&mut r, &mut buf).ok()?;
+            if n == 0 {
+                break;
+            }
+            total += n as u64;
+            let blob = crate::store::hash_bytes(&buf[..n]);
+            chunks.push(crate::model::FileRecipeChunk {
+                blob,
+                size: n as u32,
+            });
+        }
+        if total != size {
+            return None;
+        }
+        let recipe = crate::model::FileRecipe {
+            version: 1,
+            size,
+            chunks,
+        };
+        let bytes = serde_json::to_vec(&recipe).ok()?;
+        if crate::store::hash_bytes(&bytes).as_str() != recipe_id {
+            return None;
+        }
+        Some(recipe)
+    }
 
     let mut base_ids = std::collections::HashMap::new();
     collect_identities_base("", store, base_root, &mut base_ids)?;
@@ -1261,7 +1987,178 @@ fn diff_trees_with_renames(
             let to = adds[0].clone();
             consumed_deleted.insert(from.clone());
             consumed_added.insert(to.clone());
-            renames.push((from, to));
+            renames.push((from, to, false));
+        }
+    }
+
+    // Heuristic: detect rename+small-edit for regular files by comparing blob bytes.
+    // Only runs on remaining unmatched A/D pairs.
+    const MAX_BYTES: usize = 1024 * 1024;
+
+    let mut remaining_added_blobs = Vec::new();
+    for p in &added {
+        if consumed_added.contains(p) {
+            continue;
+        }
+        let Some(id) = cur_ids.get(p) else {
+            continue;
+        };
+        let IdentityKey::Blob(blob) = id else {
+            continue;
+        };
+        remaining_added_blobs.push((p.clone(), blob.clone()));
+    }
+
+    let mut remaining_deleted_blobs = Vec::new();
+    for p in &deleted {
+        if consumed_deleted.contains(p) {
+            continue;
+        }
+        let Some(id) = base_ids.get(p) else {
+            continue;
+        };
+        let IdentityKey::Blob(blob) = id else {
+            continue;
+        };
+        remaining_deleted_blobs.push((p.clone(), blob.clone()));
+    }
+
+    let mut used_added: std::collections::HashSet<String> = std::collections::HashSet::new();
+    for (from_path, from_blob) in remaining_deleted_blobs {
+        let Some(from_bytes) = load_blob_bytes(store, None, "", &from_blob) else {
+            continue;
+        };
+        if from_bytes.len() > MAX_BYTES {
+            continue;
+        }
+
+        let mut best: Option<(String, String, f64)> = None;
+        for (to_path, to_blob) in &remaining_added_blobs {
+            if used_added.contains(to_path) {
+                continue;
+            }
+            let Some(to_bytes) = load_blob_bytes(store, workspace_root, to_path, to_blob) else {
+                continue;
+            };
+            if to_bytes.len() > MAX_BYTES {
+                continue;
+            }
+
+            // Quick size filter.
+            let a = from_bytes.len() as i64;
+            let b = to_bytes.len() as i64;
+            let diff = (a - b).abs() as usize;
+            let max = from_bytes.len().max(to_bytes.len());
+            if diff > 8192 && (diff as f64) / (max as f64) > 0.20 {
+                continue;
+            }
+
+            let (prefix, suffix, max_len, score) = blob_prefix_suffix_score(&from_bytes, &to_bytes);
+            let min_score = min_blob_rename_score(max_len);
+            let min_matched = min_blob_rename_matched_bytes(max_len);
+            if score >= min_score && (prefix + suffix) >= min_matched {
+                match &best {
+                    None => best = Some((to_path.clone(), to_blob.clone(), score)),
+                    Some((_, _, best_score)) if score > *best_score => {
+                        best = Some((to_path.clone(), to_blob.clone(), score))
+                    }
+                    _ => {}
+                }
+            }
+        }
+
+        if let Some((to_path, _to_blob, _score)) = best {
+            used_added.insert(to_path.clone());
+            consumed_deleted.insert(from_path.clone());
+            consumed_added.insert(to_path.clone());
+            renames.push((from_path, to_path, true));
+        }
+    }
+
+    // Heuristic: detect rename+small-edit for chunked files by comparing recipe chunk lists.
+    // This is cheap and tends to work well when a small edit changes only 1-2 chunks.
+    const MAX_CHUNKS: usize = 2048;
+
+    let mut remaining_added_recipes = Vec::new();
+    for p in &added {
+        if consumed_added.contains(p) {
+            continue;
+        }
+        let Some(id) = cur_ids.get(p) else {
+            continue;
+        };
+        let IdentityKey::Recipe(r) = id else {
+            continue;
+        };
+        remaining_added_recipes.push((p.clone(), r.clone()));
+    }
+
+    let mut remaining_deleted_recipes = Vec::new();
+    for p in &deleted {
+        if consumed_deleted.contains(p) {
+            continue;
+        }
+        let Some(id) = base_ids.get(p) else {
+            continue;
+        };
+        let IdentityKey::Recipe(r) = id else {
+            continue;
+        };
+        remaining_deleted_recipes.push((p.clone(), r.clone()));
+    }
+
+    let mut used_added_recipe_paths: std::collections::HashSet<String> =
+        std::collections::HashSet::new();
+    for (from_path, from_recipe) in remaining_deleted_recipes {
+        let Some(from_recipe_obj) = load_recipe(store, None, "", &from_recipe, chunk_size_bytes) else {
+            continue;
+        };
+        if from_recipe_obj.chunks.len() > MAX_CHUNKS {
+            continue;
+        }
+
+        let mut best: Option<(String, String, f64)> = None;
+        for (to_path, to_recipe) in &remaining_added_recipes {
+            if used_added_recipe_paths.contains(to_path) {
+                continue;
+            }
+            let Some(to_recipe_obj) =
+                load_recipe(store, workspace_root, to_path, to_recipe, chunk_size_bytes)
+            else {
+                continue;
+            };
+            if to_recipe_obj.chunks.len() > MAX_CHUNKS {
+                continue;
+            }
+
+            let a = from_recipe_obj.chunks.len() as i64;
+            let b = to_recipe_obj.chunks.len() as i64;
+            let diff = (a - b).abs() as usize;
+            let max = from_recipe_obj.chunks.len().max(to_recipe_obj.chunks.len());
+            if diff > 4 && (diff as f64) / (max as f64) > 0.20 {
+                continue;
+            }
+
+            let (prefix, suffix, max_chunks, score) =
+                recipe_prefix_suffix_score(&from_recipe_obj, &to_recipe_obj);
+            let min_score = min_recipe_rename_score(max_chunks);
+            let min_matched = min_recipe_rename_matched_chunks(max_chunks);
+            if score >= min_score && (prefix + suffix) >= min_matched {
+                match &best {
+                    None => best = Some((to_path.clone(), to_recipe.clone(), score)),
+                    Some((_, _, best_score)) if score > *best_score => {
+                        best = Some((to_path.clone(), to_recipe.clone(), score))
+                    }
+                    _ => {}
+                }
+            }
+        }
+
+        if let Some((to_path, _to_recipe, _score)) = best {
+            used_added_recipe_paths.insert(to_path.clone());
+            consumed_deleted.insert(from_path.clone());
+            consumed_added.insert(to_path.clone());
+            renames.push((from_path, to_path, true));
         }
     }
 
@@ -1269,8 +2166,8 @@ fn diff_trees_with_renames(
     for p in modified {
         out.push(StatusChange::Modified(p));
     }
-    for (from, to) in renames {
-        out.push(StatusChange::Renamed { from, to });
+    for (from, to, modified) in renames {
+        out.push(StatusChange::Renamed { from, to, modified });
     }
     for p in added {
         if !consumed_added.contains(&p) {
@@ -1315,16 +2212,16 @@ fn remote_root_command_defs() -> Vec<CommandDef> {
             help: "Ping remote /healthz",
         },
         CommandDef {
-            name: "publish",
-            aliases: &[],
-            usage: "publish [--snap-id <id>] [--scope <id>] [--gate <id>] [--metadata-only]",
-            help: "Publish a snap to remote",
-        },
-        CommandDef {
             name: "fetch",
             aliases: &[],
-            usage: "fetch [--snap-id <id>]",
-            help: "Fetch remote publications into local store",
+            usage: "fetch [--snap-id <id>] | fetch --lane <lane> [--user <user>]",
+            help: "Fetch publications or lane heads into local store",
+        },
+        CommandDef {
+            name: "lanes",
+            aliases: &[],
+            usage: "lanes",
+            help: "List lanes and lane heads",
         },
         CommandDef {
             name: "inbox",
@@ -1531,6 +2428,23 @@ fn superpositions_command_defs() -> Vec<CommandDef> {
     ]
 }
 
+fn lanes_command_defs() -> Vec<CommandDef> {
+    vec![
+        CommandDef {
+            name: "back",
+            aliases: &[],
+            usage: "back",
+            help: "Return to root",
+        },
+        CommandDef {
+            name: "fetch",
+            aliases: &[],
+            usage: "fetch",
+            help: "Fetch selected lane head",
+        },
+    ]
+}
+
 fn mode_command_defs(mode: UiMode, root_ctx: RootContext) -> Vec<CommandDef> {
     match mode {
         UiMode::Root => root_command_defs(root_ctx),
@@ -1546,6 +2460,11 @@ fn mode_command_defs(mode: UiMode, root_ctx: RootContext) -> Vec<CommandDef> {
         }
         UiMode::Bundles => {
             let mut out = bundles_command_defs();
+            out.extend(global_command_defs());
+            out
+        }
+        UiMode::Lanes => {
+            let mut out = lanes_command_defs();
             out.extend(global_command_defs());
             out
         }
@@ -1569,6 +2488,9 @@ struct App {
 
     root_ctx: RootContext,
     ts_mode: TimestampMode,
+
+    // Cached for UI hints; updated on refresh.
+    remote_configured: bool,
 
     // Internal log (useful for debugging) but no longer the primary UI.
     log: Vec<ScrollEntry>,
@@ -1595,6 +2517,7 @@ impl Default for App {
             workspace_err: None,
             root_ctx: RootContext::Local,
             ts_mode: TimestampMode::Relative,
+            remote_configured: false,
             log: Vec::new(),
             last_command: None,
             last_result: None,
@@ -1718,6 +2641,13 @@ impl App {
         let ts_mode = self.ts_mode;
         let now = OffsetDateTime::now_utc();
         let rctx = RenderCtx { now, ts_mode };
+
+        self.remote_configured = ws
+            .as_ref()
+            .and_then(|w| w.store.read_config().ok())
+            .and_then(|c| c.remote)
+            .is_some();
+
         if let Some(v) = self.current_view_mut::<RootView>() {
             v.ctx = ctx;
             v.refresh(ws.as_ref(), &rctx);
@@ -1792,8 +2722,15 @@ impl App {
         let forced_root = self.input.buf.trim_start().starts_with('/');
         let q = self.input.buf.trim_start_matches('/').trim().to_lowercase();
         if q.is_empty() {
-            self.suggestions.clear();
-            self.suggestion_selected = 0;
+            if forced_root {
+                let mut defs = root_command_defs(self.root_ctx);
+                defs.sort_by(|a, b| a.name.cmp(b.name));
+                self.suggestions = defs;
+                self.suggestion_selected = 0;
+            } else {
+                self.suggestions.clear();
+                self.suggestion_selected = 0;
+            }
             return;
         }
 
@@ -1824,7 +2761,7 @@ impl App {
         }
 
         scored.sort_by(|(sa, a), (sb, b)| sb.cmp(sa).then_with(|| a.name.cmp(b.name)));
-        self.suggestions = scored.into_iter().map(|(_, d)| d).take(5).collect();
+        self.suggestions = scored.into_iter().map(|(_, d)| d).collect();
         self.suggestion_selected = self.suggestion_selected.min(self.suggestions.len());
     }
 
@@ -1935,6 +2872,8 @@ impl App {
                 }
                 "init" => self.cmd_init(args),
                 "snap" => self.cmd_snap(args),
+                "publish" => self.cmd_publish(args),
+                "sync" => self.cmd_sync(args),
                 "msg" => self.cmd_msg(args),
                 "snaps" => self.cmd_snaps(args),
                 "show" => self.cmd_show(args),
@@ -1953,7 +2892,7 @@ impl App {
                     self.quit = true;
                 }
 
-                "remote" | "ping" | "publish" | "fetch" | "inbox" | "bundles" | "bundle"
+                "remote" | "ping" | "fetch" | "lanes" | "inbox" | "bundles" | "bundle"
                 | "pins" | "pin" | "approve" | "promote" | "superpositions" | "supers" => {
                     self.push_error("remote command; press Tab to switch to remote".to_string());
                 }
@@ -1971,8 +2910,8 @@ impl App {
                 }
                 "remote" => self.cmd_remote(args),
                 "ping" => self.cmd_ping(args),
-                "publish" => self.cmd_publish(args),
                 "fetch" => self.cmd_fetch(args),
+                "lanes" => self.cmd_lanes(args),
                 "inbox" => self.cmd_inbox(args),
                 "bundles" => self.cmd_bundles(args),
                 "bundle" => self.cmd_bundle(args),
@@ -1992,7 +2931,7 @@ impl App {
                     self.quit = true;
                 }
 
-                "init" | "snap" | "snaps" | "show" | "restore" | "mv" | "chunking" => {
+                "init" | "snap" | "publish" | "snaps" | "show" | "restore" | "mv" | "chunking" => {
                     self.push_error("local command; press Tab to switch to local".to_string());
                 }
 
@@ -2080,6 +3019,21 @@ impl App {
                 "approve" => self.cmd_bundles_approve_mode(args),
                 "promote" => self.cmd_bundles_promote_mode(args),
                 "superpositions" | "supers" => self.cmd_bundles_superpositions_mode(args),
+                _ => {
+                    if !self.dispatch_global(cmd, args) {
+                        self.push_error(format!(
+                            "unknown command in {:?} mode: {} (try /help)",
+                            mode, cmd
+                        ));
+                    }
+                }
+            },
+            UiMode::Lanes => match cmd {
+                "back" => {
+                    self.pop_mode();
+                    self.push_output(vec!["back".to_string()]);
+                }
+                "fetch" => self.cmd_lanes_fetch_mode(args),
                 _ => {
                     if !self.dispatch_global(cmd, args) {
                         self.push_error(format!(
@@ -3674,6 +4628,8 @@ impl App {
         };
 
         let mut snap_id: Option<String> = None;
+        let mut lane: Option<String> = None;
+        let mut user: Option<String> = None;
         let mut i = 0;
         while i < args.len() {
             match args[i].as_str() {
@@ -3685,6 +4641,22 @@ impl App {
                     }
                     snap_id = Some(args[i].clone());
                 }
+                "--lane" => {
+                    i += 1;
+                    if i >= args.len() {
+                        self.push_error("missing value for --lane".to_string());
+                        return;
+                    }
+                    lane = Some(args[i].clone());
+                }
+                "--user" => {
+                    i += 1;
+                    if i >= args.len() {
+                        self.push_error("missing value for --user".to_string());
+                        return;
+                    }
+                    user = Some(args[i].clone());
+                }
                 a => {
                     self.push_error(format!("unknown arg: {}", a));
                     return;
@@ -3693,15 +4665,205 @@ impl App {
             i += 1;
         }
 
-        match client.fetch_publications(&ws.store, snap_id.as_deref()) {
+        let res = if let Some(lane) = lane.as_deref() {
+            client.fetch_lane_heads(&ws.store, lane, user.as_deref())
+        } else {
+            client.fetch_publications(&ws.store, snap_id.as_deref())
+        };
+
+        match res {
             Ok(fetched) => {
                 self.push_output(vec![format!("fetched {} snaps", fetched.len())]);
                 self.refresh_root_view();
+
+                // If we're looking at lanes, update local markers.
+                if self.mode() == UiMode::Lanes
+                    && let Some(v) = self.current_view_mut::<LanesView>()
+                {
+                    for it in &mut v.items {
+                        if let Some(h) = &it.head {
+                            it.local = ws.store.has_snap(&h.snap_id);
+                        }
+                    }
+                    v.updated_at = now_ts();
+                }
             }
             Err(err) => {
                 self.push_error(format!("fetch: {:#}", err));
             }
         }
+    }
+
+    fn cmd_lanes_fetch_mode(&mut self, args: &[String]) {
+        if !args.is_empty() {
+            self.push_error("usage: fetch".to_string());
+            return;
+        }
+
+        let Some(v) = self.current_view::<LanesView>() else {
+            self.push_error("not in lanes mode".to_string());
+            return;
+        };
+        if v.items.is_empty() {
+            self.push_error("(no selection)".to_string());
+            return;
+        }
+        let idx = v.selected.min(v.items.len().saturating_sub(1));
+        let it = &v.items[idx];
+        let Some(_h) = &it.head else {
+            self.push_error("selected member has no head".to_string());
+            return;
+        };
+
+        self.cmd_fetch(&[
+            "--lane".to_string(),
+            it.lane_id.clone(),
+            "--user".to_string(),
+            it.user.clone(),
+        ]);
+    }
+
+    fn cmd_sync(&mut self, args: &[String]) {
+        let Some(ws) = self.require_workspace() else {
+            return;
+        };
+        let Some(cfg) = self.remote_config() else {
+            self.push_error("no remote configured".to_string());
+            return;
+        };
+
+        let mut snap_id: Option<String> = None;
+        let mut lane: String = "default".to_string();
+        let mut client_id: Option<String> = None;
+
+        let mut i = 0;
+        while i < args.len() {
+            match args[i].as_str() {
+                "--snap-id" => {
+                    i += 1;
+                    if i >= args.len() {
+                        self.push_error("missing value for --snap-id".to_string());
+                        return;
+                    }
+                    snap_id = Some(args[i].clone());
+                }
+                "--lane" => {
+                    i += 1;
+                    if i >= args.len() {
+                        self.push_error("missing value for --lane".to_string());
+                        return;
+                    }
+                    lane = args[i].clone();
+                }
+                "--client-id" => {
+                    i += 1;
+                    if i >= args.len() {
+                        self.push_error("missing value for --client-id".to_string());
+                        return;
+                    }
+                    client_id = Some(args[i].clone());
+                }
+                a => {
+                    self.push_error(format!("unknown arg: {}", a));
+                    return;
+                }
+            }
+            i += 1;
+        }
+
+        let snap_id = match snap_id {
+            Some(id) => id,
+            None => match ws.list_snaps() {
+                Ok(snaps) => match snaps.first() {
+                    Some(s) => s.id.clone(),
+                    None => {
+                        self.push_error("no snaps to sync".to_string());
+                        return;
+                    }
+                },
+                Err(err) => {
+                    self.push_error(format!("list snaps: {:#}", err));
+                    return;
+                }
+            },
+        };
+
+        let snap = match ws.store.get_snap(&snap_id) {
+            Ok(s) => s,
+            Err(err) => {
+                self.push_error(format!("read snap: {:#}", err));
+                return;
+            }
+        };
+
+        let client = match RemoteClient::new(cfg.clone()) {
+            Ok(c) => c,
+            Err(err) => {
+                self.push_error(format!("init remote client: {:#}", err));
+                return;
+            }
+        };
+
+        match client
+            .upload_snap_objects(&ws.store, &snap)
+            .and_then(|_| client.update_lane_head_me(&lane, &snap.id, client_id))
+        {
+            Ok(head) => {
+                let short = head.snap_id.chars().take(8).collect::<String>();
+                self.push_output(vec![format!("synced {} to lane {}", short, lane)]);
+                self.refresh_root_view();
+            }
+            Err(err) => {
+                self.push_error(format!("sync: {:#}", err));
+            }
+        }
+    }
+
+    fn cmd_lanes(&mut self, _args: &[String]) {
+        let Some(ws) = self.require_workspace() else {
+            return;
+        };
+        let client = match self.remote_client() {
+            Some(c) => c,
+            None => return,
+        };
+
+        let lanes = match client.list_lanes() {
+            Ok(l) => l,
+            Err(err) => {
+                self.push_error(format!("lanes: {:#}", err));
+                return;
+            }
+        };
+
+        let mut items: Vec<LaneHeadItem> = Vec::new();
+        let mut lanes = lanes;
+        lanes.sort_by(|a, b| a.id.cmp(&b.id));
+        for lane in lanes {
+            let mut members = lane.members.into_iter().collect::<Vec<_>>();
+            members.sort();
+            for user in members {
+                let head = lane.heads.get(&user).cloned();
+                let local = head
+                    .as_ref()
+                    .map(|h| ws.store.has_snap(&h.snap_id))
+                    .unwrap_or(false);
+                items.push(LaneHeadItem {
+                    lane_id: lane.id.clone(),
+                    user,
+                    head,
+                    local,
+                });
+            }
+        }
+
+        let count = items.len();
+        self.push_view(LanesView {
+            updated_at: now_ts(),
+            items,
+            selected: 0,
+        });
+        self.push_output(vec![format!("opened lanes ({} entries)", count)]);
     }
 
     fn cmd_inbox(&mut self, args: &[String]) {
@@ -4367,7 +5529,19 @@ fn tokenize(input: &str) -> Result<Vec<String>> {
 }
 
 fn run_loop(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, app: &mut App) -> Result<()> {
+    let mut last_local_refresh = std::time::Instant::now();
+    let local_refresh_interval = Duration::from_secs(3);
     loop {
+        let should_auto_refresh_local = app.mode() == UiMode::Root
+            && app.root_ctx == RootContext::Local
+            && app.modal.is_none()
+            && app.input.buf.is_empty()
+            && last_local_refresh.elapsed() >= local_refresh_interval;
+        if should_auto_refresh_local {
+            app.refresh_root_view();
+            last_local_refresh = std::time::Instant::now();
+        }
+
         terminal.draw(|f| draw(f, app)).context("draw")?;
         if app.quit {
             return Ok(());
@@ -4872,6 +6046,87 @@ enum StatusDelta {
     Deleted,
 }
 
+fn myers_edit_distance_lines(a: &[String], b: &[String]) -> usize {
+    let n = a.len();
+    let m = b.len();
+    let max = n + m;
+    let offset = max as isize;
+    let mut v = vec![0isize; 2 * max + 1];
+
+    for d in 0..=max {
+        let d_isize = d as isize;
+        let mut k = -d_isize;
+        while k <= d_isize {
+            let idx = (k + offset) as usize;
+            let x = if k == -d_isize || (k != d_isize && v[idx - 1] < v[idx + 1]) {
+                v[idx + 1]
+            } else {
+                v[idx - 1] + 1
+            };
+
+            let mut x2 = x;
+            let mut y2 = x2 - k;
+            while (x2 as usize) < n
+                && (y2 as usize) < m
+                && a[x2 as usize] == b[y2 as usize]
+            {
+                x2 += 1;
+                y2 += 1;
+            }
+            v[idx] = x2;
+            if (x2 as usize) >= n && (y2 as usize) >= m {
+                return d;
+            }
+
+            k += 2;
+        }
+    }
+
+    max
+}
+
+fn line_delta_utf8(old_bytes: &[u8], new_bytes: &[u8]) -> Option<(usize, usize)> {
+    const MAX_TEXT_BYTES: usize = 256 * 1024;
+    if old_bytes.len().max(new_bytes.len()) > MAX_TEXT_BYTES {
+        return None;
+    }
+
+    let old_s = std::str::from_utf8(old_bytes).ok()?;
+    let new_s = std::str::from_utf8(new_bytes).ok()?;
+    let old_lines: Vec<String> = old_s.lines().map(|l| l.to_string()).collect();
+    let new_lines: Vec<String> = new_s.lines().map(|l| l.to_string()).collect();
+
+    let d = myers_edit_distance_lines(&old_lines, &new_lines);
+    let lcs = (old_lines.len() + new_lines.len()).saturating_sub(d) / 2;
+    let added = new_lines.len().saturating_sub(lcs);
+    let deleted = old_lines.len().saturating_sub(lcs);
+    Some((added, deleted))
+}
+
+fn count_lines_utf8(bytes: &[u8]) -> Option<usize> {
+    const MAX_TEXT_BYTES: usize = 256 * 1024;
+    if bytes.len() > MAX_TEXT_BYTES {
+        return None;
+    }
+    let s = std::str::from_utf8(bytes).ok()?;
+    Some(s.lines().count())
+}
+
+fn fmt_line_delta(added: usize, deleted: usize) -> String {
+    let mut parts = Vec::new();
+    if added > 0 {
+        parts.push(format!("+{}", added));
+    }
+    if deleted > 0 {
+        parts.push(format!("-{}", deleted));
+    }
+    if parts.is_empty() {
+        String::new()
+    } else {
+        format!(" ({})", parts.join(" "))
+    }
+}
+
 fn local_status_lines(ws: &Workspace, ctx: &RenderCtx) -> Result<Vec<String>> {
     let snaps = ws.list_snaps()?;
 
@@ -4904,6 +6159,8 @@ fn local_status_lines(ws: &Workspace, ctx: &RenderCtx) -> Result<Vec<String>> {
         baseline.as_ref().map(|s| &s.root_manifest),
         &cur_root,
         &cur_manifests,
+        Some(ws.root.as_path()),
+        chunk_size_bytes_from_workspace(ws),
     )?;
 
     if changes.is_empty() {
@@ -4938,17 +6195,92 @@ fn local_status_lines(ws: &Workspace, ctx: &RenderCtx) -> Result<Vec<String>> {
     }
     lines.push("".to_string());
 
+    let base_ids = if let Some(s) = &baseline {
+        let mut m = std::collections::HashMap::new();
+        collect_identities_base("", &ws.store, &s.root_manifest, &mut m)?;
+        Some(m)
+    } else {
+        None
+    };
+    let mut cur_ids = std::collections::HashMap::new();
+    collect_identities_current("", &cur_root, &cur_manifests, &mut cur_ids)?;
+
     const MAX: usize = 200;
     let more = changes.len().saturating_sub(MAX);
     for (i, c) in changes.into_iter().enumerate() {
         if i >= MAX {
             break;
         }
+
+        let delta = match &c {
+            StatusChange::Added(p) => {
+                let id = cur_ids.get(p);
+                if let Some(IdentityKey::Blob(_)) = id {
+                    let bytes = std::fs::read(ws.root.join(std::path::Path::new(p))).ok();
+                    bytes.and_then(|b| count_lines_utf8(&b)).map(|n| (n, 0))
+                } else {
+                    None
+                }
+            }
+            StatusChange::Deleted(p) => {
+                let id = base_ids.as_ref().and_then(|m| m.get(p));
+                if let Some(IdentityKey::Blob(bid)) = id {
+                    let bytes = ws.store.get_blob(&ObjectId(bid.clone())).ok();
+                    bytes.and_then(|b| count_lines_utf8(&b)).map(|n| (0, n))
+                } else {
+                    None
+                }
+            }
+            StatusChange::Modified(p) => {
+                let base = base_ids.as_ref().and_then(|m| m.get(p));
+                let cur = cur_ids.get(p);
+                if let (Some(IdentityKey::Blob(bid)), Some(IdentityKey::Blob(_))) = (base, cur) {
+                    let old_bytes = ws.store.get_blob(&ObjectId(bid.clone())).ok();
+                    let new_bytes = std::fs::read(ws.root.join(std::path::Path::new(p))).ok();
+                    if let (Some(a), Some(b)) = (old_bytes, new_bytes) {
+                        line_delta_utf8(&a, &b)
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                }
+            }
+            StatusChange::Renamed { from, to, modified } => {
+                if !*modified {
+                    None
+                } else {
+                    let base = base_ids.as_ref().and_then(|m| m.get(from));
+                    let cur = cur_ids.get(to);
+                    if let (Some(IdentityKey::Blob(bid)), Some(IdentityKey::Blob(_))) =
+                        (base, cur)
+                    {
+                        let old_bytes = ws.store.get_blob(&ObjectId(bid.clone())).ok();
+                        let new_bytes = std::fs::read(ws.root.join(std::path::Path::new(to))).ok();
+                        if let (Some(a), Some(b)) = (old_bytes, new_bytes) {
+                            line_delta_utf8(&a, &b)
+                        } else {
+                            None
+                        }
+                    } else {
+                        None
+                    }
+                }
+            }
+        };
+        let delta_s = delta.map(|(a, d)| fmt_line_delta(a, d)).unwrap_or_default();
+
         match c {
-            StatusChange::Added(p) => lines.push(format!("A {}", p)),
-            StatusChange::Modified(p) => lines.push(format!("M {}", p)),
-            StatusChange::Deleted(p) => lines.push(format!("D {}", p)),
-            StatusChange::Renamed { from, to } => lines.push(format!("R {} -> {}", from, to)),
+            StatusChange::Added(p) => lines.push(format!("A {}{}", p, delta_s)),
+            StatusChange::Modified(p) => lines.push(format!("M {}{}", p, delta_s)),
+            StatusChange::Deleted(p) => lines.push(format!("D {}{}", p, delta_s)),
+            StatusChange::Renamed { from, to, modified } => {
+                if modified {
+                    lines.push(format!("R* {} -> {}{}", from, to, delta_s))
+                } else {
+                    lines.push(format!("R {} -> {}{}", from, to, delta_s))
+                }
+            }
         }
     }
     if more > 0 {
@@ -5085,6 +6417,8 @@ fn dashboard_lines(ws: &Workspace, ctx: &RenderCtx, primary: RootContext) -> Res
             baseline.as_ref().map(|s| &s.root_manifest),
             &cur_root,
             &cur_manifests,
+            Some(ws.root.as_path()),
+            chunk_size_bytes_from_workspace(ws),
         )?;
 
         sum.changes_total = changes.len();
@@ -5504,6 +6838,198 @@ fn collect_leaves_base(
     Ok(())
 }
 
+#[cfg(test)]
+mod rename_tests {
+    use super::*;
+    use crate::model::ManifestEntry;
+    use crate::model::{FileRecipe, FileRecipeChunk};
+    use tempfile::tempdir;
+
+    fn setup_store() -> anyhow::Result<(tempfile::TempDir, LocalStore)> {
+        let dir = tempdir()?;
+        let store = LocalStore::init(dir.path(), false)?;
+        Ok((dir, store))
+    }
+
+    fn manifest_with_file(name: &str, blob: &ObjectId, size: u64) -> Manifest {
+        Manifest {
+            version: 1,
+            entries: vec![ManifestEntry {
+                name: name.to_string(),
+                kind: ManifestEntryKind::File {
+                    blob: blob.clone(),
+                    mode: 0o100644,
+                    size,
+                },
+            }],
+        }
+    }
+
+    fn manifest_with_chunked_file(name: &str, recipe: &ObjectId, size: u64) -> Manifest {
+        Manifest {
+            version: 1,
+            entries: vec![ManifestEntry {
+                name: name.to_string(),
+                kind: ManifestEntryKind::FileChunks {
+                    recipe: recipe.clone(),
+                    mode: 0o100644,
+                    size,
+                },
+            }],
+        }
+    }
+
+    #[test]
+    fn detects_exact_rename_for_same_blob() -> anyhow::Result<()> {
+        let (_dir, store) = setup_store()?;
+
+        let blob = store.put_blob(b"hello\n")?;
+        let base_manifest = manifest_with_file("a.txt", &blob, 6);
+        let base_root = store.put_manifest(&base_manifest)?;
+
+        let cur_manifest = manifest_with_file("b.txt", &blob, 6);
+        let cur_root = store.put_manifest(&cur_manifest)?;
+        let mut cur_manifests = std::collections::HashMap::new();
+        cur_manifests.insert(cur_root.clone(), cur_manifest);
+
+        let out = diff_trees_with_renames(
+            &store,
+            Some(&base_root),
+            &cur_root,
+            &cur_manifests,
+            None,
+            default_chunk_size_bytes(),
+        )?;
+        assert_eq!(out.len(), 1);
+        match &out[0] {
+            StatusChange::Renamed { from, to, modified } => {
+                assert_eq!(from, "a.txt");
+                assert_eq!(to, "b.txt");
+                assert!(!modified);
+            }
+            other => anyhow::bail!("unexpected diff: {:?}", other),
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn detects_rename_with_small_edit_for_blobs() -> anyhow::Result<()> {
+        let (_dir, store) = setup_store()?;
+
+        let blob_old = store.put_blob(b"hello world\n")?;
+        let blob_new = store.put_blob(b"hello world!\n")?;
+
+        let base_manifest = manifest_with_file("a.txt", &blob_old, 12);
+        let base_root = store.put_manifest(&base_manifest)?;
+
+        let cur_manifest = manifest_with_file("b.txt", &blob_new, 13);
+        let cur_root = store.put_manifest(&cur_manifest)?;
+        let mut cur_manifests = std::collections::HashMap::new();
+        cur_manifests.insert(cur_root.clone(), cur_manifest);
+
+        let out = diff_trees_with_renames(
+            &store,
+            Some(&base_root),
+            &cur_root,
+            &cur_manifests,
+            None,
+            default_chunk_size_bytes(),
+        )?;
+        assert_eq!(out.len(), 1);
+        match &out[0] {
+            StatusChange::Renamed { from, to, modified } => {
+                assert_eq!(from, "a.txt");
+                assert_eq!(to, "b.txt");
+                assert!(*modified);
+            }
+            other => anyhow::bail!("unexpected diff: {:?}", other),
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn detects_rename_with_small_edit_for_recipes() -> anyhow::Result<()> {
+        let (_dir, store) = setup_store()?;
+
+        // Fake chunk ids (we don't need actual blobs for recipe storage).
+        let c1 = ObjectId("1".repeat(64));
+        let c2 = ObjectId("2".repeat(64));
+        let c3 = ObjectId("3".repeat(64));
+        let c4 = ObjectId("4".repeat(64));
+        let c5 = ObjectId("5".repeat(64));
+        let c6 = ObjectId("6".repeat(64));
+        let c7 = ObjectId("7".repeat(64));
+        let c8 = ObjectId("8".repeat(64));
+        let c9 = ObjectId("9".repeat(64));
+        let ca = ObjectId("a".repeat(64));
+        let cb = ObjectId("b".repeat(64));
+
+        let r_old = FileRecipe {
+            version: 1,
+            size: 40,
+            chunks: vec![
+                FileRecipeChunk { blob: c1.clone(), size: 4 },
+                FileRecipeChunk { blob: c2.clone(), size: 4 },
+                FileRecipeChunk { blob: c3.clone(), size: 4 },
+                FileRecipeChunk { blob: c4.clone(), size: 4 },
+                FileRecipeChunk { blob: c5.clone(), size: 4 },
+                FileRecipeChunk { blob: c6.clone(), size: 4 },
+                FileRecipeChunk { blob: c7.clone(), size: 4 },
+                FileRecipeChunk { blob: c8.clone(), size: 4 },
+                FileRecipeChunk { blob: c9.clone(), size: 4 },
+                FileRecipeChunk { blob: ca.clone(), size: 4 },
+            ],
+        };
+        let r_new = FileRecipe {
+            version: 1,
+            size: 40,
+            chunks: vec![
+                FileRecipeChunk { blob: c1.clone(), size: 4 },
+                FileRecipeChunk { blob: c2.clone(), size: 4 },
+                FileRecipeChunk { blob: c3.clone(), size: 4 },
+                FileRecipeChunk { blob: c4.clone(), size: 4 },
+                FileRecipeChunk { blob: cb.clone(), size: 4 },
+                FileRecipeChunk { blob: c6.clone(), size: 4 },
+                FileRecipeChunk { blob: c7.clone(), size: 4 },
+                FileRecipeChunk { blob: c8.clone(), size: 4 },
+                FileRecipeChunk { blob: c9.clone(), size: 4 },
+                FileRecipeChunk { blob: ca.clone(), size: 4 },
+            ],
+        };
+
+        let rid_old = store.put_recipe(&r_old)?;
+        let rid_new = store.put_recipe(&r_new)?;
+
+        let base_manifest = manifest_with_chunked_file("a.bin", &rid_old, 40);
+        let base_root = store.put_manifest(&base_manifest)?;
+
+        let cur_manifest = manifest_with_chunked_file("b.bin", &rid_new, 40);
+        let cur_root = store.put_manifest(&cur_manifest)?;
+        let mut cur_manifests = std::collections::HashMap::new();
+        cur_manifests.insert(cur_root.clone(), cur_manifest);
+
+        let out = diff_trees_with_renames(
+            &store,
+            Some(&base_root),
+            &cur_root,
+            &cur_manifests,
+            None,
+            default_chunk_size_bytes(),
+        )?;
+        assert_eq!(out.len(), 1);
+        match &out[0] {
+            StatusChange::Renamed { from, to, modified } => {
+                assert_eq!(from, "a.bin");
+                assert_eq!(to, "b.bin");
+                assert!(*modified);
+            }
+            other => anyhow::bail!("unexpected diff: {:?}", other),
+        }
+
+        Ok(())
+    }
+}
+
 fn draw(frame: &mut ratatui::Frame, app: &App) {
     let area = frame.area();
     let chunks = Layout::default()
@@ -5512,7 +7038,7 @@ fn draw(frame: &mut ratatui::Frame, app: &App) {
             Constraint::Length(2),
             Constraint::Min(0),
             Constraint::Length(3),
-            Constraint::Length(if app.suggestions.is_empty() { 0 } else { 6 }),
+            Constraint::Length(if app.suggestions.is_empty() { 0 } else { 9 }),
             Constraint::Length(3),
         ])
         .split(area);
@@ -5531,7 +7057,10 @@ fn draw(frame: &mut ratatui::Frame, app: &App) {
             Style::default().fg(Color::Black).bg(Color::White),
         ),
         Span::raw("  "),
-        Span::styled(app.prompt(), Style::default().fg(Color::Yellow)),
+        Span::styled(
+            app.prompt(),
+            Style::default().fg(root_ctx_color(app.root_ctx)),
+        ),
         Span::raw("  "),
         Span::raw(ws),
     ]))
@@ -5588,15 +7117,31 @@ fn draw(frame: &mut ratatui::Frame, app: &App) {
     // Suggestions
     if !app.suggestions.is_empty() {
         let mut s_lines = Vec::new();
+        let total = app.suggestions.len();
+        let sel_idx = app
+            .suggestion_selected
+            .min(app.suggestions.len().saturating_sub(1));
         s_lines.push(Line::from(Span::styled(
-            "Suggestions",
+            format!("Suggestions {}/{}", sel_idx + 1, total),
             Style::default().fg(Color::Gray),
         )));
-        for (i, s) in app.suggestions.iter().enumerate() {
-            let sel = i
-                == app
-                    .suggestion_selected
-                    .min(app.suggestions.len().saturating_sub(1));
+
+        // Window suggestions to fit panel height and keep selection visible.
+        let inner_h = chunks[3].height.saturating_sub(2) as usize; // top+bottom borders
+        let max_items = inner_h.saturating_sub(1); // first line is title
+        let max_items = max_items.max(1);
+        let mut start = 0usize;
+        if total > max_items {
+            if sel_idx >= max_items {
+                start = sel_idx + 1 - max_items;
+            }
+            start = start.min(total.saturating_sub(max_items));
+        }
+        let end = (start + max_items).min(total);
+
+        for i in start..end {
+            let s = &app.suggestions[i];
+            let sel = i == sel_idx;
             let style = if sel {
                 Style::default().bg(Color::DarkGray)
             } else {
@@ -5615,13 +7160,47 @@ fn draw(frame: &mut ratatui::Frame, app: &App) {
     // Input
     let prompt = app.prompt();
     let buf = &app.input.buf;
-    let input_line = Line::from(vec![
-        Span::styled(prompt, Style::default().fg(Color::Yellow)),
-        Span::raw(" "),
-        Span::raw(buf.as_str()),
-    ]);
+    let prompt_color = root_ctx_color(app.root_ctx);
+
+    let mut input_spans = Vec::new();
+    input_spans.push(Span::styled(prompt, Style::default().fg(prompt_color)));
+    input_spans.push(Span::raw(" "));
+    input_spans.push(Span::raw(buf.as_str()));
+
+    if let Some(hint) = input_hint_left(app) {
+        // Keep hint separated from typed input.
+        input_spans.push(Span::raw("  "));
+        input_spans.push(Span::styled(
+            hint,
+            Style::default().fg(Color::Gray).add_modifier(Modifier::DIM),
+        ));
+    }
+
+    let input_line = Line::from(input_spans);
     let input = Paragraph::new(input_line).block(Block::default().borders(Borders::TOP));
     frame.render_widget(input, chunks[4]);
+
+    // Right-aligned hint (root context toggle)
+    if let Some((hint_line, hint_len)) = input_hint_right(app) {
+        let inner_w = chunks[4].width.saturating_sub(2) as usize;
+        let left_len = prompt.len() + 1 + buf.len();
+        let left_hint_len = input_hint_left(app).map(|h| 2 + h.len()).unwrap_or(0);
+        let right_len = hint_len;
+        // Only show if it doesn't collide with left content.
+        if left_len + left_hint_len + 1 + right_len <= inner_w {
+            let rect = ratatui::layout::Rect {
+                x: chunks[4].x + 1,
+                y: chunks[4].y + 1,
+                width: chunks[4].width.saturating_sub(2),
+                height: 1,
+            };
+            frame.render_widget(
+                Paragraph::new(hint_line)
+                .alignment(ratatui::layout::Alignment::Right),
+                rect,
+            );
+        }
+    }
 
     // Cursor
     if let Some(m) = &app.modal {

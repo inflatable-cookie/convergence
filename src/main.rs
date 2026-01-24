@@ -91,11 +91,43 @@ enum Commands {
         json: bool,
     },
 
+    /// Sync a snap to your lane head (unpublished collaboration)
+    Sync {
+        /// Snap id to sync (defaults to latest)
+        #[arg(long)]
+        snap_id: Option<String>,
+        /// Lane id (defaults to "default")
+        #[arg(long, default_value = "default")]
+        lane: String,
+        /// Optional client identifier
+        #[arg(long)]
+        client_id: Option<String>,
+        /// Emit JSON
+        #[arg(long)]
+        json: bool,
+    },
+
+    /// List lanes and their heads
+    Lanes {
+        /// Emit JSON
+        #[arg(long)]
+        json: bool,
+    },
+
     /// Fetch objects and publications from the configured remote
     Fetch {
         /// Fetch only this snap id
         #[arg(long)]
         snap_id: Option<String>,
+
+        /// Fetch unpublished lane heads (defaults to publications if omitted)
+        #[arg(long)]
+        lane: Option<String>,
+
+        /// Limit lane fetch to a specific user (defaults to all heads in lane)
+        #[arg(long)]
+        user: Option<String>,
+
         /// Emit JSON
         #[arg(long)]
         json: bool,
@@ -470,11 +502,83 @@ fn run() -> Result<()> {
                 println!("Published {}", snap.id);
             }
         }
-        Some(Commands::Fetch { snap_id, json }) => {
+
+        Some(Commands::Sync {
+            snap_id,
+            lane,
+            client_id,
+            json,
+        }) => {
+            let ws = Workspace::discover(&std::env::current_dir().context("get current dir")?)?;
+            let remote = require_remote(&ws.store)?;
+            let client = RemoteClient::new(remote.clone())?;
+
+            let snap = match snap_id {
+                Some(id) => ws.show_snap(&id)?,
+                None => ws
+                    .list_snaps()?
+                    .into_iter()
+                    .next()
+                    .context("no snaps to sync")?,
+            };
+
+            // Upload objects + snap record (like publish, but without publication creation).
+            client.upload_snap_objects(&ws.store, &snap)?;
+            let head = client.update_lane_head_me(&lane, &snap.id, client_id)?;
+
+            if json {
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&head).context("serialize sync json")?
+                );
+            } else {
+                println!("Synced {} to lane {}", snap.id, lane);
+            }
+        }
+
+        Some(Commands::Lanes { json }) => {
             let ws = Workspace::discover(&std::env::current_dir().context("get current dir")?)?;
             let remote = require_remote(&ws.store)?;
             let client = RemoteClient::new(remote)?;
-            let fetched = client.fetch_publications(&ws.store, snap_id.as_deref())?;
+            let mut lanes = client.list_lanes()?;
+            lanes.sort_by(|a, b| a.id.cmp(&b.id));
+
+            if json {
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&lanes).context("serialize lanes json")?
+                );
+            } else {
+                for l in lanes {
+                    println!("lane: {}", l.id);
+                    let mut members = l.members.into_iter().collect::<Vec<_>>();
+                    members.sort();
+                    for m in members {
+                        if let Some(h) = l.heads.get(&m) {
+                            let short = h.snap_id.chars().take(8).collect::<String>();
+                            println!("  {} {} {}", m, short, h.updated_at);
+                        } else {
+                            println!("  {} (no head)", m);
+                        }
+                    }
+                }
+            }
+        }
+        Some(Commands::Fetch {
+            snap_id,
+            lane,
+            user,
+            json,
+        }) => {
+            let ws = Workspace::discover(&std::env::current_dir().context("get current dir")?)?;
+            let remote = require_remote(&ws.store)?;
+            let client = RemoteClient::new(remote)?;
+
+            let fetched = if let Some(lane) = lane.as_deref() {
+                client.fetch_lane_heads(&ws.store, lane, user.as_deref())?
+            } else {
+                client.fetch_publications(&ws.store, snap_id.as_deref())?
+            };
             if json {
                 println!(
                     "{}",
