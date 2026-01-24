@@ -1,7 +1,7 @@
 # Phase 020: Identity And Authentication
 
 Current status:
-- Not started.
+- Started: persisted users/tokens, bearer middleware resolves Subject, token endpoints.
 
 ## Goal
 
@@ -85,16 +85,16 @@ Later:
 
 ### A) Server: user + token store
 
-- [ ] Add `User` and `AccessToken` structs.
-- [ ] Persist users and tokens under the server `data_dir`.
-- [ ] Implement token hashing at rest (never persist plaintext).
-- [ ] Implement token revocation + optional expiry checks.
+- [x] Add `User` and `AccessToken` structs.
+- [x] Persist users and tokens under the server `data_dir`.
+- [x] Implement token hashing at rest (never persist plaintext).
+- [x] Implement token revocation + optional expiry checks.
 
 ### B) Server: auth middleware
 
-- [ ] Replace `--dev-user/--dev-token` fixed identity with:
+- [x] Replace `--dev-user/--dev-token` fixed identity with:
   - bearer token lookup -> token record -> user -> `Subject`
-- [ ] Update `GET /whoami` to return `{ user_id, handle }`.
+- [x] Update `GET /whoami` to return `{ user_id, handle }`.
 - [ ] Update provenance fields to store `user_id` (or store both id+handle).
 
 ### C) Server: bootstrap and admin
@@ -109,9 +109,9 @@ Later:
 
 ### D) Server: self-service token API
 
-- [ ] `POST /tokens` (create token; returns plaintext once)
-- [ ] `GET /tokens` (list; no plaintext)
-- [ ] `POST /tokens/:id/revoke`
+- [x] `POST /tokens` (create token; returns plaintext once)
+- [x] `GET /tokens` (list; no plaintext)
+- [x] `POST /tokens/:id/revoke`
 
 ### E) Client: credential storage + UX
 
@@ -129,7 +129,7 @@ Later:
 
 ### G) Tests
 
-- [ ] Server auth tests:
+- [x] Server auth tests:
   - invalid token rejected
   - revoked token rejected
   - token resolves correct user

@@ -103,6 +103,30 @@ pub struct Promotion {
 }
 
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+pub struct WhoAmI {
+    pub user: String,
+    pub user_id: String,
+    pub admin: bool,
+}
+
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+pub struct TokenView {
+    pub id: String,
+    pub label: Option<String>,
+    pub created_at: String,
+    pub last_used_at: Option<String>,
+    pub revoked_at: Option<String>,
+    pub expires_at: Option<String>,
+}
+
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+pub struct CreateTokenResponse {
+    pub id: String,
+    pub token: String,
+    pub created_at: String,
+}
+
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct LaneHead {
     pub snap_id: String,
     pub updated_at: String,
@@ -186,6 +210,63 @@ impl RemoteClient {
 
     pub fn remote(&self) -> &RemoteConfig {
         &self.remote
+    }
+
+    pub fn whoami(&self) -> Result<WhoAmI> {
+        let resp = self
+            .client
+            .get(self.url("/whoami"))
+            .header(reqwest::header::AUTHORIZATION, self.auth())
+            .send()
+            .context("whoami")?;
+        let w: WhoAmI = resp
+            .error_for_status()
+            .context("whoami status")?
+            .json()
+            .context("parse whoami")?;
+        Ok(w)
+    }
+
+    pub fn list_tokens(&self) -> Result<Vec<TokenView>> {
+        let resp = self
+            .client
+            .get(self.url("/tokens"))
+            .header(reqwest::header::AUTHORIZATION, self.auth())
+            .send()
+            .context("list tokens")?;
+        let out: Vec<TokenView> = resp
+            .error_for_status()
+            .context("list tokens status")?
+            .json()
+            .context("parse tokens")?;
+        Ok(out)
+    }
+
+    pub fn create_token(&self, label: Option<String>) -> Result<CreateTokenResponse> {
+        let resp = self
+            .client
+            .post(self.url("/tokens"))
+            .header(reqwest::header::AUTHORIZATION, self.auth())
+            .json(&serde_json::json!({"label": label}))
+            .send()
+            .context("create token")?;
+        let out: CreateTokenResponse = resp
+            .error_for_status()
+            .context("create token status")?
+            .json()
+            .context("parse create token")?;
+        Ok(out)
+    }
+
+    pub fn revoke_token(&self, token_id: &str) -> Result<()> {
+        let resp = self
+            .client
+            .post(self.url(&format!("/tokens/{}/revoke", token_id)))
+            .header(reqwest::header::AUTHORIZATION, self.auth())
+            .send()
+            .context("revoke token")?;
+        resp.error_for_status().context("revoke token status")?;
+        Ok(())
     }
 
     pub fn list_lanes(&self) -> Result<Vec<Lane>> {

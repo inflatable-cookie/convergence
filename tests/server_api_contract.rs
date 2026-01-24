@@ -21,6 +21,25 @@ fn server_api_contract_happy_path_and_auth_failures() -> Result<()> {
         .context("whoami")?;
     assert_eq!(whoami.status(), reqwest::StatusCode::UNAUTHORIZED);
 
+    // Authenticated whoami returns identity.
+    let whoami: serde_json::Value = client
+        .get(format!("{}/whoami", server.base_url))
+        .header(
+            reqwest::header::AUTHORIZATION,
+            common::auth_header(&server.token),
+        )
+        .send()
+        .context("whoami authed")?
+        .error_for_status()
+        .context("whoami authed status")?
+        .json()
+        .context("parse whoami")?;
+    assert_eq!(
+        whoami.get("user"),
+        Some(&serde_json::Value::String("dev".to_string()))
+    );
+    assert!(whoami.get("user_id").and_then(|v| v.as_str()).is_some());
+
     // Create repo.
     let created = client
         .post(format!("{}/repos", server.base_url))
@@ -48,13 +67,11 @@ fn server_api_contract_happy_path_and_auth_failures() -> Result<()> {
         .context("parse repos")?;
 
     assert!(repos.is_array());
-    assert!(
-        repos
-            .as_array()
-            .unwrap()
-            .iter()
-            .any(|r| r.get("id") == Some(&serde_json::Value::String("test".to_string())))
-    );
+    assert!(repos
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|r| r.get("id") == Some(&serde_json::Value::String("test".to_string()))));
 
     // Invalid repo id rejected.
     let bad = client

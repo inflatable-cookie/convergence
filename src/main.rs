@@ -72,6 +72,19 @@ enum Commands {
         command: RemoteCommands,
     },
 
+    /// Show current remote identity
+    Whoami {
+        /// Emit JSON
+        #[arg(long)]
+        json: bool,
+    },
+
+    /// Manage remote access tokens
+    Token {
+        #[command(subcommand)]
+        command: TokenCommands,
+    },
+
     /// Publish a snap to the configured remote
     Publish {
         /// Snap id to publish (defaults to latest)
@@ -307,6 +320,34 @@ enum ResolveCommands {
 }
 
 #[derive(Subcommand)]
+enum TokenCommands {
+    /// Create a new access token (shown once)
+    Create {
+        #[arg(long)]
+        label: Option<String>,
+        /// Emit JSON
+        #[arg(long)]
+        json: bool,
+    },
+
+    /// List your access tokens
+    List {
+        /// Emit JSON
+        #[arg(long)]
+        json: bool,
+    },
+
+    /// Revoke an access token
+    Revoke {
+        #[arg(long)]
+        id: String,
+        /// Emit JSON
+        #[arg(long)]
+        json: bool,
+    },
+}
+
+#[derive(Subcommand)]
 enum RemoteCommands {
     /// Show the configured remote
     Show {
@@ -473,6 +514,71 @@ fn run() -> Result<()> {
                         );
                     } else {
                         println!("Created repo {}", created.id);
+                    }
+                }
+            }
+        }
+
+        Some(Commands::Whoami { json }) => {
+            let ws = Workspace::discover(&std::env::current_dir().context("get current dir")?)?;
+            let remote = require_remote(&ws.store)?;
+            let client = RemoteClient::new(remote)?;
+            let who = client.whoami()?;
+            if json {
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&who).context("serialize whoami json")?
+                );
+            } else {
+                println!("user: {}", who.user);
+                println!("user_id: {}", who.user_id);
+                println!("admin: {}", who.admin);
+            }
+        }
+
+        Some(Commands::Token { command }) => {
+            let ws = Workspace::discover(&std::env::current_dir().context("get current dir")?)?;
+            let remote = require_remote(&ws.store)?;
+            let client = RemoteClient::new(remote)?;
+
+            match command {
+                TokenCommands::Create { label, json } => {
+                    let created = client.create_token(label)?;
+                    if json {
+                        println!(
+                            "{}",
+                            serde_json::to_string_pretty(&created)
+                                .context("serialize token create json")?
+                        );
+                    } else {
+                        println!("token_id: {}", created.id);
+                        println!("token: {}", created.token);
+                        println!("created_at: {}", created.created_at);
+                        println!("note: token is shown once; store it now");
+                    }
+                }
+                TokenCommands::List { json } => {
+                    let list = client.list_tokens()?;
+                    if json {
+                        println!(
+                            "{}",
+                            serde_json::to_string_pretty(&list)
+                                .context("serialize token list json")?
+                        );
+                    } else {
+                        for t in list {
+                            let label = t.label.unwrap_or_default();
+                            let revoked = if t.revoked_at.is_some() { " revoked" } else { "" };
+                            println!("{} {}{}", t.id, label, revoked);
+                        }
+                    }
+                }
+                TokenCommands::Revoke { id, json } => {
+                    client.revoke_token(&id)?;
+                    if json {
+                        println!("{}", serde_json::json!({"revoked": true, "id": id}));
+                    } else {
+                        println!("Revoked {}", id);
                     }
                 }
             }

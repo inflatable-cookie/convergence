@@ -17,17 +17,62 @@ use tokio::sync::RwLock;
 
 #[derive(Clone, Debug)]
 struct Subject {
+    user_id: String,
     user: String,
+
+    #[allow(dead_code)]
+    admin: bool,
 }
 
 #[derive(Clone)]
 struct AppState {
-    user: String,
-    token: String,
+    // Used only for best-effort defaults when hydrating old on-disk repos.
+    default_user: String,
 
     data_dir: PathBuf,
 
     repos: Arc<RwLock<HashMap<String, Repo>>>,
+
+    users: Arc<RwLock<HashMap<String, User>>>,
+    tokens: Arc<RwLock<HashMap<String, AccessToken>>>,
+    token_hash_index: Arc<RwLock<HashMap<String, String>>>,
+}
+
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+struct User {
+    id: String,
+    handle: String,
+
+    #[serde(default)]
+    display_name: Option<String>,
+
+    #[serde(default)]
+    admin: bool,
+
+    created_at: String,
+}
+
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+struct AccessToken {
+    id: String,
+    user_id: String,
+
+    // Stored hash of the bearer token secret.
+    token_hash: String,
+
+    #[serde(default)]
+    label: Option<String>,
+
+    created_at: String,
+
+    #[serde(default)]
+    last_used_at: Option<String>,
+
+    #[serde(default)]
+    revoked_at: Option<String>,
+
+    #[serde(default)]
+    expires_at: Option<String>,
 }
 
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
@@ -50,7 +95,7 @@ struct Repo {
     pinned_bundles: HashSet<String>,
 
     promotions: Vec<Promotion>,
-    promotion_state: HashMap<String, HashMap<String, String>>, 
+    promotion_state: HashMap<String, HashMap<String, String>>,
 }
 
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
@@ -188,7 +233,7 @@ struct Args {
     #[arg(long, default_value = "dev")]
     dev_user: String,
 
-    /// Development bearer token (dev-only)
+    /// Development bearer token (bootstrap-only)
     #[arg(long, default_value = "dev")]
     dev_token: String,
 }
@@ -207,11 +252,34 @@ async fn run() -> Result<()> {
     std::fs::create_dir_all(&args.data_dir)
         .with_context(|| format!("create data dir {}", args.data_dir.display()))?;
 
+    let (mut users, mut tokens) =
+        load_identity_from_disk(&args.data_dir).context("load identity")?;
+
+    if users.is_empty() || tokens.is_empty() {
+        let (u, t) = bootstrap_identity(&args.dev_user, &args.dev_token);
+        users.insert(u.id.clone(), u);
+        tokens.insert(t.id.clone(), t);
+        persist_identity_to_disk(&args.data_dir, &users, &tokens).context("persist identity")?;
+    }
+
+    let default_user = users
+        .values()
+        .find(|u| u.admin)
+        .or_else(|| users.values().next())
+        .map(|u| u.handle.clone())
+        .unwrap_or_else(|| "dev".to_string());
+
+    let token_hash_index: HashMap<String, String> =
+        tokens.values().map(|t| (t.token_hash.clone(), t.id.clone())).collect();
+
     let state = Arc::new(AppState {
-        user: args.dev_user,
-        token: args.dev_token,
+        default_user,
         data_dir: args.data_dir,
         repos: Arc::new(RwLock::new(HashMap::new())),
+
+        users: Arc::new(RwLock::new(users)),
+        tokens: Arc::new(RwLock::new(tokens)),
+        token_hash_index: Arc::new(RwLock::new(token_hash_index)),
     });
 
     // Best-effort load repos from disk so the dev server survives restarts.
@@ -223,6 +291,11 @@ async fn run() -> Result<()> {
 
     let authed = Router::new()
         .route("/whoami", get(whoami))
+        .route("/tokens", get(list_tokens).post(create_token))
+        .route(
+            "/tokens/:token_id/revoke",
+            axum::routing::post(revoke_token),
+        )
         .route("/repos", get(list_repos).post(create_repo))
         .route("/repos/:repo_id", get(get_repo))
         .route("/repos/:repo_id/permissions", get(get_repo_permissions))
@@ -343,13 +416,55 @@ async fn require_bearer(
         return unauthorized();
     };
 
-    if token != state.token {
+    let token_hash = hash_token(token);
+
+    let token_id = {
+        let idx = state.token_hash_index.read().await;
+        idx.get(&token_hash).cloned()
+    };
+    let Some(token_id) = token_id else {
         return unauthorized();
+    };
+
+    let (user_id, handle, admin) = {
+        let tokens = state.tokens.read().await;
+        let Some(t) = tokens.get(&token_id) else {
+            return unauthorized();
+        };
+        if t.revoked_at.is_some() {
+            return unauthorized();
+        }
+        if let Some(exp) = &t.expires_at {
+            if let Ok(exp) = time::OffsetDateTime::parse(
+                exp,
+                &time::format_description::well_known::Rfc3339,
+            ) {
+                if time::OffsetDateTime::now_utc() > exp {
+                    return unauthorized();
+                }
+            }
+        }
+
+        let users = state.users.read().await;
+        let Some(u) = users.get(&t.user_id) else {
+            return unauthorized();
+        };
+        (u.id.clone(), u.handle.clone(), u.admin)
+    };
+
+    // Best-effort last_used tracking (in-memory only).
+    {
+        let mut tokens = state.tokens.write().await;
+        if let Some(t) = tokens.get_mut(&token_id) {
+            t.last_used_at = Some(now_ts());
+        }
     }
 
     let mut req = req;
     req.extensions_mut().insert(Subject {
-        user: state.user.clone(),
+        user_id,
+        user: handle,
+        admin,
     });
     next.run(req).await
 }
@@ -367,7 +482,143 @@ async fn healthz() -> Json<serde_json::Value> {
 }
 
 async fn whoami(Extension(subject): Extension<Subject>) -> Json<serde_json::Value> {
-    Json(serde_json::json!({"user": subject.user}))
+    Json(serde_json::json!({
+        "user": subject.user,
+        "user_id": subject.user_id,
+        "admin": subject.admin,
+    }))
+}
+
+#[derive(Debug, serde::Serialize)]
+struct TokenView {
+    id: String,
+    label: Option<String>,
+    created_at: String,
+    last_used_at: Option<String>,
+    revoked_at: Option<String>,
+    expires_at: Option<String>,
+}
+
+async fn list_tokens(
+    State(state): State<Arc<AppState>>,
+    Extension(subject): Extension<Subject>,
+) -> Result<Json<Vec<TokenView>>, Response> {
+    let tokens = state.tokens.read().await;
+    let mut out = Vec::new();
+    for t in tokens.values() {
+        if t.user_id != subject.user_id {
+            continue;
+        }
+        out.push(TokenView {
+            id: t.id.clone(),
+            label: t.label.clone(),
+            created_at: t.created_at.clone(),
+            last_used_at: t.last_used_at.clone(),
+            revoked_at: t.revoked_at.clone(),
+            expires_at: t.expires_at.clone(),
+        });
+    }
+    out.sort_by(|a, b| b.created_at.cmp(&a.created_at));
+    Ok(Json(out))
+}
+
+#[derive(Debug, serde::Deserialize)]
+struct CreateTokenRequest {
+    #[serde(default)]
+    label: Option<String>,
+}
+
+#[derive(Debug, serde::Serialize)]
+struct CreateTokenResponse {
+    id: String,
+    token: String,
+    created_at: String,
+}
+
+async fn create_token(
+    State(state): State<Arc<AppState>>,
+    Extension(subject): Extension<Subject>,
+    Json(payload): Json<CreateTokenRequest>,
+) -> Result<Json<CreateTokenResponse>, Response> {
+    let created_at = now_ts();
+
+    let token = generate_token_secret().map_err(internal_error)?;
+    let token_hash = hash_token(&token);
+    let token_id = {
+        let mut h = blake3::Hasher::new();
+        h.update(subject.user_id.as_bytes());
+        h.update(b"\n");
+        h.update(token_hash.as_bytes());
+        h.update(b"\n");
+        h.update(created_at.as_bytes());
+        h.finalize().to_hex().to_string()
+    };
+
+    {
+        let mut tokens = state.tokens.write().await;
+        tokens.insert(
+            token_id.clone(),
+            AccessToken {
+                id: token_id.clone(),
+                user_id: subject.user_id.clone(),
+                token_hash: token_hash.clone(),
+                label: payload.label,
+                created_at: created_at.clone(),
+                last_used_at: None,
+                revoked_at: None,
+                expires_at: None,
+            },
+        );
+    }
+    {
+        let mut idx = state.token_hash_index.write().await;
+        idx.insert(token_hash, token_id.clone());
+    }
+
+    // Persist best-effort.
+    {
+        let users = state.users.read().await;
+        let tokens = state.tokens.read().await;
+        if let Err(err) = persist_identity_to_disk(&state.data_dir, &users, &tokens) {
+            return Err(internal_error(err));
+        }
+    }
+
+    Ok(Json(CreateTokenResponse {
+        id: token_id,
+        token,
+        created_at,
+    }))
+}
+
+async fn revoke_token(
+    State(state): State<Arc<AppState>>,
+    Extension(subject): Extension<Subject>,
+    Path(token_id): Path<String>,
+) -> Result<Json<serde_json::Value>, Response> {
+    let revoked_at = now_ts();
+
+    {
+        let mut tokens = state.tokens.write().await;
+        let Some(t) = tokens.get_mut(&token_id) else {
+            return Err(not_found());
+        };
+        if t.user_id != subject.user_id && !subject.admin {
+            return Err(forbidden());
+        }
+        t.revoked_at = Some(revoked_at.clone());
+    }
+
+    // Persist best-effort.
+    {
+        let users = state.users.read().await;
+        let tokens = state.tokens.read().await;
+        if let Err(err) = persist_identity_to_disk(&state.data_dir, &users, &tokens) {
+            return Err(internal_error(err));
+        }
+    }
+
+    Ok(Json(serde_json::json!({"revoked": true, "token_id": token_id, "revoked_at": revoked_at})))
 }
 
 #[derive(Debug, serde::Deserialize)]
@@ -542,10 +793,7 @@ async fn update_lane_head_me(
         return Err(forbidden());
     }
 
-    let lane = repo
-        .lanes
-        .get_mut(&lane_id)
-        .ok_or_else(not_found)?;
+    let lane = repo.lanes.get_mut(&lane_id).ok_or_else(not_found)?;
     if !lane.members.contains(&subject.user) {
         return Err(forbidden());
     }
@@ -1068,7 +1316,10 @@ fn collect_objects_from_manifest_tree(
                             converge::model::SuperpositionVariantKind::File { blob, .. } => {
                                 blobs.insert(blob.as_str().to_string());
                             }
-                            converge::model::SuperpositionVariantKind::FileChunks { recipe, .. } => {
+                            converge::model::SuperpositionVariantKind::FileChunks {
+                                recipe,
+                                ..
+                            } => {
                                 visit_recipe(
                                     state,
                                     repo_id,
@@ -1185,7 +1436,10 @@ fn validate_manifest_tree_availability(
                                     }
                                 }
                             }
-                            converge::model::SuperpositionVariantKind::FileChunks { recipe, .. } => {
+                            converge::model::SuperpositionVariantKind::FileChunks {
+                                recipe,
+                                ..
+                            } => {
                                 let recipe = read_recipe(state, repo_id, recipe.as_str())?;
                                 for c in recipe.chunks {
                                     validate_object_id(c.blob.as_str()).map_err(bad_request)?;
@@ -1773,12 +2027,17 @@ async fn gc_repo(
             }
 
             let id = match ext {
-                None => path.file_name().and_then(|s| s.to_str()).map(|s| s.to_string()),
+                None => path
+                    .file_name()
+                    .and_then(|s| s.to_str())
+                    .map(|s| s.to_string()),
                 Some(e) => {
                     if path.extension().and_then(|s| s.to_str()) != Some(e) {
                         continue;
                     }
-                    path.file_stem().and_then(|s| s.to_str()).map(|s| s.to_string())
+                    path.file_stem()
+                        .and_then(|s| s.to_str())
+                        .map(|s| s.to_string())
                 }
             };
             let Some(id) = id else {
@@ -1843,7 +2102,8 @@ async fn gc_repo(
     if q.prune_metadata && !q.dry_run {
         repo.bundles.retain(|b| keep_bundles.contains(&b.id));
         repo.pinned_bundles.retain(|b| keep_bundles.contains(b));
-        repo.publications.retain(|p| keep_publications.contains(&p.id));
+        repo.publications
+            .retain(|p| keep_publications.contains(&p.id));
         repo.snaps = keep_snaps.clone();
         persist_repo(state.as_ref(), repo).map_err(internal_error)?;
     }
@@ -2356,7 +2616,9 @@ async fn pin_bundle(
     repo.pinned_bundles.insert(bundle_id.clone());
     persist_repo(state.as_ref(), repo).map_err(internal_error)?;
 
-    Ok(Json(serde_json::json!({"bundle_id": bundle_id, "pinned": true})))
+    Ok(Json(
+        serde_json::json!({"bundle_id": bundle_id, "pinned": true}),
+    ))
 }
 
 async fn unpin_bundle(
@@ -2374,7 +2636,9 @@ async fn unpin_bundle(
 
     repo.pinned_bundles.remove(&bundle_id);
     persist_repo(state.as_ref(), repo).map_err(internal_error)?;
-    Ok(Json(serde_json::json!({"bundle_id": bundle_id, "pinned": false})))
+    Ok(Json(
+        serde_json::json!({"bundle_id": bundle_id, "pinned": false}),
+    ))
 }
 
 #[derive(Debug, serde::Deserialize)]
@@ -2646,12 +2910,12 @@ fn load_repo_from_disk(state: &AppState, repo_id: &str) -> Result<Repo> {
 
 fn default_repo_state(state: &AppState, repo_id: &str) -> Repo {
     let mut readers = HashSet::new();
-    readers.insert(state.user.clone());
+    readers.insert(state.default_user.clone());
     let mut publishers = HashSet::new();
-    publishers.insert(state.user.clone());
+    publishers.insert(state.default_user.clone());
 
     let mut members = HashSet::new();
-    members.insert(state.user.clone());
+    members.insert(state.default_user.clone());
     let default_lane = Lane {
         id: "default".to_string(),
         members,
@@ -2679,7 +2943,7 @@ fn default_repo_state(state: &AppState, repo_id: &str) -> Repo {
 
     Repo {
         id: repo_id.to_string(),
-        owner: state.user.clone(),
+        owner: state.default_user.clone(),
         readers,
         publishers,
         lanes,
@@ -2816,6 +3080,122 @@ fn write_atomic_overwrite(path: &std::path::Path, bytes: &[u8]) -> Result<()> {
     std::fs::rename(&tmp, path)
         .with_context(|| format!("rename {} -> {}", tmp.display(), path.display()))?;
     Ok(())
+}
+
+fn now_ts() -> String {
+    time::OffsetDateTime::now_utc()
+        .format(&time::format_description::well_known::Rfc3339)
+        .unwrap_or_else(|_| "<time>".to_string())
+}
+
+fn hash_token(secret: &str) -> String {
+    blake3::hash(secret.as_bytes()).to_hex().to_string()
+}
+
+fn identity_users_path(data_dir: &std::path::Path) -> std::path::PathBuf {
+    data_dir.join("users.json")
+}
+
+fn identity_tokens_path(data_dir: &std::path::Path) -> std::path::PathBuf {
+    data_dir.join("tokens.json")
+}
+
+fn load_identity_from_disk(
+    data_dir: &std::path::Path,
+) -> Result<(HashMap<String, User>, HashMap<String, AccessToken>)> {
+    let mut users: HashMap<String, User> = HashMap::new();
+    let mut tokens: HashMap<String, AccessToken> = HashMap::new();
+
+    let users_path = identity_users_path(data_dir);
+    if users_path.exists() {
+        let bytes = std::fs::read(&users_path).context("read users.json")?;
+        let list: Vec<User> = serde_json::from_slice(&bytes).context("parse users.json")?;
+        for u in list {
+            users.insert(u.id.clone(), u);
+        }
+    }
+
+    let tokens_path = identity_tokens_path(data_dir);
+    if tokens_path.exists() {
+        let bytes = std::fs::read(&tokens_path).context("read tokens.json")?;
+        let list: Vec<AccessToken> = serde_json::from_slice(&bytes).context("parse tokens.json")?;
+        for t in list {
+            tokens.insert(t.id.clone(), t);
+        }
+    }
+
+    Ok((users, tokens))
+}
+
+fn persist_identity_to_disk(
+    data_dir: &std::path::Path,
+    users: &HashMap<String, User>,
+    tokens: &HashMap<String, AccessToken>,
+) -> Result<()> {
+    let mut user_list: Vec<User> = users.values().cloned().collect();
+    user_list.sort_by(|a, b| a.handle.cmp(&b.handle));
+    let users_bytes = serde_json::to_vec_pretty(&user_list).context("serialize users")?;
+    write_atomic_overwrite(&identity_users_path(data_dir), &users_bytes)
+        .context("write users.json")?;
+
+    let mut token_list: Vec<AccessToken> = tokens.values().cloned().collect();
+    token_list.sort_by(|a, b| a.created_at.cmp(&b.created_at));
+    let tokens_bytes = serde_json::to_vec_pretty(&token_list).context("serialize tokens")?;
+    write_atomic_overwrite(&identity_tokens_path(data_dir), &tokens_bytes)
+        .context("write tokens.json")?;
+
+    Ok(())
+}
+
+fn bootstrap_identity(handle: &str, token_secret: &str) -> (User, AccessToken) {
+    let created_at = now_ts();
+    let user_id = {
+        let mut h = blake3::Hasher::new();
+        h.update(handle.as_bytes());
+        h.update(b"\n");
+        h.update(created_at.as_bytes());
+        h.finalize().to_hex().to_string()
+    };
+    let user = User {
+        id: user_id.clone(),
+        handle: handle.to_string(),
+        display_name: None,
+        admin: true,
+        created_at: created_at.clone(),
+    };
+
+    let token_hash = hash_token(token_secret);
+    let token_id = {
+        let mut h = blake3::Hasher::new();
+        h.update(user_id.as_bytes());
+        h.update(b"\n");
+        h.update(token_hash.as_bytes());
+        h.finalize().to_hex().to_string()
+    };
+    let token = AccessToken {
+        id: token_id,
+        user_id,
+        token_hash,
+        label: Some("bootstrap".to_string()),
+        created_at,
+        last_used_at: None,
+        revoked_at: None,
+        expires_at: None,
+    };
+
+    (user, token)
+}
+
+fn generate_token_secret() -> Result<String> {
+    // 32 bytes of entropy, hex-encoded.
+    let mut bytes = [0u8; 32];
+    getrandom::getrandom(&mut bytes)
+        .map_err(|e| anyhow::anyhow!("getrandom: {:?}", e))?;
+    let mut out = String::with_capacity(64);
+    for b in &bytes {
+        out.push_str(&format!("{:02x}", b));
+    }
+    Ok(out)
 }
 
 fn internal_error(err: anyhow::Error) -> Response {
