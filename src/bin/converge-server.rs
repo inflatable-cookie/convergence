@@ -134,6 +134,9 @@ struct Publication {
     scope: String,
     gate: String,
     publisher: String,
+
+    #[serde(default)]
+    publisher_user_id: Option<String>,
     created_at: String,
 
     #[serde(default)]
@@ -156,6 +159,9 @@ struct Bundle {
     root_manifest: String,
     input_publications: Vec<String>,
     created_by: String,
+
+    #[serde(default)]
+    created_by_user_id: Option<String>,
     created_at: String,
 
     promotable: bool,
@@ -163,6 +169,9 @@ struct Bundle {
 
     #[serde(default)]
     approvals: Vec<String>,
+
+    #[serde(default)]
+    approval_user_ids: Vec<String>,
 }
 
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
@@ -173,6 +182,9 @@ struct Promotion {
     from_gate: String,
     to_gate: String,
     promoted_by: String,
+
+    #[serde(default)]
+    promoted_by_user_id: Option<String>,
     promoted_at: String,
 }
 
@@ -269,6 +281,11 @@ async fn run() -> Result<()> {
         .map(|u| u.handle.clone())
         .unwrap_or_else(|| "dev".to_string());
 
+    let handle_to_id: HashMap<String, String> = users
+        .values()
+        .map(|u| (u.handle.clone(), u.id.clone()))
+        .collect();
+
     let token_hash_index: HashMap<String, String> =
         tokens.values().map(|t| (t.token_hash.clone(), t.id.clone())).collect();
 
@@ -283,7 +300,8 @@ async fn run() -> Result<()> {
     });
 
     // Best-effort load repos from disk so the dev server survives restarts.
-    let loaded = load_repos_from_disk(state.as_ref()).context("load repos from disk")?;
+    let loaded =
+        load_repos_from_disk(state.as_ref(), &handle_to_id).context("load repos from disk")?;
     {
         let mut repos = state.repos.write().await;
         *repos = loaded;
@@ -2300,6 +2318,7 @@ async fn create_publication(
         scope: payload.scope,
         gate: payload.gate,
         publisher: subject.user,
+        publisher_user_id: Some(subject.user_id),
         created_at,
         resolution: payload.resolution,
     };
@@ -2430,12 +2449,14 @@ async fn create_bundle(
         root_manifest,
         input_publications,
         created_by: subject.user,
+        created_by_user_id: Some(subject.user_id),
         created_at,
 
         promotable,
         reasons,
 
         approvals: Vec::new(),
+        approval_user_ids: Vec::new(),
     };
 
     let bytes =
@@ -2541,6 +2562,16 @@ async fn approve_bundle(
         bundle.approvals.push(subject.user.clone());
         bundle.approvals.sort();
         bundle.approvals.dedup();
+    }
+
+    if !bundle
+        .approval_user_ids
+        .iter()
+        .any(|u| u == &subject.user_id)
+    {
+        bundle.approval_user_ids.push(subject.user_id.clone());
+        bundle.approval_user_ids.sort();
+        bundle.approval_user_ids.dedup();
     }
 
     let gate_def = repo
@@ -2725,6 +2756,7 @@ async fn create_promotion(
         from_gate: bundle.gate.clone(),
         to_gate: payload.to_gate,
         promoted_by: subject.user.clone(),
+        promoted_by_user_id: Some(subject.user_id.clone()),
         promoted_at,
     };
 
@@ -2851,7 +2883,10 @@ fn persist_repo(state: &AppState, repo: &Repo) -> Result<()> {
     Ok(())
 }
 
-fn load_repos_from_disk(state: &AppState) -> Result<HashMap<String, Repo>> {
+fn load_repos_from_disk(
+    state: &AppState,
+    handle_to_id: &HashMap<String, String>,
+) -> Result<HashMap<String, Repo>> {
     let mut out = HashMap::new();
     if !state.data_dir.is_dir() {
         return Ok(out);
@@ -2869,7 +2904,7 @@ fn load_repos_from_disk(state: &AppState) -> Result<HashMap<String, Repo>> {
             .into_string()
             .map_err(|_| anyhow::anyhow!("non-utf8 repo dir name"))?;
 
-        let repo = load_repo_from_disk(state, &repo_id)
+        let repo = load_repo_from_disk(state, &repo_id, handle_to_id)
             .with_context(|| format!("load repo {}", repo_id))?;
         out.insert(repo_id, repo);
     }
@@ -2877,7 +2912,11 @@ fn load_repos_from_disk(state: &AppState) -> Result<HashMap<String, Repo>> {
     Ok(out)
 }
 
-fn load_repo_from_disk(state: &AppState, repo_id: &str) -> Result<Repo> {
+fn load_repo_from_disk(
+    state: &AppState,
+    repo_id: &str,
+    handle_to_id: &HashMap<String, String>,
+) -> Result<Repo> {
     let mut repo = if repo_state_path(state, repo_id).exists() {
         let bytes = std::fs::read(repo_state_path(state, repo_id)).context("read repo.json")?;
         serde_json::from_slice::<Repo>(&bytes).context("parse repo.json")?
@@ -2905,7 +2944,37 @@ fn load_repo_from_disk(state: &AppState, repo_id: &str) -> Result<Repo> {
         repo.promotion_state = rebuild_promotion_state(&repo.promotions);
     }
 
+    // Backfill user_id fields for older on-disk records (best-effort).
+    backfill_provenance_user_ids(&mut repo, handle_to_id);
+
     Ok(repo)
+}
+
+fn backfill_provenance_user_ids(repo: &mut Repo, handle_to_id: &HashMap<String, String>) {
+    for p in &mut repo.publications {
+        if p.publisher_user_id.is_none() {
+            p.publisher_user_id = handle_to_id.get(&p.publisher).cloned();
+        }
+    }
+    for b in &mut repo.bundles {
+        if b.created_by_user_id.is_none() {
+            b.created_by_user_id = handle_to_id.get(&b.created_by).cloned();
+        }
+        if b.approval_user_ids.is_empty() && !b.approvals.is_empty() {
+            for a in &b.approvals {
+                if let Some(id) = handle_to_id.get(a) {
+                    b.approval_user_ids.push(id.clone());
+                }
+            }
+            b.approval_user_ids.sort();
+            b.approval_user_ids.dedup();
+        }
+    }
+    for p in &mut repo.promotions {
+        if p.promoted_by_user_id.is_none() {
+            p.promoted_by_user_id = handle_to_id.get(&p.promoted_by).cloned();
+        }
+    }
 }
 
 fn default_repo_state(state: &AppState, repo_id: &str) -> Repo {
