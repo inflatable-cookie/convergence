@@ -128,6 +128,18 @@ enum Commands {
         #[arg(long)]
         user: Option<String>,
 
+        /// Materialize the fetched snap into a directory
+        #[arg(long)]
+        restore: bool,
+
+        /// Directory to materialize into (defaults to a temp dir)
+        #[arg(long)]
+        into: Option<String>,
+
+        /// Allow overwriting the destination directory
+        #[arg(long)]
+        force: bool,
+
         /// Emit JSON
         #[arg(long)]
         json: bool,
@@ -570,6 +582,9 @@ fn run() -> Result<()> {
             snap_id,
             lane,
             user,
+            restore,
+            into,
+            force,
             json,
         }) => {
             let ws = Workspace::discover(&std::env::current_dir().context("get current dir")?)?;
@@ -581,6 +596,36 @@ fn run() -> Result<()> {
             } else {
                 client.fetch_publications(&ws.store, snap_id.as_deref())?
             };
+
+            if restore {
+                let snap_to_restore = if let Some(id) = snap_id.as_deref() {
+                    id.to_string()
+                } else if fetched.len() == 1 {
+                    fetched[0].clone()
+                } else {
+                    anyhow::bail!(
+                        "--restore requires a specific snap (use --snap-id, or use --user so only one lane head is fetched)"
+                    );
+                };
+
+                let dest = if let Some(p) = into.as_deref() {
+                    std::path::PathBuf::from(p)
+                } else {
+                    let short = snap_to_restore.chars().take(8).collect::<String>();
+                    let nanos = std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .unwrap_or_default()
+                        .as_nanos();
+                    std::env::temp_dir().join(format!("converge-grab-{}-{}", short, nanos))
+                };
+
+                ws.materialize_snap_to(&snap_to_restore, &dest, force)
+                    .with_context(|| format!("materialize snap to {}", dest.display()))?;
+                if !json {
+                    println!("Materialized {} into {}", snap_to_restore, dest.display());
+                }
+            }
+
             if json {
                 println!(
                     "{}",

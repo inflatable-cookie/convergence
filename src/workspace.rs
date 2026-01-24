@@ -132,6 +132,30 @@ impl Workspace {
         Ok(())
     }
 
+    /// Materialize a snap into a separate directory (does not create a workspace).
+    pub fn materialize_snap_to(&self, snap_id: &str, out_dir: &Path, force: bool) -> Result<()> {
+        let snap = self.store.get_snap(snap_id)?;
+
+        if out_dir.exists() {
+            if !force {
+                if !is_empty_dir(out_dir)? {
+                    anyhow::bail!(
+                        "destination is not empty: {} (use --force)",
+                        out_dir.display()
+                    );
+                }
+            } else {
+                clear_dir(out_dir)?;
+            }
+        } else {
+            fs::create_dir_all(out_dir)
+                .with_context(|| format!("create dir {}", out_dir.display()))?;
+        }
+
+        materialize_manifest(&self.store, &snap.root_manifest, out_dir)?;
+        Ok(())
+    }
+
     /// Compute a manifest tree for the current working directory without writing a snap.
     ///
     /// Note: this still reads file contents to compute stable blob ids.
@@ -733,6 +757,28 @@ fn is_empty_except_converge_and_git(root: &Path) -> Result<bool> {
         return Ok(false);
     }
     Ok(true)
+}
+
+fn is_empty_dir(root: &Path) -> Result<bool> {
+    for entry in fs::read_dir(root).with_context(|| format!("read dir {}", root.display()))? {
+        let _ = entry?;
+        return Ok(false);
+    }
+    Ok(true)
+}
+
+fn clear_dir(root: &Path) -> Result<()> {
+    for entry in fs::read_dir(root).with_context(|| format!("read dir {}", root.display()))? {
+        let entry = entry?;
+        let path = entry.path();
+        let ft = entry.file_type()?;
+        if ft.is_dir() {
+            fs::remove_dir_all(&path).with_context(|| format!("remove dir {}", path.display()))?;
+        } else {
+            fs::remove_file(&path).with_context(|| format!("remove file {}", path.display()))?;
+        }
+    }
+    Ok(())
 }
 
 fn materialize_manifest(store: &LocalStore, manifest_id: &ObjectId, out_dir: &Path) -> Result<()> {
