@@ -138,6 +138,11 @@ struct Lane {
 
     #[serde(default)]
     heads: HashMap<String, LaneHead>,
+
+    // Retention roots for unpublished collaboration. We keep a bounded history of head
+    // updates so the server can GC aggressively without losing recent WIP context.
+    #[serde(default)]
+    head_history: HashMap<String, Vec<LaneHead>>,
 }
 
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
@@ -148,6 +153,8 @@ struct LaneHead {
     #[serde(skip_serializing_if = "Option::is_none")]
     client_id: Option<String>,
 }
+
+const LANE_HEAD_HISTORY_KEEP_LAST: usize = 5;
 
 fn can_read(repo: &Repo, user: &str) -> bool {
     repo.owner == user || repo.readers.contains(user)
@@ -391,6 +398,7 @@ async fn create_repo(
         id: "default".to_string(),
         members,
         heads: HashMap::new(),
+        head_history: HashMap::new(),
     };
     let mut lanes = HashMap::new();
     lanes.insert(default_lane.id.clone(), default_lane);
@@ -558,6 +566,13 @@ async fn update_lane_head_me(
         client_id: payload.client_id,
     };
     lane.heads.insert(subject.user.clone(), head.clone());
+
+    let hist = lane.head_history.entry(subject.user.clone()).or_default();
+    // Keep newest first.
+    hist.insert(0, head.clone());
+    if hist.len() > LANE_HEAD_HISTORY_KEEP_LAST {
+        hist.truncate(LANE_HEAD_HISTORY_KEEP_LAST);
+    }
     persist_repo(state.as_ref(), repo).map_err(internal_error)?;
     Ok(Json(head))
 }
@@ -1691,6 +1706,12 @@ async fn gc_repo(
         for h in lane.heads.values() {
             keep_snaps.insert(h.snap_id.clone());
         }
+
+        for hist in lane.head_history.values() {
+            for h in hist {
+                keep_snaps.insert(h.snap_id.clone());
+            }
+        }
     }
 
     // Collect objects from kept bundle roots.
@@ -2635,6 +2656,7 @@ fn default_repo_state(state: &AppState, repo_id: &str) -> Repo {
         id: "default".to_string(),
         members,
         heads: HashMap::new(),
+        head_history: HashMap::new(),
     };
     let mut lanes = HashMap::new();
     lanes.insert(default_lane.id.clone(), default_lane);

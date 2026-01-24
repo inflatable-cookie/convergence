@@ -522,9 +522,11 @@ fn run() -> Result<()> {
                     .context("no snaps to sync")?,
             };
 
-            // Upload objects + snap record (like publish, but without publication creation).
-            client.upload_snap_objects(&ws.store, &snap)?;
-            let head = client.update_lane_head_me(&lane, &snap.id, client_id)?;
+            let head = client.sync_snap(&ws.store, &snap, &lane, client_id)?;
+
+            ws.store
+                .set_lane_sync(&lane, &snap.id, &head.updated_at)
+                .context("record lane sync")?;
 
             if json {
                 println!(

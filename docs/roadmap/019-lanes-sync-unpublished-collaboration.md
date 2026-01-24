@@ -77,7 +77,7 @@ Access control:
 
 ### C) Client protocol: sync + fetch-by-lane
 
-- [ ] Implement `RemoteClient::sync_snap(...)`:
+- [x] Implement `RemoteClient::sync_snap(...)`:
   - ensure snap + required objects uploaded (existing missing-object negotiation)
   - update lane head to the snap
 - [x] Implement `RemoteClient::list_lanes()` with heads.
@@ -86,7 +86,7 @@ Access control:
   - fetch snap + manifest tree + required objects
 
 Local state:
-- [ ] Record last-synced snap id per lane/user locally (for "unsynced" UI).
+- [x] Record last-synced snap id per lane/user locally (for "unsynced" UI).
 
 ### D) CLI UX
 
@@ -102,13 +102,13 @@ Local state:
   - [x] list lanes and per-member heads
   - [x] action: fetch a selected head
 - [ ] Root hints:
-  - [ ] show "unsynced" indicator locally
+  - [x] show "unsynced" indicator locally
   - [x] show lane discovery hints remotely
 
 ### F) Retention + GC
 
 - [x] Update server GC roots to include lane heads (snaps + reachable objects).
-- [ ] Add lane retention policy (initial MVP): keep last N heads per user per lane.
+- [x] Add lane retention policy (initial MVP): keep last N heads per user per lane.
 - [x] Tests: GC does not delete lane head objects.
 
 ## Exit Criteria

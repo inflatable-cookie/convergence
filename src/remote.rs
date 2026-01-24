@@ -651,6 +651,17 @@ impl RemoteClient {
         Ok(())
     }
 
+    pub fn sync_snap(
+        &self,
+        store: &LocalStore,
+        snap: &SnapRecord,
+        lane_id: &str,
+        client_id: Option<String>,
+    ) -> Result<LaneHead> {
+        self.upload_snap_objects(store, snap)?;
+        self.update_lane_head_me(lane_id, &snap.id, client_id)
+    }
+
     fn publish_snap_inner(
         &self,
         store: &LocalStore,

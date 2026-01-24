@@ -59,6 +59,20 @@ pub struct RemoteConfig {
     pub gate: String,
 }
 
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+pub struct WorkspaceState {
+    pub version: u32,
+
+    #[serde(default)]
+    pub lane_sync: std::collections::HashMap<String, LaneSyncRecord>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct LaneSyncRecord {
+    pub snap_id: String,
+    pub synced_at: String,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct VariantKey {
     pub source: String,

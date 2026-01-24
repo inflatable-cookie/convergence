@@ -646,7 +646,13 @@ fn input_hint_left(app: &App) -> Option<String> {
                 if changes > 0 {
                     Some("snap, snaps, help".to_string())
                 } else if app.remote_configured {
-                    Some("sync, publish, snaps".to_string())
+                    let latest = app.latest_snap_id.clone();
+                    let synced = app.lane_last_synced.get("default").cloned();
+                    if latest.is_some() && latest != synced {
+                        Some("sync*, publish, snaps".to_string())
+                    } else {
+                        Some("sync, publish, snaps".to_string())
+                    }
                 } else {
                     Some("snaps, help".to_string())
                 }
@@ -2491,6 +2497,8 @@ struct App {
 
     // Cached for UI hints; updated on refresh.
     remote_configured: bool,
+    lane_last_synced: std::collections::HashMap<String, String>,
+    latest_snap_id: Option<String>,
 
     // Internal log (useful for debugging) but no longer the primary UI.
     log: Vec<ScrollEntry>,
@@ -2518,6 +2526,8 @@ impl Default for App {
             root_ctx: RootContext::Local,
             ts_mode: TimestampMode::Relative,
             remote_configured: false,
+            lane_last_synced: std::collections::HashMap::new(),
+            latest_snap_id: None,
             log: Vec::new(),
             last_command: None,
             last_result: None,
@@ -2647,6 +2657,17 @@ impl App {
             .and_then(|w| w.store.read_config().ok())
             .and_then(|c| c.remote)
             .is_some();
+
+        self.lane_last_synced = ws
+            .as_ref()
+            .and_then(|w| w.store.read_state().ok())
+            .map(|st| st.lane_sync.into_iter().map(|(k, v)| (k, v.snap_id)).collect())
+            .unwrap_or_default();
+
+        self.latest_snap_id = ws
+            .as_ref()
+            .and_then(|w| w.list_snaps().ok())
+            .and_then(|snaps| snaps.first().map(|s| s.id.clone()));
 
         if let Some(v) = self.current_view_mut::<RootView>() {
             v.ctx = ctx;
@@ -4804,11 +4825,11 @@ impl App {
             }
         };
 
-        match client
-            .upload_snap_objects(&ws.store, &snap)
-            .and_then(|_| client.update_lane_head_me(&lane, &snap.id, client_id))
-        {
+        match client.sync_snap(&ws.store, &snap, &lane, client_id) {
             Ok(head) => {
+                if let Err(err) = ws.store.set_lane_sync(&lane, &snap.id, &head.updated_at) {
+                    self.push_error(format!("record lane sync: {:#}", err));
+                }
                 let short = head.snap_id.chars().take(8).collect::<String>();
                 self.push_output(vec![format!("synced {} to lane {}", short, lane)]);
                 self.refresh_root_view();

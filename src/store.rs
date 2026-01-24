@@ -1,9 +1,12 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use anyhow::{Context, Result, anyhow};
+use anyhow::{anyhow, Context, Result};
 
-use crate::model::{FileRecipe, Manifest, ObjectId, Resolution, SnapRecord, WorkspaceConfig};
+use crate::model::{
+    FileRecipe, LaneSyncRecord, Manifest, ObjectId, Resolution, SnapRecord, WorkspaceConfig,
+    WorkspaceState,
+};
 
 const STORE_DIR: &str = ".converge";
 
@@ -54,6 +57,13 @@ impl LocalStore {
         let cfg_bytes = serde_json::to_vec_pretty(&cfg).context("serialize workspace config")?;
         write_atomic(&root.join("config.json"), &cfg_bytes).context("write config.json")?;
 
+        let state = WorkspaceState {
+            version: 1,
+            lane_sync: std::collections::HashMap::new(),
+        };
+        let state_bytes = serde_json::to_vec_pretty(&state).context("serialize workspace state")?;
+        write_atomic(&root.join("state.json"), &state_bytes).context("write state.json")?;
+
         Ok(Self { root })
     }
 
@@ -67,6 +77,40 @@ impl LocalStore {
         let bytes = serde_json::to_vec_pretty(cfg).context("serialize config")?;
         write_atomic(&self.root.join("config.json"), &bytes).context("write config.json")?;
         Ok(())
+    }
+
+    pub fn read_state(&self) -> Result<WorkspaceState> {
+        let path = self.root.join("state.json");
+        if !path.exists() {
+            return Ok(WorkspaceState {
+                version: 1,
+                lane_sync: std::collections::HashMap::new(),
+            });
+        }
+        let bytes = fs::read(&path).context("read state.json")?;
+        let st: WorkspaceState = serde_json::from_slice(&bytes).context("parse state.json")?;
+        Ok(st)
+    }
+
+    pub fn write_state(&self, st: &WorkspaceState) -> Result<()> {
+        let bytes = serde_json::to_vec_pretty(st).context("serialize state")?;
+        write_atomic(&self.root.join("state.json"), &bytes).context("write state.json")?;
+        Ok(())
+    }
+
+    pub fn set_lane_sync(&self, lane_id: &str, snap_id: &str, synced_at: &str) -> Result<()> {
+        let mut st = self.read_state()?;
+        if st.version != 1 {
+            anyhow::bail!("unsupported workspace state version {}", st.version);
+        }
+        st.lane_sync.insert(
+            lane_id.to_string(),
+            LaneSyncRecord {
+                snap_id: snap_id.to_string(),
+                synced_at: synced_at.to_string(),
+            },
+        );
+        self.write_state(&st)
     }
 
     pub fn put_blob(&self, bytes: &[u8]) -> Result<ObjectId> {
@@ -432,7 +476,11 @@ impl LocalStore {
         let s =
             fs::read_to_string(&path).with_context(|| format!("read head {}", path.display()))?;
         let s = s.trim().to_string();
-        if s.is_empty() { Ok(None) } else { Ok(Some(s)) }
+        if s.is_empty() {
+            Ok(None)
+        } else {
+            Ok(Some(s))
+        }
     }
 
     pub fn set_head(&self, snap_id: Option<&str>) -> Result<()> {
