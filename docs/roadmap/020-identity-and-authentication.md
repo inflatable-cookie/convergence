@@ -138,8 +138,8 @@ Later:
 
 ### H) Docs
 
-- [ ] Update `docs/architecture/09-security-identity-and-permissions.md` with concrete token model.
-- [ ] Add a short operator doc: how to bootstrap, create users, and mint tokens.
+- [x] Update `docs/architecture/09-security-identity-and-permissions.md` with concrete token model.
+- [x] Add a short operator doc: how to bootstrap, create users, and mint tokens.
 
 ## Exit Criteria
 
