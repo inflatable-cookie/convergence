@@ -2738,18 +2738,23 @@ impl App {
         let mut defs = mode_command_defs(mode, root_ctx);
 
         // If the workspace isn't initialized, only offer init + global navigation.
-        if mode == UiMode::Root && root_ctx == RootContext::Local && self.workspace.is_none() {
-            let can_init = self
-                .workspace_err
-                .as_deref()
-                .is_some_and(|e| e.contains("No .converge directory found"));
+        if mode == UiMode::Root && root_ctx == RootContext::Local {
+            if self.workspace.is_none() {
+                let can_init = self
+                    .workspace_err
+                    .as_deref()
+                    .is_some_and(|e| e.contains("No .converge directory found"));
 
-            defs.retain(|d| {
-                d.name == "help"
-                    || d.name == "quit"
-                    || d.name == "clear"
-                    || (can_init && d.name == "init")
-            });
+                defs.retain(|d| {
+                    d.name == "help"
+                        || d.name == "quit"
+                        || d.name == "clear"
+                        || (can_init && d.name == "init")
+                });
+            } else {
+                // Already initialized; hide init from the command surface.
+                defs.retain(|d| d.name != "init");
+            }
         }
 
         // If remote isn't ready, only offer login + global navigation.
