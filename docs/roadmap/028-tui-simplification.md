@@ -24,6 +24,7 @@ Make the TUI feel non-overwhelming and "obvious" without reading docs by:
 ### C) Discoverability
 
 - [x] Make `/` open a full palette for the current mode (root + mode commands).
+- [x] Make `settings` open a navigable list (toggle/edit via Enter), keeping subcommands out of the palette.
 
 ## Exit Criteria
 

@@ -62,6 +62,7 @@ enum UiMode {
     Releases,
     Lanes,
     Superpositions,
+    Settings,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -96,6 +97,7 @@ impl UiMode {
             UiMode::Releases => "releases>",
             UiMode::Lanes => "lanes>",
             UiMode::Superpositions => "supers>",
+            UiMode::Settings => "settings>",
         }
     }
 }
@@ -163,14 +165,40 @@ struct ScrollEntry {
 #[derive(Debug)]
 enum ModalKind {
     Viewer,
-    SnapMessage { snap_id: String },
-    ConfirmAction { action: PendingAction },
+    SnapMessage {
+        snap_id: String,
+    },
+    ConfirmAction {
+        action: PendingAction,
+    },
+    TextInput {
+        action: TextInputAction,
+        prompt: String,
+    },
 }
 
 #[derive(Debug, Clone)]
 enum PendingAction {
     Root { root_ctx: RootContext, cmd: String },
     Mode { mode: UiMode, cmd: String },
+}
+
+#[derive(Debug, Clone)]
+enum TextInputAction {
+    ChunkingSet,
+    RetentionKeepLast,
+    RetentionKeepDays,
+}
+
+#[derive(Clone, Copy, Debug)]
+struct SettingsSnapshot {
+    chunk_size_mib: u64,
+    threshold_mib: u64,
+
+    retention_keep_last: Option<u64>,
+    retention_keep_days: Option<u64>,
+    retention_prune_snaps: bool,
+    retention_pinned: usize,
 }
 
 #[derive(Debug)]
@@ -741,6 +769,238 @@ struct SnapsView {
     all_items: Vec<crate::model::SnapRecord>,
     items: Vec<crate::model::SnapRecord>,
     selected: usize,
+
+    head_id: Option<String>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum SettingsItemKind {
+    ToggleTimestamps,
+    ChunkingShow,
+    ChunkingSet,
+    ChunkingReset,
+    RetentionShow,
+    RetentionKeepLast,
+    RetentionKeepDays,
+    ToggleRetentionPruneSnaps,
+    RetentionReset,
+}
+
+#[derive(Debug)]
+struct SettingsView {
+    updated_at: String,
+    items: Vec<SettingsItemKind>,
+    selected: usize,
+
+    snapshot: Option<SettingsSnapshot>,
+}
+
+impl SettingsView {
+    fn selected_kind(&self) -> Option<SettingsItemKind> {
+        if self.items.is_empty() {
+            return None;
+        }
+        Some(self.items[self.selected.min(self.items.len().saturating_sub(1))])
+    }
+}
+
+impl View for SettingsView {
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+
+    fn as_any_mut(&mut self) -> &mut dyn Any {
+        self
+    }
+
+    fn mode(&self) -> UiMode {
+        UiMode::Settings
+    }
+
+    fn title(&self) -> &str {
+        "Settings"
+    }
+
+    fn updated_at(&self) -> &str {
+        &self.updated_at
+    }
+
+    fn move_up(&mut self) {
+        self.selected = self.selected.saturating_sub(1);
+    }
+
+    fn move_down(&mut self) {
+        if self.items.is_empty() {
+            self.selected = 0;
+            return;
+        }
+        let max = self.items.len().saturating_sub(1);
+        self.selected = (self.selected + 1).min(max);
+    }
+
+    fn render(&self, frame: &mut ratatui::Frame, area: ratatui::layout::Rect, ctx: &RenderCtx) {
+        let inner = render_view_chrome(frame, self.title(), self.updated_at(), area);
+        let parts = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([Constraint::Percentage(65), Constraint::Percentage(35)])
+            .split(inner);
+
+        let mut state = ListState::default();
+        if !self.items.is_empty() {
+            state.select(Some(self.selected.min(self.items.len().saturating_sub(1))));
+        }
+
+        let mut rows = Vec::new();
+        for k in &self.items {
+            let row = match k {
+                SettingsItemKind::ToggleTimestamps => {
+                    format!("timestamps: {}", ctx.ts_mode.label())
+                }
+                SettingsItemKind::ChunkingShow => {
+                    if let Some(s) = self.snapshot {
+                        format!(
+                            "chunking: show ({} / {} MiB)",
+                            s.chunk_size_mib, s.threshold_mib
+                        )
+                    } else {
+                        "chunking: show".to_string()
+                    }
+                }
+                SettingsItemKind::ChunkingSet => {
+                    if let Some(s) = self.snapshot {
+                        format!(
+                            "chunking: set... ({} / {} MiB)",
+                            s.chunk_size_mib, s.threshold_mib
+                        )
+                    } else {
+                        "chunking: set...".to_string()
+                    }
+                }
+                SettingsItemKind::ChunkingReset => "chunking: reset".to_string(),
+                SettingsItemKind::RetentionShow => "retention: show".to_string(),
+                SettingsItemKind::RetentionKeepLast => {
+                    if let Some(s) = self.snapshot {
+                        format!(
+                            "retention: keep_last... ({})",
+                            s.retention_keep_last
+                                .map(|n| n.to_string())
+                                .unwrap_or_else(|| "unset".to_string())
+                        )
+                    } else {
+                        "retention: keep_last...".to_string()
+                    }
+                }
+                SettingsItemKind::RetentionKeepDays => {
+                    if let Some(s) = self.snapshot {
+                        format!(
+                            "retention: keep_days... ({})",
+                            s.retention_keep_days
+                                .map(|n| n.to_string())
+                                .unwrap_or_else(|| "unset".to_string())
+                        )
+                    } else {
+                        "retention: keep_days...".to_string()
+                    }
+                }
+                SettingsItemKind::ToggleRetentionPruneSnaps => {
+                    if let Some(s) = self.snapshot {
+                        format!(
+                            "retention: prune_snaps (toggle) ({})",
+                            if s.retention_prune_snaps { "on" } else { "off" }
+                        )
+                    } else {
+                        "retention: prune_snaps (toggle)".to_string()
+                    }
+                }
+                SettingsItemKind::RetentionReset => "retention: reset".to_string(),
+            };
+            rows.push(ListItem::new(row));
+        }
+        if rows.is_empty() {
+            rows.push(ListItem::new("(empty)"));
+        }
+
+        let list = List::new(rows)
+            .block(
+                Block::default()
+                    .borders(Borders::BOTTOM)
+                    .title("(Enter: do it; /: commands)"),
+            )
+            .highlight_style(Style::default().bg(Color::DarkGray));
+        frame.render_stateful_widget(list, parts[0], &mut state);
+
+        let details = match self.selected_kind() {
+            None => vec![Line::from("(no selection)")],
+            Some(kind) => {
+                let mut out = Vec::new();
+                match kind {
+                    SettingsItemKind::ToggleTimestamps => {
+                        out.push(Line::from("Toggle timestamp display"));
+                        out.push(Line::from(format!("current: {}", ctx.ts_mode.label())));
+                    }
+                    SettingsItemKind::ChunkingShow => {
+                        out.push(Line::from("Show chunking settings"));
+                        if let Some(s) = self.snapshot {
+                            out.push(Line::from(format!(
+                                "current: chunk_size={} MiB threshold={} MiB",
+                                s.chunk_size_mib, s.threshold_mib
+                            )));
+                        }
+                    }
+                    SettingsItemKind::ChunkingSet => {
+                        out.push(Line::from("Set chunking settings"));
+                        if let Some(s) = self.snapshot {
+                            out.push(Line::from(format!(
+                                "current: {} {}",
+                                s.chunk_size_mib, s.threshold_mib
+                            )));
+                        }
+                        out.push(Line::from(
+                            "Enter: edit (format: <chunk_size_mib> <threshold_mib>)",
+                        ));
+                    }
+                    SettingsItemKind::ChunkingReset => {
+                        out.push(Line::from("Reset chunking settings"));
+                        out.push(Line::from("Enter: confirm + reset"));
+                    }
+                    SettingsItemKind::RetentionShow => {
+                        out.push(Line::from("Show retention settings"));
+                        if let Some(s) = self.snapshot {
+                            out.push(Line::from(format!(
+                                "current: keep_last={} keep_days={} prune_snaps={} pinned={}",
+                                s.retention_keep_last
+                                    .map(|n| n.to_string())
+                                    .unwrap_or_else(|| "unset".to_string()),
+                                s.retention_keep_days
+                                    .map(|n| n.to_string())
+                                    .unwrap_or_else(|| "unset".to_string()),
+                                s.retention_prune_snaps,
+                                s.retention_pinned
+                            )));
+                        }
+                    }
+                    SettingsItemKind::RetentionKeepLast => {
+                        out.push(Line::from("Set retention keep_last"));
+                        out.push(Line::from("Enter: edit (number of snaps, or 'unset')"));
+                    }
+                    SettingsItemKind::RetentionKeepDays => {
+                        out.push(Line::from("Set retention keep_days"));
+                        out.push(Line::from("Enter: edit (number of days, or 'unset')"));
+                    }
+                    SettingsItemKind::ToggleRetentionPruneSnaps => {
+                        out.push(Line::from("Toggle retention prune_snaps"));
+                    }
+                    SettingsItemKind::RetentionReset => {
+                        out.push(Line::from("Reset retention settings"));
+                        out.push(Line::from("Enter: confirm + reset"));
+                    }
+                }
+                out
+            }
+        };
+
+        frame.render_widget(Paragraph::new(details).wrap(Wrap { trim: false }), parts[1]);
+    }
 }
 
 impl View for SnapsView {
@@ -791,22 +1051,30 @@ impl View for SnapsView {
 
         let mut rows = Vec::new();
         for s in &self.items {
+            let is_head = self.head_id.as_deref() == Some(s.id.as_str());
             let sid = s.id.chars().take(8).collect::<String>();
             let msg = s.message.clone().unwrap_or_default();
-            if msg.is_empty() {
-                rows.push(ListItem::new(format!(
-                    "{} {}",
-                    sid,
-                    fmt_ts_list(&s.created_at, ctx)
-                )));
+            let marker = if is_head { "*" } else { " " };
+            let id_style = if is_head {
+                Style::default()
+                    .fg(Color::Green)
+                    .add_modifier(Modifier::BOLD)
             } else {
-                rows.push(ListItem::new(format!(
-                    "{} {} {}",
+                Style::default()
+            };
+            let row = if msg.is_empty() {
+                format!("{} {} {}", marker, sid, fmt_ts_list(&s.created_at, ctx))
+            } else {
+                format!(
+                    "{} {} {} {}",
+                    marker,
                     sid,
                     fmt_ts_list(&s.created_at, ctx),
                     msg
-                )));
-            }
+                )
+            };
+
+            rows.push(ListItem::new(row).style(id_style));
         }
         if rows.is_empty() {
             rows.push(ListItem::new("(no snaps)"));
@@ -829,6 +1097,9 @@ impl View for SnapsView {
             let idx = self.selected.min(self.items.len().saturating_sub(1));
             let s = &self.items[idx];
             let mut out = Vec::new();
+            if self.head_id.as_deref() == Some(s.id.as_str()) {
+                out.push(Line::from("active: yes"));
+            }
             out.push(Line::from(format!("id: {}", s.id)));
             out.push(Line::from(format!(
                 "created_at: {}",
@@ -1613,10 +1884,10 @@ fn global_command_defs() -> Vec<CommandDef> {
             help: "Show help",
         },
         CommandDef {
-            name: "timefmt",
-            aliases: &["tf"],
-            usage: "timefmt [rel|abs|toggle]",
-            help: "Toggle timestamp format",
+            name: "settings",
+            aliases: &[],
+            usage: "settings",
+            help: "Open settings",
         },
         CommandDef {
             name: "login",
@@ -1709,22 +1980,10 @@ fn local_root_command_defs() -> Vec<CommandDef> {
             help: "Move/rename a path (case-safe)",
         },
         CommandDef {
-            name: "chunking",
-            aliases: &[],
-            usage: "chunking show | chunking set --chunk-size-mib N --threshold-mib N | chunking reset",
-            help: "Configure chunked-file snapping",
-        },
-        CommandDef {
             name: "purge",
             aliases: &[],
             usage: "purge [--dry-run]",
             help: "Purge local objects (per retention policy)",
-        },
-        CommandDef {
-            name: "retention",
-            aliases: &[],
-            usage: "retention show | retention set [--keep-last N] [--keep-days N] [--prune-snaps true|false] | retention pin <snap> | retention unpin <snap> | retention reset",
-            help: "Configure local retention",
         },
         CommandDef {
             name: "clear",
@@ -2623,6 +2882,19 @@ fn mode_command_defs(mode: UiMode, root_ctx: RootContext) -> Vec<CommandDef> {
             out.extend(global_command_defs());
             out
         }
+
+        UiMode::Settings => {
+            let mut out = vec![CommandDef {
+                name: "back",
+                aliases: &[],
+                usage: "back",
+                help: "Return to root",
+            }];
+            let mut globals = global_command_defs();
+            globals.retain(|d| d.name != "settings");
+            out.extend(globals);
+            out
+        }
     }
 }
 
@@ -2693,7 +2965,7 @@ struct App {
     suggestions: Vec<CommandDef>,
     suggestion_selected: usize,
 
-    hint_rotation: [usize; 8],
+    hint_rotation: [usize; 9],
 
     frames: Vec<ViewFrame>,
 
@@ -2722,7 +2994,7 @@ impl Default for App {
             suggestions: Vec::new(),
             suggestion_selected: 0,
 
-            hint_rotation: [0; 8],
+            hint_rotation: [0; 9],
             frames: vec![ViewFrame {
                 view: Box::new(RootView::new(RootContext::Local)),
             }],
@@ -2780,6 +3052,7 @@ impl App {
             (UiMode::Releases, _) => 5,
             (UiMode::Lanes, _) => 6,
             (UiMode::Superpositions, _) => 7,
+            (UiMode::Settings, _) => 8,
         }
     }
 
@@ -2892,6 +3165,16 @@ impl App {
                     vec!["apply".to_string(), "back".to_string()]
                 }
             }
+
+            UiMode::Settings => {
+                let Some(v) = self.current_view::<SettingsView>() else {
+                    return vec!["back".to_string()];
+                };
+                match v.selected_kind() {
+                    None => vec!["back".to_string()],
+                    Some(_) => vec!["do".to_string(), "back".to_string()],
+                }
+            }
         }
     }
 
@@ -2950,7 +3233,17 @@ impl App {
 
             // Anything explicitly about GC/retention.
             (UiMode::Root, RootContext::Local, "purge") => true,
-            (UiMode::Root, RootContext::Local, "retention") => true,
+
+            // Settings resets.
+            (UiMode::Settings, _, "do") => {
+                let Some(v) = self.current_view::<SettingsView>() else {
+                    return false;
+                };
+                matches!(
+                    v.selected_kind(),
+                    Some(SettingsItemKind::ChunkingReset | SettingsItemKind::RetentionReset)
+                )
+            }
 
             _ => false,
         }
@@ -2962,8 +3255,24 @@ impl App {
             PendingAction::Mode { mode, cmd } => (cmd.as_str(), mode.prompt()),
         };
 
+        let cmd_display = match &action {
+            PendingAction::Mode { mode, cmd }
+                if *mode == UiMode::Settings && cmd.as_str() == "do" =>
+            {
+                match self
+                    .current_view::<SettingsView>()
+                    .and_then(|v| v.selected_kind())
+                {
+                    Some(SettingsItemKind::ChunkingReset) => "reset chunking".to_string(),
+                    Some(SettingsItemKind::RetentionReset) => "reset retention".to_string(),
+                    _ => "settings action".to_string(),
+                }
+            }
+            _ => cmd.to_string(),
+        };
+
         let mut lines = Vec::new();
-        lines.push(format!("Run: {}", cmd));
+        lines.push(format!("Run: {}", cmd_display));
         lines.push(format!("Where: {}", context));
         lines.push("".to_string());
         lines.push("This action changes data.".to_string());
@@ -3318,6 +3627,34 @@ impl App {
         });
     }
 
+    fn open_text_input_modal(
+        &mut self,
+        title: impl Into<String>,
+        prompt: impl Into<String>,
+        action: TextInputAction,
+        initial: Option<String>,
+        mut lines: Vec<String>,
+    ) {
+        lines.push("".to_string());
+        lines.push("Enter to save; Esc to cancel.".to_string());
+
+        let mut input = Input::default();
+        if let Some(s) = initial {
+            input.set(s);
+        }
+
+        self.modal = Some(Modal {
+            title: title.into(),
+            lines,
+            scroll: 0,
+            kind: ModalKind::TextInput {
+                action,
+                prompt: prompt.into(),
+            },
+            input,
+        });
+    }
+
     fn close_modal(&mut self) {
         self.modal = None;
     }
@@ -3474,9 +3811,7 @@ impl App {
                 "show" => self.cmd_show(args),
                 "restore" => self.cmd_restore(args),
                 "mv" => self.cmd_mv(args),
-                "chunking" => self.cmd_chunking(args),
                 "purge" => self.cmd_gc(args),
-                "retention" => self.cmd_retention(args),
 
                 "clear" => {
                     self.log.clear();
@@ -3534,8 +3869,7 @@ impl App {
                     self.quit = true;
                 }
 
-                "init" | "save" | "publish" | "history" | "show" | "restore" | "mv"
-                | "chunking" => {
+                "init" | "save" | "publish" | "history" | "show" | "restore" | "mv" => {
                     self.push_error("local command; press Tab to switch to local".to_string());
                 }
 
@@ -3554,25 +3888,8 @@ impl App {
                 self.quit = true;
                 true
             }
-            "timefmt" => {
-                let sub = args.first().map(|s| s.as_str()).unwrap_or("toggle");
-                match sub {
-                    "toggle" => {
-                        self.ts_mode = self.ts_mode.toggle();
-                    }
-                    "rel" | "relative" => {
-                        self.ts_mode = TimestampMode::Relative;
-                    }
-                    "abs" | "absolute" => {
-                        self.ts_mode = TimestampMode::Absolute;
-                    }
-                    _ => {
-                        self.push_error("usage: timefmt [rel|abs|toggle]".to_string());
-                        return true;
-                    }
-                }
-                self.refresh_root_view();
-                self.push_output(vec![format!("timestamps: {}", self.ts_mode.label())]);
+            "settings" => {
+                self.cmd_settings(args);
                 true
             }
             "login" => {
@@ -3693,6 +4010,27 @@ impl App {
                     }
                 }
             },
+            UiMode::Settings => match cmd {
+                "back" => {
+                    self.pop_mode();
+                    self.push_output(vec!["back".to_string()]);
+                }
+                "do" => {
+                    if !args.is_empty() {
+                        self.push_error("usage: do".to_string());
+                        return;
+                    }
+                    self.cmd_settings_do_mode();
+                }
+                _ => {
+                    if !self.dispatch_global(cmd, args) {
+                        self.push_error(format!(
+                            "unknown command in {:?} mode: {} (try /help)",
+                            mode, cmd
+                        ));
+                    }
+                }
+            },
             UiMode::Root => {
                 self.dispatch_root(cmd, args);
             }
@@ -3735,7 +4073,7 @@ impl App {
                 "- `status` opens detailed status (and in local-root acts like refresh)."
                     .to_string(),
             );
-            lines.push("- UI: `timefmt` toggles relative/absolute timestamps.".to_string());
+            lines.push("- UI: open `settings` to adjust display + retention.".to_string());
             self.open_modal("Help", lines);
             return;
         }
@@ -4033,6 +4371,7 @@ impl App {
                 Ok(snaps) => {
                     v.all_items = snaps.clone();
                     v.items = snaps;
+                    v.head_id = ws.store.get_head().ok().flatten();
                     v.updated_at = now_ts();
                 }
                 Err(err) => {
@@ -4087,12 +4426,16 @@ impl App {
                     snaps
                 };
 
+                let head_id = ws.store.get_head().ok().flatten();
+
                 self.push_view(SnapsView {
                     updated_at: now_ts(),
                     filter: None,
                     all_items: items.clone(),
                     items,
                     selected: 0,
+
+                    head_id,
                 });
                 self.push_output(vec!["opened snaps".to_string()]);
             }
@@ -4297,6 +4640,12 @@ impl App {
         match ws.restore_snap(&snap_id, force) {
             Ok(()) => {
                 self.push_output(vec![format!("restored {}", snap_id)]);
+
+                if let Some(v) = self.current_view_mut::<SnapsView>() {
+                    v.head_id = Some(snap_id.clone());
+                    v.updated_at = now_ts();
+                }
+
                 self.refresh_root_view();
             }
             Err(err) => self.push_error(format!("restore: {:#}", err)),
@@ -4777,7 +5126,7 @@ impl App {
                         }
                         _ => {
                             self.push_error(
-                                "usage: chunking set --chunk-size-mib N --threshold-mib N"
+                                "usage: settings chunking set --chunk-size-mib N --threshold-mib N"
                                     .to_string(),
                             );
                             return;
@@ -4835,7 +5184,7 @@ impl App {
             }
             _ => {
                 self.push_error(
-                    "usage: chunking show | chunking set --chunk-size-mib N --threshold-mib N | chunking reset"
+                    "usage: settings chunking show | settings chunking set --chunk-size-mib N --threshold-mib N | settings chunking reset"
                         .to_string(),
                 );
             }
@@ -4954,7 +5303,7 @@ impl App {
                         }
                         _ => {
                             self.push_error(
-                                "usage: retention set [--keep-last N] [--keep-days N] [--prune-snaps true|false]"
+                                "usage: settings retention set [--keep-last N] [--keep-days N] [--prune-snaps true|false]"
                                     .to_string(),
                             );
                             return;
@@ -4985,6 +5334,7 @@ impl App {
                     self.push_error(format!("write config: {:#}", err));
                     return;
                 }
+                self.refresh_root_view();
                 self.push_output(vec!["updated retention config".to_string()]);
             }
             "reset" => {
@@ -5000,6 +5350,7 @@ impl App {
                     self.push_error(format!("write config: {:#}", err));
                     return;
                 }
+                self.refresh_root_view();
                 self.push_output(vec!["reset retention config".to_string()]);
             }
             "pin" | "unpin" => {
@@ -5050,11 +5401,12 @@ impl App {
                     self.push_error(format!("write config: {:#}", err));
                     return;
                 }
+                self.refresh_root_view();
                 self.push_output(vec![format!("{} {}", sub, snap_id)]);
             }
             _ => {
                 self.push_error(
-                    "usage: retention show | retention set [--keep-last N] [--keep-days N] [--prune-snaps true|false] | retention pin <snap> | retention unpin <snap> | retention reset"
+                    "usage: settings retention show | settings retention set [--keep-last N] [--keep-days N] [--prune-snaps true|false] | settings retention pin <snap> | settings retention unpin <snap> | settings retention reset"
                         .to_string(),
                 );
             }
@@ -5333,6 +5685,293 @@ impl App {
 
         self.push_output(vec!["logged out".to_string()]);
         self.refresh_root_view();
+    }
+
+    fn load_settings_snapshot(&mut self) -> Option<SettingsSnapshot> {
+        let ws = self.workspace.as_ref()?;
+
+        let cfg = match ws.store.read_config() {
+            Ok(c) => c,
+            Err(err) => {
+                self.push_error(format!("read config: {:#}", err));
+                return None;
+            }
+        };
+
+        let (chunk_size, threshold) = cfg
+            .chunking
+            .as_ref()
+            .map(|c| (c.chunk_size, c.threshold))
+            .unwrap_or((4 * 1024 * 1024, 8 * 1024 * 1024));
+
+        let r = cfg.retention.unwrap_or_default();
+        Some(SettingsSnapshot {
+            chunk_size_mib: chunk_size / (1024 * 1024),
+            threshold_mib: threshold / (1024 * 1024),
+
+            retention_keep_last: r.keep_last,
+            retention_keep_days: r.keep_days,
+            retention_prune_snaps: r.prune_snaps,
+            retention_pinned: r.pinned.len(),
+        })
+    }
+
+    fn refresh_settings_view(&mut self) {
+        let snapshot = self.load_settings_snapshot();
+        let Some(v) = self.current_view_mut::<SettingsView>() else {
+            return;
+        };
+        v.snapshot = snapshot;
+        v.updated_at = now_ts();
+    }
+
+    fn cmd_settings(&mut self, args: &[String]) {
+        if !args.is_empty() {
+            self.push_error("usage: settings".to_string());
+            return;
+        }
+
+        if self.mode() == UiMode::Settings {
+            self.refresh_settings_view();
+            self.push_output(vec!["refreshed settings".to_string()]);
+            return;
+        }
+
+        let snapshot = self.load_settings_snapshot();
+        let mut items = vec![SettingsItemKind::ToggleTimestamps];
+        if snapshot.is_some() {
+            items.extend([
+                SettingsItemKind::ChunkingShow,
+                SettingsItemKind::ChunkingSet,
+                SettingsItemKind::ChunkingReset,
+                SettingsItemKind::RetentionShow,
+                SettingsItemKind::RetentionKeepLast,
+                SettingsItemKind::RetentionKeepDays,
+                SettingsItemKind::ToggleRetentionPruneSnaps,
+                SettingsItemKind::RetentionReset,
+            ]);
+        }
+
+        self.push_view(SettingsView {
+            updated_at: now_ts(),
+            items,
+            selected: 0,
+            snapshot,
+        });
+        self.push_output(vec!["opened settings".to_string()]);
+    }
+
+    fn cmd_settings_do_mode(&mut self) {
+        let Some(kind) = self
+            .current_view::<SettingsView>()
+            .and_then(|v| v.selected_kind())
+        else {
+            self.push_error("no selected setting".to_string());
+            return;
+        };
+
+        match kind {
+            SettingsItemKind::ToggleTimestamps => {
+                self.ts_mode = self.ts_mode.toggle();
+                self.refresh_root_view();
+                self.refresh_settings_view();
+                self.push_output(vec![format!("timestamps: {}", self.ts_mode.label())]);
+            }
+            SettingsItemKind::ChunkingShow => {
+                self.cmd_chunking(&["show".to_string()]);
+                self.refresh_settings_view();
+            }
+            SettingsItemKind::ChunkingSet => {
+                let (chunk, threshold) = self
+                    .current_view::<SettingsView>()
+                    .and_then(|v| v.snapshot)
+                    .map(|s| (s.chunk_size_mib, s.threshold_mib))
+                    .unwrap_or((4, 8));
+                self.open_text_input_modal(
+                    "Chunking",
+                    "chunking> ",
+                    TextInputAction::ChunkingSet,
+                    Some(format!("{} {}", chunk, threshold)),
+                    vec![
+                        "Set chunking config (MiB).".to_string(),
+                        "Format: <chunk_size_mib> <threshold_mib>".to_string(),
+                    ],
+                );
+            }
+            SettingsItemKind::ChunkingReset => {
+                self.cmd_chunking(&["reset".to_string()]);
+                self.refresh_settings_view();
+            }
+            SettingsItemKind::RetentionShow => {
+                self.cmd_retention(&["show".to_string()]);
+                self.refresh_settings_view();
+            }
+            SettingsItemKind::RetentionKeepLast => {
+                let initial = self
+                    .current_view::<SettingsView>()
+                    .and_then(|v| v.snapshot)
+                    .and_then(|s| s.retention_keep_last)
+                    .map(|n| n.to_string());
+                self.open_text_input_modal(
+                    "Retention",
+                    "keep_last> ",
+                    TextInputAction::RetentionKeepLast,
+                    initial,
+                    vec![
+                        "Set retention keep_last.".to_string(),
+                        "Enter a number of snaps, or 'unset'.".to_string(),
+                    ],
+                );
+            }
+            SettingsItemKind::RetentionKeepDays => {
+                let initial = self
+                    .current_view::<SettingsView>()
+                    .and_then(|v| v.snapshot)
+                    .and_then(|s| s.retention_keep_days)
+                    .map(|n| n.to_string());
+                self.open_text_input_modal(
+                    "Retention",
+                    "keep_days> ",
+                    TextInputAction::RetentionKeepDays,
+                    initial,
+                    vec![
+                        "Set retention keep_days.".to_string(),
+                        "Enter a number of days, or 'unset'.".to_string(),
+                    ],
+                );
+            }
+            SettingsItemKind::ToggleRetentionPruneSnaps => {
+                let Some(ws) = self.require_workspace() else {
+                    return;
+                };
+
+                let mut cfg = match ws.store.read_config() {
+                    Ok(c) => c,
+                    Err(err) => {
+                        self.push_error(format!("read config: {:#}", err));
+                        return;
+                    }
+                };
+                let mut r = cfg.retention.unwrap_or_default();
+                r.prune_snaps = !r.prune_snaps;
+                let prune = r.prune_snaps;
+                cfg.retention = Some(r);
+                if let Err(err) = ws.store.write_config(&cfg) {
+                    self.push_error(format!("write config: {:#}", err));
+                    return;
+                }
+
+                self.refresh_root_view();
+                self.refresh_settings_view();
+                self.push_output(vec![format!("retention.prune_snaps: {}", prune)]);
+            }
+            SettingsItemKind::RetentionReset => {
+                self.cmd_retention(&["reset".to_string()]);
+                self.refresh_root_view();
+                self.refresh_settings_view();
+            }
+        }
+    }
+
+    fn apply_text_input_action(&mut self, action: TextInputAction, value: String) {
+        let Some(ws) = self.require_workspace() else {
+            return;
+        };
+
+        match action {
+            TextInputAction::ChunkingSet => {
+                let norm = value.replace(',', " ");
+                let parts = norm.split_whitespace().collect::<Vec<_>>();
+                if parts.len() != 2 {
+                    self.push_error("format: <chunk_size_mib> <threshold_mib>".to_string());
+                    return;
+                }
+                let chunk_size_mib = match parts[0].parse::<u64>() {
+                    Ok(n) if n > 0 => n,
+                    _ => {
+                        self.push_error("invalid chunk_size_mib".to_string());
+                        return;
+                    }
+                };
+                let threshold_mib = match parts[1].parse::<u64>() {
+                    Ok(n) if n > 0 => n,
+                    _ => {
+                        self.push_error("invalid threshold_mib".to_string());
+                        return;
+                    }
+                };
+                if threshold_mib < chunk_size_mib {
+                    self.push_error("threshold must be >= chunk_size".to_string());
+                    return;
+                }
+
+                let mut cfg = match ws.store.read_config() {
+                    Ok(c) => c,
+                    Err(err) => {
+                        self.push_error(format!("read config: {:#}", err));
+                        return;
+                    }
+                };
+                cfg.chunking = Some(ChunkingConfig {
+                    chunk_size: chunk_size_mib * 1024 * 1024,
+                    threshold: threshold_mib * 1024 * 1024,
+                });
+                if let Err(err) = ws.store.write_config(&cfg) {
+                    self.push_error(format!("write config: {:#}", err));
+                    return;
+                }
+
+                self.refresh_root_view();
+                self.refresh_settings_view();
+                self.push_output(vec!["updated chunking config".to_string()]);
+            }
+            TextInputAction::RetentionKeepLast | TextInputAction::RetentionKeepDays => {
+                let v = value.trim();
+                let v_lc = v.to_lowercase();
+                let parsed = if v_lc == "unset" || v_lc == "none" {
+                    None
+                } else {
+                    match v.parse::<u64>() {
+                        Ok(n) if n > 0 => Some(n),
+                        _ => {
+                            self.push_error("expected a positive number (or 'unset')".to_string());
+                            return;
+                        }
+                    }
+                };
+
+                let mut cfg = match ws.store.read_config() {
+                    Ok(c) => c,
+                    Err(err) => {
+                        self.push_error(format!("read config: {:#}", err));
+                        return;
+                    }
+                };
+                let mut r = cfg.retention.unwrap_or_default();
+                match action {
+                    TextInputAction::RetentionKeepLast => r.keep_last = parsed,
+                    TextInputAction::RetentionKeepDays => r.keep_days = parsed,
+                    _ => {}
+                }
+                cfg.retention = Some(r);
+                if let Err(err) = ws.store.write_config(&cfg) {
+                    self.push_error(format!("write config: {:#}", err));
+                    return;
+                }
+
+                self.refresh_root_view();
+                self.refresh_settings_view();
+                match action {
+                    TextInputAction::RetentionKeepLast => {
+                        self.push_output(vec!["updated retention keep_last".to_string()]);
+                    }
+                    TextInputAction::RetentionKeepDays => {
+                        self.push_output(vec!["updated retention keep_days".to_string()]);
+                    }
+                    _ => {}
+                }
+            }
+        }
     }
 
     fn cmd_ping(&mut self, _args: &[String]) {
@@ -7040,8 +7679,15 @@ fn handle_modal_key(app: &mut App, key: KeyEvent) {
     enum ModalAction {
         None,
         Close,
-        SubmitSnapMessage { snap_id: String, msg: String },
+        SubmitSnapMessage {
+            snap_id: String,
+            msg: String,
+        },
         Confirm(PendingAction),
+        SubmitTextInput {
+            action: TextInputAction,
+            value: String,
+        },
     }
 
     let action = {
@@ -7078,6 +7724,89 @@ fn handle_modal_key(app: &mut App, key: KeyEvent) {
                     snap_id: snap_id.clone(),
                     msg: m.input.buf.clone(),
                 },
+                KeyCode::Backspace => {
+                    m.input.backspace();
+                    ModalAction::None
+                }
+                KeyCode::Delete => {
+                    m.input.delete();
+                    ModalAction::None
+                }
+                KeyCode::Left => {
+                    m.input.move_left();
+                    ModalAction::None
+                }
+                KeyCode::Right => {
+                    m.input.move_right();
+                    ModalAction::None
+                }
+                KeyCode::Char(c) => {
+                    if !key.modifiers.contains(KeyModifiers::CONTROL)
+                        && !key.modifiers.contains(KeyModifiers::ALT)
+                    {
+                        m.input.insert_char(c);
+                    }
+                    ModalAction::None
+                }
+                _ => ModalAction::None,
+            },
+
+            ModalKind::TextInput { action, .. } => match key.code {
+                KeyCode::Esc => ModalAction::Close,
+                KeyCode::Enter => {
+                    let raw = m.input.buf.trim().to_string();
+                    if raw.is_empty() {
+                        m.lines.retain(|l| !l.starts_with("error:"));
+                        m.lines.push("error: value required".to_string());
+                        return;
+                    }
+
+                    let validate = match action.clone() {
+                        TextInputAction::ChunkingSet => {
+                            let norm = raw.replace(',', " ");
+                            let parts = norm.split_whitespace().collect::<Vec<_>>();
+                            if parts.len() != 2 {
+                                Err("format: <chunk_size_mib> <threshold_mib>".to_string())
+                            } else {
+                                let chunk = parts[0].parse::<u64>().ok();
+                                let threshold = parts[1].parse::<u64>().ok();
+                                match (chunk, threshold) {
+                                    (Some(c), Some(t)) if c > 0 && t > 0 => {
+                                        if t < c {
+                                            Err("threshold must be >= chunk_size".to_string())
+                                        } else {
+                                            Ok(())
+                                        }
+                                    }
+                                    _ => Err("invalid number".to_string()),
+                                }
+                            }
+                        }
+                        TextInputAction::RetentionKeepLast | TextInputAction::RetentionKeepDays => {
+                            let v = raw.to_lowercase();
+                            if v == "unset" || v == "none" {
+                                Ok(())
+                            } else {
+                                match raw.parse::<u64>() {
+                                    Ok(n) if n > 0 => Ok(()),
+                                    _ => Err("expected a positive number (or 'unset')".to_string()),
+                                }
+                            }
+                        }
+                    };
+
+                    match validate {
+                        Ok(()) => ModalAction::SubmitTextInput {
+                            action: action.clone(),
+                            value: raw,
+                        },
+                        Err(msg) => {
+                            m.lines.retain(|l| !l.starts_with("error:"));
+                            m.lines.push(format!("error: {}", msg));
+                            ModalAction::None
+                        }
+                    }
+                }
                 KeyCode::Backspace => {
                     m.input.backspace();
                     ModalAction::None
@@ -7180,6 +7909,11 @@ fn handle_modal_key(app: &mut App, key: KeyEvent) {
             app.close_modal();
             // Confirmed actions should not re-prompt.
             app.execute_action(action);
+        }
+
+        ModalAction::SubmitTextInput { action, value } => {
+            app.close_modal();
+            app.apply_text_input_action(action, value);
         }
     }
 }
@@ -8764,7 +9498,12 @@ fn draw_modal(frame: &mut ratatui::Frame, modal: &Modal) {
         Span::raw("  "),
         Span::styled("Esc", Style::default().fg(Color::Gray)),
     ];
-    if matches!(modal.kind, ModalKind::ConfirmAction { .. }) {
+    if matches!(
+        &modal.kind,
+        ModalKind::ConfirmAction { .. }
+            | ModalKind::SnapMessage { .. }
+            | ModalKind::TextInput { .. }
+    ) {
         title_spans.push(Span::raw("  "));
         title_spans.push(Span::styled("Enter", Style::default().fg(Color::Gray)));
     }
@@ -8818,6 +9557,42 @@ fn draw_modal(frame: &mut ratatui::Frame, modal: &Modal) {
             let prompt = "message> ";
             let input_line = Line::from(vec![
                 Span::styled(prompt, Style::default().fg(Color::Yellow)),
+                Span::raw(modal.input.buf.as_str()),
+            ]);
+            frame.render_widget(
+                Paragraph::new(input_line)
+                    .block(Block::default().borders(Borders::ALL).title("Edit")),
+                parts[1],
+            );
+
+            let x = prompt.len() as u16 + modal.input.cursor as u16;
+            let y = parts[1].y + 1;
+            frame.set_cursor_position((parts[1].x + 1 + x, y));
+        }
+        ModalKind::TextInput { prompt, .. } => {
+            let parts = Layout::default()
+                .direction(Direction::Vertical)
+                .constraints([Constraint::Min(0), Constraint::Length(3)])
+                .split(inner);
+
+            let mut lines = Vec::new();
+            for s in &modal.lines {
+                lines.push(Line::from(s.as_str()));
+            }
+            if lines.is_empty() {
+                lines.push(Line::from(""));
+            }
+
+            let scroll = modal.scroll.min(lines.len().saturating_sub(1)) as u16;
+            frame.render_widget(
+                Paragraph::new(lines)
+                    .wrap(Wrap { trim: false })
+                    .scroll((scroll, 0)),
+                parts[0],
+            );
+
+            let input_line = Line::from(vec![
+                Span::styled(prompt.as_str(), Style::default().fg(Color::Yellow)),
                 Span::raw(modal.input.buf.as_str()),
             ]);
             frame.render_widget(
