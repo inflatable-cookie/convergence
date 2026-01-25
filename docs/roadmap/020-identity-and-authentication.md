@@ -95,14 +95,14 @@ Later:
 - [x] Replace `--dev-user/--dev-token` fixed identity with:
   - bearer token lookup -> token record -> user -> `Subject`
 - [x] Update `GET /whoami` to return `{ user_id, handle }`.
-- [ ] Update provenance fields to store `user_id` (or store both id+handle).
+- [x] Update provenance fields to store `user_id` (or store both id+handle).
 
 ### C) Server: bootstrap and admin
 
 - [ ] Add a bootstrap mode for first admin creation (one of):
   - CLI flag `--bootstrap-token` that allows `POST /bootstrap` once
   - or generate an on-disk one-time token on first run
-- [ ] Add admin-only endpoints:
+- [x] Add admin-only endpoints:
   - create user
   - add/remove repo readers/publishers
   - add/remove lane members
