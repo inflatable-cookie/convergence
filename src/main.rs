@@ -82,6 +82,12 @@ enum Commands {
         command: TokenCommands,
     },
 
+    /// Manage users (admin)
+    User {
+        #[command(subcommand)]
+        command: UserCommands,
+    },
+
     /// Publish a snap to the configured remote
     Publish {
         /// Snap id to publish (defaults to latest)
@@ -399,6 +405,10 @@ enum TokenCommands {
     Create {
         #[arg(long)]
         label: Option<String>,
+
+        /// Create token for another user handle (admin)
+        #[arg(long)]
+        user: Option<String>,
         /// Emit JSON
         #[arg(long)]
         json: bool,
@@ -415,6 +425,28 @@ enum TokenCommands {
     Revoke {
         #[arg(long)]
         id: String,
+        /// Emit JSON
+        #[arg(long)]
+        json: bool,
+    },
+}
+
+#[derive(Subcommand)]
+enum UserCommands {
+    /// List users (admin)
+    List {
+        /// Emit JSON
+        #[arg(long)]
+        json: bool,
+    },
+
+    /// Create a user (admin)
+    Create {
+        handle: String,
+        #[arg(long)]
+        display_name: Option<String>,
+        #[arg(long)]
+        admin: bool,
         /// Emit JSON
         #[arg(long)]
         json: bool,
@@ -616,8 +648,18 @@ fn run() -> Result<()> {
             let client = RemoteClient::new(remote)?;
 
             match command {
-                TokenCommands::Create { label, json } => {
-                    let created = client.create_token(label)?;
+                TokenCommands::Create { label, user, json } => {
+                    let created = if let Some(handle) = user.as_deref() {
+                        let users = client.list_users()?;
+                        let uid = users
+                            .iter()
+                            .find(|u| u.handle == handle)
+                            .map(|u| u.id.clone())
+                            .with_context(|| format!("unknown user handle: {}", handle))?;
+                        client.create_token_for_user(&uid, label)?
+                    } else {
+                        client.create_token(label)?
+                    };
                     if json {
                         println!(
                             "{}",
@@ -657,6 +699,49 @@ fn run() -> Result<()> {
                         println!("{}", serde_json::json!({"revoked": true, "id": id}));
                     } else {
                         println!("Revoked {}", id);
+                    }
+                }
+            }
+        }
+
+        Some(Commands::User { command }) => {
+            let ws = Workspace::discover(&std::env::current_dir().context("get current dir")?)?;
+            let remote = require_remote(&ws.store)?;
+            let client = RemoteClient::new(remote)?;
+
+            match command {
+                UserCommands::List { json } => {
+                    let mut users = client.list_users()?;
+                    users.sort_by(|a, b| a.handle.cmp(&b.handle));
+                    if json {
+                        println!(
+                            "{}",
+                            serde_json::to_string_pretty(&users).context("serialize users json")?
+                        );
+                    } else {
+                        for u in users {
+                            let admin = if u.admin { " admin" } else { "" };
+                            println!("{} {}{}", u.id, u.handle, admin);
+                        }
+                    }
+                }
+                UserCommands::Create {
+                    handle,
+                    display_name,
+                    admin,
+                    json,
+                } => {
+                    let created = client.create_user(&handle, display_name, admin)?;
+                    if json {
+                        println!(
+                            "{}",
+                            serde_json::to_string_pretty(&created)
+                                .context("serialize user create json")?
+                        );
+                    } else {
+                        println!("user_id: {}", created.id);
+                        println!("handle: {}", created.handle);
+                        println!("admin: {}", created.admin);
                     }
                 }
             }

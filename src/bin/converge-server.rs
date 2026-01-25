@@ -338,6 +338,11 @@ async fn run() -> Result<()> {
 
     let authed = Router::new()
         .route("/whoami", get(whoami))
+        .route("/users", get(list_users).post(create_user))
+        .route(
+            "/users/:user_id/tokens",
+            axum::routing::post(create_token_for_user),
+        )
         .route("/tokens", get(list_tokens).post(create_token))
         .route(
             "/tokens/:token_id/revoke",
@@ -549,6 +554,69 @@ async fn whoami(Extension(subject): Extension<Subject>) -> Json<serde_json::Valu
     }))
 }
 
+async fn list_users(
+    State(state): State<Arc<AppState>>,
+    Extension(subject): Extension<Subject>,
+) -> Result<Json<Vec<User>>, Response> {
+    if !subject.admin {
+        return Err(forbidden());
+    }
+    let users = state.users.read().await;
+    let mut out: Vec<User> = users.values().cloned().collect();
+    out.sort_by(|a, b| a.handle.cmp(&b.handle));
+    Ok(Json(out))
+}
+
+#[derive(Debug, serde::Deserialize)]
+struct CreateUserRequest {
+    handle: String,
+
+    #[serde(default)]
+    display_name: Option<String>,
+
+    #[serde(default)]
+    admin: bool,
+}
+
+async fn create_user(
+    State(state): State<Arc<AppState>>,
+    Extension(subject): Extension<Subject>,
+    Json(payload): Json<CreateUserRequest>,
+) -> Result<Json<User>, Response> {
+    if !subject.admin {
+        return Err(forbidden());
+    }
+    validate_user_handle(&payload.handle).map_err(bad_request)?;
+
+    let created_at = now_ts();
+    let user_id = generate_token_secret().map_err(internal_error)?;
+    let user = User {
+        id: user_id.clone(),
+        handle: payload.handle.clone(),
+        display_name: payload.display_name,
+        admin: payload.admin,
+        created_at,
+    };
+
+    {
+        let mut users = state.users.write().await;
+        if users.values().any(|u| u.handle == payload.handle) {
+            return Err(conflict("user handle already exists"));
+        }
+        users.insert(user_id, user.clone());
+    }
+
+    {
+        let users = state.users.read().await;
+        let tokens = state.tokens.read().await;
+        if let Err(err) = persist_identity_to_disk(&state.data_dir, &users, &tokens) {
+            return Err(internal_error(err));
+        }
+    }
+
+    Ok(Json(user))
+}
+
 #[derive(Debug, serde::Serialize)]
 struct TokenView {
     id: String,
@@ -595,18 +663,18 @@ struct CreateTokenResponse {
     created_at: String,
 }
 
-async fn create_token(
-    State(state): State<Arc<AppState>>,
-    Extension(subject): Extension<Subject>,
-    Json(payload): Json<CreateTokenRequest>,
-) -> Result<Json<CreateTokenResponse>, Response> {
+async fn mint_token(
+    state: &Arc<AppState>,
+    user_id: &str,
+    label: Option<String>,
+) -> Result<CreateTokenResponse, Response> {
     let created_at = now_ts();
 
     let token = generate_token_secret().map_err(internal_error)?;
     let token_hash = hash_token(&token);
     let token_id = {
         let mut h = blake3::Hasher::new();
-        h.update(subject.user_id.as_bytes());
+        h.update(user_id.as_bytes());
         h.update(b"\n");
         h.update(token_hash.as_bytes());
         h.update(b"\n");
@@ -620,9 +688,9 @@ async fn create_token(
             token_id.clone(),
             AccessToken {
                 id: token_id.clone(),
-                user_id: subject.user_id.clone(),
+                user_id: user_id.to_string(),
                 token_hash: token_hash.clone(),
-                label: payload.label,
+                label,
                 created_at: created_at.clone(),
                 last_used_at: None,
                 revoked_at: None,
@@ -635,7 +703,6 @@ async fn create_token(
         idx.insert(token_hash, token_id.clone());
     }
 
-    // Persist best-effort.
     {
         let users = state.users.read().await;
         let tokens = state.tokens.read().await;
@@ -644,11 +711,39 @@ async fn create_token(
         }
     }
 
-    Ok(Json(CreateTokenResponse {
+    Ok(CreateTokenResponse {
         id: token_id,
         token,
         created_at,
-    }))
+    })
+}
+
+async fn create_token(
+    State(state): State<Arc<AppState>>,
+    Extension(subject): Extension<Subject>,
+    Json(payload): Json<CreateTokenRequest>,
+) -> Result<Json<CreateTokenResponse>, Response> {
+    let out = mint_token(&state, &subject.user_id, payload.label).await?;
+    Ok(Json(out))
+}
+
+async fn create_token_for_user(
+    State(state): State<Arc<AppState>>,
+    Extension(subject): Extension<Subject>,
+    Path(user_id): Path<String>,
+    Json(payload): Json<CreateTokenRequest>,
+) -> Result<Json<CreateTokenResponse>, Response> {
+    if !subject.admin && subject.user_id != user_id {
+        return Err(forbidden());
+    }
+    {
+        let users = state.users.read().await;
+        if !users.contains_key(&user_id) {
+            return Err(not_found());
+        }
+    }
+    let out = mint_token(&state, &user_id, payload.label).await?;
+    Ok(Json(out))
 }
 
 async fn revoke_token(
