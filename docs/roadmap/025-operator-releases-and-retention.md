@@ -20,6 +20,7 @@ Out of scope:
  - [x] Link operator docs from existing identity bootstrap doc.
  - [x] Ensure the doc matches the current CLI/TUI commands (`release`, `releases`, `fetch --release`, `gc`).
  - [x] Add `docs/operators/README.md` index.
+ - [x] Document release pruning via GC query params.
 
 ## Exit Criteria
 

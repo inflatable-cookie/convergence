@@ -60,6 +60,15 @@ curl -X POST -H "Authorization: Bearer <token>" \
   "http://<server>/repos/<repo_id>/gc?dry_run=false&prune_metadata=true"
 ```
 
+Prune old release history (keep only the latest N releases per channel):
+
+```bash
+curl -X POST -H "Authorization: Bearer <token>" \
+  "http://<server>/repos/<repo_id>/gc?dry_run=false&prune_metadata=true&prune_releases_keep_last=1"
+```
+
+This reduces retention roots: bundles referenced only by pruned releases may be deleted by the same GC run.
+
 Retention roots (server keeps these bundles and their reachable snaps/objects):
 - Pinned bundles (`pin`/`unpin`)
 - Lane heads (including a small head history)

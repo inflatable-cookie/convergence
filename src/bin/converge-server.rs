@@ -2429,6 +2429,12 @@ struct GcQuery {
     dry_run: bool,
     #[serde(default = "default_true")]
     prune_metadata: bool,
+
+    /// If set, prune release history by keeping only the latest N releases per channel.
+    ///
+    /// This affects GC roots: pruned releases stop retaining their referenced bundles/objects.
+    #[serde(default)]
+    prune_releases_keep_last: Option<usize>,
 }
 
 async fn gc_repo(
@@ -2447,6 +2453,32 @@ async fn gc_repo(
         return Err(bad_request(anyhow::anyhow!(
             "refusing destructive GC with prune_metadata=false (would create dangling references); use dry_run=true or prune_metadata=true"
         )));
+    }
+
+    // Optional release history pruning.
+    let releases_before = repo.releases.len();
+    let mut pruned_releases_keep_last = 0usize;
+    if let Some(keep_last) = q.prune_releases_keep_last {
+        if keep_last == 0 {
+            return Err(bad_request(anyhow::anyhow!(
+                "prune_releases_keep_last must be >= 1"
+            )));
+        }
+
+        let mut by_channel: HashMap<String, Vec<Release>> = HashMap::new();
+        for r in repo.releases.clone() {
+            by_channel.entry(r.channel.clone()).or_default().push(r);
+        }
+
+        let mut kept: Vec<Release> = Vec::new();
+        for (_ch, mut rs) in by_channel {
+            rs.sort_by(|a, b| b.released_at.cmp(&a.released_at));
+            rs.truncate(keep_last);
+            kept.extend(rs);
+        }
+        kept.sort_by(|a, b| b.released_at.cmp(&a.released_at));
+        pruned_releases_keep_last = releases_before.saturating_sub(kept.len());
+        repo.releases = kept;
     }
 
     // Retention roots: pinned bundles, releases, and current promotion-state pointers.
@@ -2630,6 +2662,25 @@ async fn gc_repo(
         (0, 0)
     };
 
+    // Sweep releases (metadata).
+    let keep_release_ids: HashSet<String> = repo
+        .releases
+        .iter()
+        .filter(|r| keep_bundles.contains(&r.bundle_id))
+        .map(|r| r.id.clone())
+        .collect();
+
+    let (deleted_releases, kept_releases_count) = if q.prune_metadata {
+        sweep_ids(
+            &repo_data_dir(state.as_ref(), &repo_id).join("releases"),
+            Some("json"),
+            &keep_release_ids,
+            q.dry_run,
+        )?
+    } else {
+        (0, 0)
+    };
+
     if q.prune_metadata && !q.dry_run {
         repo.bundles.retain(|b| keep_bundles.contains(&b.id));
         repo.pinned_bundles.retain(|b| keep_bundles.contains(b));
@@ -2644,8 +2695,12 @@ async fn gc_repo(
     Ok(Json(serde_json::json!({
         "dry_run": q.dry_run,
         "prune_metadata": q.prune_metadata,
+        "pruned": {
+            "releases_keep_last": pruned_releases_keep_last
+        },
         "kept": {
             "bundles": keep_bundles.len(),
+            "releases": kept_releases_count,
             "publications": keep_publications.len(),
             "snaps": keep_snaps.len(),
             "blobs": kept_blobs_count,
@@ -2654,6 +2709,7 @@ async fn gc_repo(
         },
         "deleted": {
             "bundles": deleted_bundles,
+            "releases": deleted_releases,
             "snaps": deleted_snaps,
             "blobs": deleted_blobs,
             "manifests": deleted_manifests,

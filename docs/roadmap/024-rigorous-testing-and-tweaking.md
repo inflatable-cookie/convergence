@@ -25,7 +25,7 @@ Out of scope:
 ### B) Retention and GC
 
 - [x] Add a GC retention test asserting releases keep bundles/snaps/objects.
-- [ ] Add a test for pruning old releases (if/when implemented).
+- [x] Add a test for pruning old releases (if/when implemented).
 
 ### C) CLI/TUI regression tests
 
