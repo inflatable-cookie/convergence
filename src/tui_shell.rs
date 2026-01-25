@@ -643,8 +643,10 @@ fn input_hint_left(app: &App) -> Option<String> {
                     let synced = app.lane_last_synced.get("default").cloned();
                     if latest.is_some() && latest != synced {
                         Some("sync  |  history".to_string())
-                    } else {
+                    } else if latest.is_some() && latest != app.last_published_snap_id {
                         Some("publish  |  history".to_string())
+                    } else {
+                        Some("history".to_string())
                     }
                 } else {
                     Some("history".to_string())
@@ -2734,6 +2736,7 @@ struct App {
     remote_identity_last_fetch: Option<OffsetDateTime>,
     lane_last_synced: std::collections::HashMap<String, String>,
     latest_snap_id: Option<String>,
+    last_published_snap_id: Option<String>,
 
     // Internal log (useful for debugging) but no longer the primary UI.
     log: Vec<ScrollEntry>,
@@ -2766,6 +2769,7 @@ impl Default for App {
             remote_identity_last_fetch: None,
             lane_last_synced: std::collections::HashMap::new(),
             latest_snap_id: None,
+            last_published_snap_id: None,
             log: Vec::new(),
             last_command: None,
             last_result: None,
@@ -3098,6 +3102,13 @@ impl App {
             .as_ref()
             .and_then(|w| w.list_snaps().ok())
             .and_then(|snaps| snaps.first().map(|s| s.id.clone()));
+
+        self.last_published_snap_id = ws.as_ref().zip(remote_cfg.as_ref()).and_then(|(w, r)| {
+            w.store
+                .get_last_published(r, &r.scope, &r.gate)
+                .ok()
+                .flatten()
+        });
 
         if let Some(v) = self.current_view_mut::<RootView>() {
             v.ctx = ctx;
@@ -5312,8 +5323,8 @@ impl App {
             }
         };
 
-        let scope = scope.unwrap_or(cfg.scope);
-        let gate = gate.unwrap_or(cfg.gate);
+        let scope = scope.unwrap_or_else(|| cfg.scope.clone());
+        let gate = gate.unwrap_or_else(|| cfg.gate.clone());
 
         let res = if metadata_only {
             client.publish_snap_metadata_only(&ws.store, &snap, &scope, &gate)
@@ -5324,6 +5335,11 @@ impl App {
         match res {
             Ok(p) => {
                 self.push_output(vec![format!("published {}", p.id)]);
+
+                if let Err(err) = ws.store.set_last_published(&cfg, &scope, &gate, &snap_id) {
+                    self.push_error(format!("record publish: {:#}", err));
+                }
+
                 self.refresh_root_view();
             }
             Err(err) => {

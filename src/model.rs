@@ -73,6 +73,10 @@ pub struct WorkspaceState {
 
     #[serde(default)]
     pub remote_tokens: std::collections::HashMap<String, String>,
+
+    /// Tracks the last snap published for a given remote+scope+gate.
+    #[serde(default)]
+    pub last_published: std::collections::HashMap<String, String>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

@@ -2855,6 +2855,16 @@ async fn create_publication(
         return Err(bad_request(anyhow::anyhow!("unknown gate")));
     }
 
+    // Enforce at-most-once publication for a given snap+scope+gate.
+    // If you need to publish again, create a new snap.
+    if repo
+        .publications
+        .iter()
+        .any(|p| p.snap_id == payload.snap_id && p.scope == payload.scope && p.gate == payload.gate)
+    {
+        return Err(conflict("snap already published to this scope/gate"));
+    }
+
     let gate_def = repo
         .gate_graph
         .gates

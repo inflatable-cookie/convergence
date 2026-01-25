@@ -227,6 +227,23 @@ fn server_api_contract_happy_path_and_auth_failures() -> Result<()> {
         .context("missing pub id")?
         .to_string();
 
+    // Publishing the same snap+scope+gate twice should be rejected.
+    let dup = client
+        .post(format!("{}/repos/test/publications", server.base_url))
+        .header(
+            reqwest::header::AUTHORIZATION,
+            common::auth_header(&server.token),
+        )
+        .json(&serde_json::json!({
+            "snap_id": snap_id,
+            "scope": "main",
+            "gate": "dev-intake",
+            "metadata_only": true
+        }))
+        .send()
+        .context("create duplicate publication")?;
+    assert_eq!(dup.status(), reqwest::StatusCode::CONFLICT);
+
     // Create bundle.
     let bundle: serde_json::Value = client
         .post(format!("{}/repos/test/bundles", server.base_url))

@@ -61,6 +61,7 @@ impl LocalStore {
             version: 1,
             lane_sync: std::collections::HashMap::new(),
             remote_tokens: std::collections::HashMap::new(),
+            last_published: std::collections::HashMap::new(),
         };
         let state_bytes = serde_json::to_vec_pretty(&state).context("serialize workspace state")?;
         write_atomic(&root.join("state.json"), &state_bytes).context("write state.json")?;
@@ -100,6 +101,7 @@ impl LocalStore {
                 version: 1,
                 lane_sync: std::collections::HashMap::new(),
                 remote_tokens: std::collections::HashMap::new(),
+                last_published: std::collections::HashMap::new(),
             });
         }
         let bytes = fs::read(&path).context("read state.json")?;
@@ -130,6 +132,42 @@ impl LocalStore {
 
     pub fn remote_token_key(&self, remote: &crate::model::RemoteConfig) -> String {
         format!("{}#{}", remote.base_url, remote.repo_id)
+    }
+
+    fn publish_key(&self, remote: &crate::model::RemoteConfig, scope: &str, gate: &str) -> String {
+        format!("{}#{}#{}#{}", remote.base_url, remote.repo_id, scope, gate)
+    }
+
+    pub fn get_last_published(
+        &self,
+        remote: &crate::model::RemoteConfig,
+        scope: &str,
+        gate: &str,
+    ) -> Result<Option<String>> {
+        let st = self.read_state()?;
+        if st.version != 1 {
+            anyhow::bail!("unsupported workspace state version {}", st.version);
+        }
+        Ok(st
+            .last_published
+            .get(&self.publish_key(remote, scope, gate))
+            .cloned())
+    }
+
+    pub fn set_last_published(
+        &self,
+        remote: &crate::model::RemoteConfig,
+        scope: &str,
+        gate: &str,
+        snap_id: &str,
+    ) -> Result<()> {
+        let mut st = self.read_state()?;
+        if st.version != 1 {
+            anyhow::bail!("unsupported workspace state version {}", st.version);
+        }
+        st.last_published
+            .insert(self.publish_key(remote, scope, gate), snap_id.to_string());
+        self.write_state(&st)
     }
 
     pub fn get_remote_token(&self, remote: &crate::model::RemoteConfig) -> Result<Option<String>> {

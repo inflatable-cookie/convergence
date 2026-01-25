@@ -1002,6 +1002,11 @@ fn run() -> Result<()> {
             } else {
                 client.publish_snap(&ws.store, &snap, &scope, &gate)?
             };
+
+            ws.store
+                .set_last_published(&remote, &scope, &gate, &snap.id)
+                .context("record last published snap")?;
+
             if json {
                 println!(
                     "{}",
