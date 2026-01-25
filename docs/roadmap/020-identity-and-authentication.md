@@ -117,15 +117,15 @@ Later:
 
 - [x] Stop storing remote token plaintext in `.converge/config.json`.
 - [x] Introduce `.converge/state.json` (or OS keychain) to store secrets.
-- [ ] Add CLI commands:
+- [x] Add CLI commands:
   - `converge login --url ... --token ... --repo ... [--scope ... --gate ...]`
   - `converge logout`
   - `converge whoami`
 
 ### F) TUI: show identity
 
-- [ ] TUI header shows `user@server` (from `whoami`) when remote is configured.
-- [ ] Clear error state when token invalid/expired; show guidance to re-login.
+- [x] TUI header shows `user@server` (from `whoami`) when remote is configured.
+- [x] Clear error state when token invalid/expired; show guidance to re-login.
 
 ### G) Tests
 

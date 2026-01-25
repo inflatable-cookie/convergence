@@ -384,6 +384,7 @@ struct RootView {
     ctx: RootContext,
     scroll: usize,
     lines: Vec<String>,
+    remote_auth_block_lines: Option<Vec<String>>,
     change_summary: ChangeSummary,
     baseline_compact: Option<String>,
     change_keys: Vec<String>,
@@ -396,6 +397,7 @@ impl RootView {
             ctx,
             scroll: 0,
             lines: Vec::new(),
+            remote_auth_block_lines: None,
             change_summary: ChangeSummary::default(),
             baseline_compact: None,
             change_keys: Vec::new(),
@@ -412,8 +414,14 @@ impl RootView {
             (RootContext::Local, Some(ws)) => {
                 local_status_lines(ws, ctx).unwrap_or_else(|e| vec![format!("status: {:#}", e)])
             }
-            (RootContext::Remote, Some(ws)) => dashboard_lines(ws, ctx, self.ctx)
-                .unwrap_or_else(|e| vec![format!("dashboard: {:#}", e)]),
+            (RootContext::Remote, Some(ws)) => {
+                if let Some(lines) = self.remote_auth_block_lines.clone() {
+                    lines
+                } else {
+                    dashboard_lines(ws, ctx, self.ctx)
+                        .unwrap_or_else(|e| vec![format!("dashboard: {:#}", e)])
+                }
+            }
         };
 
         if self.ctx == RootContext::Local {
@@ -1528,6 +1536,18 @@ fn global_command_defs() -> Vec<CommandDef> {
             help: "Toggle timestamp format",
         },
         CommandDef {
+            name: "login",
+            aliases: &[],
+            usage: "login --url <url> --token <token> --repo <id> [--scope <id>] [--gate <id>]",
+            help: "Configure remote + store token",
+        },
+        CommandDef {
+            name: "logout",
+            aliases: &[],
+            usage: "logout",
+            help: "Clear stored remote token",
+        },
+        CommandDef {
             name: "quit",
             aliases: &[],
             usage: "quit",
@@ -2492,6 +2512,15 @@ fn now_ts() -> String {
         .unwrap_or_else(|_| "<time>".to_string())
 }
 
+fn server_label(base_url: &str) -> String {
+    let s = base_url.trim_end_matches('/');
+    let s = s
+        .strip_prefix("https://")
+        .or_else(|| s.strip_prefix("http://"))
+        .unwrap_or(s);
+    s.to_string()
+}
+
 struct App {
     workspace: Option<Workspace>,
     workspace_err: Option<String>,
@@ -2501,6 +2530,9 @@ struct App {
 
     // Cached for UI hints; updated on refresh.
     remote_configured: bool,
+    remote_identity: Option<String>,
+    remote_identity_note: Option<String>,
+    remote_identity_last_fetch: Option<OffsetDateTime>,
     lane_last_synced: std::collections::HashMap<String, String>,
     latest_snap_id: Option<String>,
 
@@ -2530,6 +2562,9 @@ impl Default for App {
             root_ctx: RootContext::Local,
             ts_mode: TimestampMode::Relative,
             remote_configured: false,
+            remote_identity: None,
+            remote_identity_note: None,
+            remote_identity_last_fetch: None,
             lane_last_synced: std::collections::HashMap::new(),
             latest_snap_id: None,
             log: Vec::new(),
@@ -2548,6 +2583,77 @@ impl Default for App {
 }
 
 impl App {
+    fn refresh_remote_identity(&mut self, ws: &Workspace, now: OffsetDateTime) {
+        // Avoid spamming whoami calls.
+        if let Some(last) = self.remote_identity_last_fetch
+            && now - last < time::Duration::seconds(10)
+        {
+            return;
+        }
+
+        let cfg = match ws.store.read_config() {
+            Ok(c) => c,
+            Err(err) => {
+                self.remote_identity = None;
+                self.remote_identity_note = Some(format!("auth: {}", err));
+                self.remote_identity_last_fetch = Some(now);
+                return;
+            }
+        };
+
+        let Some(remote) = cfg.remote else {
+            self.remote_identity = None;
+            self.remote_identity_note = None;
+            self.remote_identity_last_fetch = None;
+            return;
+        };
+
+        let token = match ws.store.get_remote_token(&remote) {
+            Ok(Some(t)) => t,
+            Ok(None) => {
+                self.remote_identity = None;
+                self.remote_identity_note = Some("auth: login".to_string());
+                self.remote_identity_last_fetch = Some(now);
+                return;
+            }
+            Err(err) => {
+                self.remote_identity = None;
+                self.remote_identity_note = Some(format!("auth: {}", err));
+                self.remote_identity_last_fetch = Some(now);
+                return;
+            }
+        };
+
+        let client = match RemoteClient::new(remote.clone(), token) {
+            Ok(c) => c,
+            Err(err) => {
+                self.remote_identity = None;
+                self.remote_identity_note = Some(format!("auth: {}", err));
+                self.remote_identity_last_fetch = Some(now);
+                return;
+            }
+        };
+
+        match client.whoami() {
+            Ok(w) => {
+                self.remote_identity =
+                    Some(format!("{}@{}", w.user, server_label(&remote.base_url)));
+                self.remote_identity_note = None;
+            }
+            Err(err) => {
+                let s = err.to_string();
+                if s.contains("unauthorized") {
+                    self.remote_identity_note = Some("auth: unauthorized".to_string());
+                } else {
+                    self.remote_identity_note = Some("auth: error".to_string());
+                }
+                self.remote_identity = None;
+            }
+        }
+
+        self.remote_identity_last_fetch = Some(now);
+    }
+
     fn load() -> Self {
         let mut app = App::default();
         let cwd = match std::env::current_dir() {
@@ -2656,11 +2762,59 @@ impl App {
         let now = OffsetDateTime::now_utc();
         let rctx = RenderCtx { now, ts_mode };
 
-        self.remote_configured = ws
+        let remote_cfg = ws
             .as_ref()
             .and_then(|w| w.store.read_config().ok())
-            .and_then(|c| c.remote)
-            .is_some();
+            .and_then(|c| c.remote);
+
+        self.remote_configured = remote_cfg.is_some();
+
+        if let Some(ws) = ws.as_ref() {
+            self.refresh_remote_identity(ws, now);
+        } else {
+            self.remote_identity = None;
+            self.remote_identity_note = None;
+            self.remote_identity_last_fetch = None;
+        }
+
+        // If we don't currently have a valid identity, avoid rendering an error-only dashboard.
+        // Instead show a stable "auth required" panel with guidance.
+        let remote_auth_block_lines = if self.remote_identity.is_none() {
+            if let (Some(ws), Some(remote), Some(note)) = (
+                ws.as_ref(),
+                remote_cfg.as_ref(),
+                self.remote_identity_note.as_deref(),
+            ) {
+                let token_present = ws.store.get_remote_token(remote).ok().flatten().is_some();
+
+                let mut lines = Vec::new();
+                lines.push("Remote".to_string());
+                lines.push("".to_string());
+                lines.push(format!("remote: {}", remote.base_url));
+                lines.push(format!("repo: {}", remote.repo_id));
+                lines.push(format!("scope: {}", remote.scope));
+                lines.push(format!("gate: {}", remote.gate));
+                lines.push(format!(
+                    "token: {}",
+                    if token_present {
+                        "(configured)"
+                    } else {
+                        "(missing)"
+                    }
+                ));
+                lines.push(note.to_string());
+                lines.push("".to_string());
+                lines.push(
+                    "hint: login --url <url> --token <token> --repo <id> [--scope <id>] [--gate <id>]"
+                        .to_string(),
+                );
+                Some(lines)
+            } else {
+                None
+            }
+        } else {
+            None
+        };
 
         self.lane_last_synced = ws
             .as_ref()
@@ -2680,6 +2834,7 @@ impl App {
 
         if let Some(v) = self.current_view_mut::<RootView>() {
             v.ctx = ctx;
+            v.remote_auth_block_lines = remote_auth_block_lines;
             v.refresh(ws.as_ref(), &rctx);
         }
     }
@@ -2710,6 +2865,16 @@ impl App {
     }
 
     fn push_error(&mut self, msg: String) {
+        // If auth fails, update the header immediately so the user sees guidance.
+        if msg.contains("unauthorized") {
+            self.remote_identity = None;
+            self.remote_identity_note = Some("auth: unauthorized".to_string());
+            self.remote_identity_last_fetch = Some(OffsetDateTime::now_utc());
+        } else if msg.contains("no remote token configured") {
+            self.remote_identity = None;
+            self.remote_identity_note = Some("auth: login".to_string());
+            self.remote_identity_last_fetch = Some(OffsetDateTime::now_utc());
+        }
         self.push_entry(EntryKind::Error, vec![msg]);
     }
 
@@ -2929,7 +3094,9 @@ impl App {
                 }
 
                 _ => {
-                    self.push_error(format!("unknown command: {}", cmd));
+                    if !self.dispatch_global(cmd, args) {
+                        self.push_error(format!("unknown command: {}", cmd));
+                    }
                 }
             },
             RootContext::Remote => match cmd {
@@ -2970,7 +3137,9 @@ impl App {
                 }
 
                 _ => {
-                    self.push_error(format!("unknown command: {}", cmd));
+                    if !self.dispatch_global(cmd, args) {
+                        self.push_error(format!("unknown command: {}", cmd));
+                    }
                 }
             },
         }
@@ -3001,6 +3170,14 @@ impl App {
                 }
                 self.refresh_root_view();
                 self.push_output(vec![format!("timestamps: {}", self.ts_mode.label())]);
+                true
+            }
+            "login" => {
+                self.cmd_login(args);
+                true
+            }
+            "logout" => {
+                self.cmd_logout(args);
                 true
             }
             _ => false,
@@ -3194,7 +3371,8 @@ impl App {
             Ok(Some(t)) => t,
             Ok(None) => {
                 self.push_error(
-                    "no remote token configured (run `remote set --token ...`)".to_string(),
+                    "no remote token configured (run `login --url ... --token ... --repo ...`)"
+                        .to_string(),
                 );
                 return None;
             }
@@ -3964,7 +4142,8 @@ impl App {
                 Ok(Some(t)) => t,
                 Ok(None) => {
                     self.push_error(
-                        "no remote token configured (run `remote set --token ...`)".to_string(),
+                        "no remote token configured (run `login --url ... --token ... --repo ...`)"
+                            .to_string(),
                     );
                     return;
                 }
@@ -4585,6 +4764,121 @@ impl App {
         self.refresh_root_view();
     }
 
+    fn cmd_login(&mut self, args: &[String]) {
+        let Some(ws) = self.require_workspace() else {
+            return;
+        };
+
+        let mut url: Option<String> = None;
+        let mut token: Option<String> = None;
+        let mut repo: Option<String> = None;
+        let mut scope: Option<String> = None;
+        let mut gate: Option<String> = None;
+
+        let mut i = 0;
+        while i < args.len() {
+            match args[i].as_str() {
+                "--url" => {
+                    i += 1;
+                    url = args.get(i).cloned();
+                }
+                "--token" => {
+                    i += 1;
+                    token = args.get(i).cloned();
+                }
+                "--repo" => {
+                    i += 1;
+                    repo = args.get(i).cloned();
+                }
+                "--scope" => {
+                    i += 1;
+                    scope = args.get(i).cloned();
+                }
+                "--gate" => {
+                    i += 1;
+                    gate = args.get(i).cloned();
+                }
+                a => {
+                    self.push_error(format!("unknown arg: {}", a));
+                    return;
+                }
+            }
+            if i >= args.len() {
+                self.push_error("missing value for flag".to_string());
+                return;
+            }
+            i += 1;
+        }
+
+        let (Some(base_url), Some(token), Some(repo_id)) = (url, token, repo) else {
+            self.push_error(
+                "usage: login --url <url> --token <token> --repo <id> [--scope <id>] [--gate <id>]"
+                    .to_string(),
+            );
+            return;
+        };
+
+        let scope = scope.unwrap_or_else(|| "main".to_string());
+        let gate = gate.unwrap_or_else(|| "dev-intake".to_string());
+
+        let mut cfg = match ws.store.read_config() {
+            Ok(c) => c,
+            Err(err) => {
+                self.push_error(format!("read config: {:#}", err));
+                return;
+            }
+        };
+
+        let remote = RemoteConfig {
+            base_url: base_url.clone(),
+            token: None,
+            repo_id,
+            scope,
+            gate,
+        };
+
+        if let Err(err) = ws.store.set_remote_token(&remote, &token) {
+            self.push_error(format!("store remote token: {:#}", err));
+            return;
+        }
+
+        cfg.remote = Some(remote);
+        if let Err(err) = ws.store.write_config(&cfg) {
+            self.push_error(format!("write config: {:#}", err));
+            return;
+        }
+
+        self.push_output(vec![format!("logged in to {}", base_url)]);
+        self.refresh_root_view();
+    }
+
+    fn cmd_logout(&mut self, _args: &[String]) {
+        let Some(ws) = self.require_workspace() else {
+            return;
+        };
+
+        let cfg = match ws.store.read_config() {
+            Ok(c) => c,
+            Err(err) => {
+                self.push_error(format!("read config: {:#}", err));
+                return;
+            }
+        };
+
+        let Some(remote) = cfg.remote else {
+            self.push_error("no remote configured".to_string());
+            return;
+        };
+
+        if let Err(err) = ws.store.clear_remote_token(&remote) {
+            self.push_error(format!("clear remote token: {:#}", err));
+            return;
+        }
+
+        self.push_output(vec!["logged out".to_string()]);
+        self.refresh_root_view();
+    }
+
     fn cmd_ping(&mut self, _args: &[String]) {
         let Some(cfg) = self.remote_config() else {
             self.push_error("no remote configured".to_string());
@@ -4686,7 +4980,8 @@ impl App {
             Ok(Some(t)) => t,
             Ok(None) => {
                 self.push_error(
-                    "no remote token configured (run `remote set --token ...`)".to_string(),
+                    "no remote token configured (run `login --url ... --token ... --repo ...`)"
+                        .to_string(),
                 );
                 return;
             }
@@ -4906,7 +5201,8 @@ impl App {
             Ok(Some(t)) => t,
             Ok(None) => {
                 self.push_error(
-                    "no remote token configured (run `remote set --token ...`)".to_string(),
+                    "no remote token configured (run `login --url ... --token ... --repo ...`)"
+                        .to_string(),
                 );
                 return;
             }
@@ -7443,7 +7739,7 @@ fn draw(frame: &mut ratatui::Frame, app: &App) {
         .or_else(|| app.workspace_err.clone())
         .unwrap_or_else(|| "(no workspace)".to_string());
 
-    let header = Paragraph::new(Line::from(vec![
+    let mut spans = vec![
         Span::styled(
             "Converge",
             Style::default().fg(Color::Black).bg(Color::White),
@@ -7455,8 +7751,16 @@ fn draw(frame: &mut ratatui::Frame, app: &App) {
         ),
         Span::raw("  "),
         Span::raw(ws),
-    ]))
-    .block(Block::default().borders(Borders::BOTTOM));
+    ];
+    if let Some(id) = app.remote_identity.as_deref() {
+        spans.push(Span::raw("  "));
+        spans.push(Span::styled(id, Style::default().fg(Color::Green)));
+    } else if let Some(note) = app.remote_identity_note.as_deref() {
+        spans.push(Span::raw("  "));
+        spans.push(Span::styled(note, Style::default().fg(Color::Red)));
+    }
+
+    let header = Paragraph::new(Line::from(spans)).block(Block::default().borders(Borders::BOTTOM));
     frame.render_widget(header, chunks[0]);
 
     // Main view (modal)

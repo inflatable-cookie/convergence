@@ -251,6 +251,20 @@ impl RemoteClient {
         &self.remote
     }
 
+    fn ensure_ok(
+        &self,
+        resp: reqwest::blocking::Response,
+        label: &str,
+    ) -> Result<reqwest::blocking::Response> {
+        if resp.status() == reqwest::StatusCode::UNAUTHORIZED {
+            anyhow::bail!(
+                "unauthorized (token invalid/expired; run `converge login --url ... --token ... --repo ...` or `converge remote set --url ... --token ... --repo ...`)"
+            );
+        }
+        resp.error_for_status()
+            .with_context(|| format!("{} status", label))
+    }
+
     pub fn whoami(&self) -> Result<WhoAmI> {
         let resp = self
             .client
@@ -258,9 +272,8 @@ impl RemoteClient {
             .header(reqwest::header::AUTHORIZATION, self.auth())
             .send()
             .context("whoami")?;
-        let w: WhoAmI = resp
-            .error_for_status()
-            .context("whoami status")?
+        let w: WhoAmI = self
+            .ensure_ok(resp, "whoami")?
             .json()
             .context("parse whoami")?;
         Ok(w)
@@ -273,9 +286,8 @@ impl RemoteClient {
             .header(reqwest::header::AUTHORIZATION, self.auth())
             .send()
             .context("list users")?;
-        let out: Vec<RemoteUser> = resp
-            .error_for_status()
-            .context("list users status")?
+        let out: Vec<RemoteUser> = self
+            .ensure_ok(resp, "list users")?
             .json()
             .context("parse users")?;
         Ok(out)
@@ -298,9 +310,8 @@ impl RemoteClient {
             }))
             .send()
             .context("create user")?;
-        let out: RemoteUser = resp
-            .error_for_status()
-            .context("create user status")?
+        let out: RemoteUser = self
+            .ensure_ok(resp, "create user")?
             .json()
             .context("parse create user")?;
         Ok(out)
@@ -318,9 +329,8 @@ impl RemoteClient {
             .json(&serde_json::json!({"label": label}))
             .send()
             .context("create token for user")?;
-        let out: CreateTokenResponse = resp
-            .error_for_status()
-            .context("create token for user status")?
+        let out: CreateTokenResponse = self
+            .ensure_ok(resp, "create token for user")?
             .json()
             .context("parse create token for user")?;
         Ok(out)
@@ -333,9 +343,8 @@ impl RemoteClient {
             .header(reqwest::header::AUTHORIZATION, self.auth())
             .send()
             .context("list tokens")?;
-        let out: Vec<TokenView> = resp
-            .error_for_status()
-            .context("list tokens status")?
+        let out: Vec<TokenView> = self
+            .ensure_ok(resp, "list tokens")?
             .json()
             .context("parse tokens")?;
         Ok(out)
@@ -349,9 +358,8 @@ impl RemoteClient {
             .json(&serde_json::json!({"label": label}))
             .send()
             .context("create token")?;
-        let out: CreateTokenResponse = resp
-            .error_for_status()
-            .context("create token status")?
+        let out: CreateTokenResponse = self
+            .ensure_ok(resp, "create token")?
             .json()
             .context("parse create token")?;
         Ok(out)
@@ -364,7 +372,7 @@ impl RemoteClient {
             .header(reqwest::header::AUTHORIZATION, self.auth())
             .send()
             .context("revoke token")?;
-        resp.error_for_status().context("revoke token status")?;
+        let _ = self.ensure_ok(resp, "revoke token")?;
         Ok(())
     }
 
@@ -381,9 +389,8 @@ impl RemoteClient {
             anyhow::bail!("remote repo not found");
         }
 
-        let out: RepoMembers = resp
-            .error_for_status()
-            .context("list repo members status")?
+        let out: RepoMembers = self
+            .ensure_ok(resp, "list repo members")?
             .json()
             .context("parse repo members")?;
         Ok(out)
@@ -399,7 +406,7 @@ impl RemoteClient {
             .send()
             .context("add repo member")?;
 
-        resp.error_for_status().context("add repo member status")?;
+        let _ = self.ensure_ok(resp, "add repo member")?;
         Ok(())
     }
 
@@ -411,8 +418,7 @@ impl RemoteClient {
             .header(reqwest::header::AUTHORIZATION, self.auth())
             .send()
             .context("remove repo member")?;
-        resp.error_for_status()
-            .context("remove repo member status")?;
+        let _ = self.ensure_ok(resp, "remove repo member")?;
         Ok(())
     }
 
@@ -429,9 +435,8 @@ impl RemoteClient {
             anyhow::bail!("remote lane not found");
         }
 
-        let out: LaneMembers = resp
-            .error_for_status()
-            .context("list lane members status")?
+        let out: LaneMembers = self
+            .ensure_ok(resp, "list lane members")?
             .json()
             .context("parse lane members")?;
         Ok(out)
@@ -447,7 +452,7 @@ impl RemoteClient {
             .send()
             .context("add lane member")?;
 
-        resp.error_for_status().context("add lane member status")?;
+        let _ = self.ensure_ok(resp, "add lane member")?;
         Ok(())
     }
 
@@ -462,8 +467,7 @@ impl RemoteClient {
             .header(reqwest::header::AUTHORIZATION, self.auth())
             .send()
             .context("remove lane member")?;
-        resp.error_for_status()
-            .context("remove lane member status")?;
+        let _ = self.ensure_ok(resp, "remove lane member")?;
         Ok(())
     }
 
@@ -482,9 +486,8 @@ impl RemoteClient {
             );
         }
 
-        let lanes: Vec<Lane> = resp
-            .error_for_status()
-            .context("list lanes status")?
+        let lanes: Vec<Lane> = self
+            .ensure_ok(resp, "list lanes")?
             .json()
             .context("parse lanes")?;
         Ok(lanes)
@@ -512,9 +515,8 @@ impl RemoteClient {
             anyhow::bail!("remote lane not found (check `converge lanes` or /repos/:repo/lanes)");
         }
 
-        let head: LaneHead = resp
-            .error_for_status()
-            .context("update lane head status")?
+        let head: LaneHead = self
+            .ensure_ok(resp, "update lane head")?
             .json()
             .context("parse lane head")?;
         Ok(head)
@@ -533,9 +535,8 @@ impl RemoteClient {
             anyhow::bail!("lane head not found");
         }
 
-        let head: LaneHead = resp
-            .error_for_status()
-            .context("get lane head status")?
+        let head: LaneHead = self
+            .ensure_ok(resp, "get lane head")?
             .json()
             .context("parse lane head")?;
         Ok(head)
@@ -564,7 +565,7 @@ impl RemoteClient {
             anyhow::bail!("remote endpoint not found (is converge-server running?)");
         }
 
-        let resp = resp.error_for_status().context("create repo status")?;
+        let resp = self.ensure_ok(resp, "create repo")?;
         let repo: Repo = resp.json().context("parse create repo response")?;
         Ok(repo)
     }
@@ -584,9 +585,8 @@ impl RemoteClient {
             );
         }
 
-        let pubs: Vec<Publication> = resp
-            .error_for_status()
-            .context("list publications status")?
+        let pubs: Vec<Publication> = self
+            .ensure_ok(resp, "list publications")?
             .json()
             .context("parse publications")?;
         Ok(pubs)
@@ -607,9 +607,8 @@ impl RemoteClient {
             );
         }
 
-        let graph: GateGraph = resp
-            .error_for_status()
-            .context("get gate graph status")?
+        let graph: GateGraph = self
+            .ensure_ok(resp, "get gate graph")?
             .json()
             .context("parse gate graph")?;
         Ok(graph)
@@ -617,15 +616,15 @@ impl RemoteClient {
 
     pub fn put_gate_graph(&self, graph: &GateGraph) -> Result<GateGraph> {
         let repo = &self.remote.repo_id;
-        let graph: GateGraph = self
+        let resp = self
             .client
             .put(self.url(&format!("/repos/{}/gate-graph", repo)))
             .header(reqwest::header::AUTHORIZATION, self.auth())
             .json(graph)
             .send()
-            .context("put gate graph")?
-            .error_for_status()
-            .context("put gate graph status")?
+            .context("put gate graph")?;
+        let graph: GateGraph = self
+            .ensure_ok(resp, "put gate graph")?
             .json()
             .context("parse gate graph")?;
         Ok(graph)
@@ -648,9 +647,8 @@ impl RemoteClient {
                 "input_publications": publications
             }))
             .send()
-            .context("create bundle request")?
-            .error_for_status()
-            .context("create bundle status")?;
+            .context("create bundle request")?;
+        let resp = self.ensure_ok(resp, "create bundle")?;
         let bundle: Bundle = resp.json().context("parse bundle")?;
         Ok(bundle)
     }
@@ -670,9 +668,8 @@ impl RemoteClient {
             );
         }
 
-        let bundles: Vec<Bundle> = resp
-            .error_for_status()
-            .context("list bundles status")?
+        let bundles: Vec<Bundle> = self
+            .ensure_ok(resp, "list bundles")?
             .json()
             .context("parse bundles")?;
         Ok(bundles)
@@ -693,9 +690,8 @@ impl RemoteClient {
             );
         }
 
-        let pins: Pins = resp
-            .error_for_status()
-            .context("list pins status")?
+        let pins: Pins = self
+            .ensure_ok(resp, "list pins")?
             .json()
             .context("parse pins")?;
         Ok(pins)
@@ -710,7 +706,7 @@ impl RemoteClient {
             .send()
             .context("pin bundle")?;
 
-        resp.error_for_status().context("pin bundle status")?;
+        let _ = self.ensure_ok(resp, "pin bundle")?;
         Ok(())
     }
 
@@ -723,7 +719,7 @@ impl RemoteClient {
             .send()
             .context("unpin bundle")?;
 
-        resp.error_for_status().context("unpin bundle status")?;
+        let _ = self.ensure_ok(resp, "unpin bundle")?;
         Ok(())
     }
 
@@ -740,9 +736,8 @@ impl RemoteClient {
             anyhow::bail!("bundle not found");
         }
 
-        let bundle: Bundle = resp
-            .error_for_status()
-            .context("get bundle status")?
+        let bundle: Bundle = self
+            .ensure_ok(resp, "get bundle")?
             .json()
             .context("parse bundle")?;
         Ok(bundle)
@@ -759,9 +754,8 @@ impl RemoteClient {
                 "to_gate": to_gate
             }))
             .send()
-            .context("promote request")?
-            .error_for_status()
-            .context("promote status")?;
+            .context("promote request")?;
+        let resp = self.ensure_ok(resp, "promote")?;
         let promotion: Promotion = resp.json().context("parse promotion")?;
         Ok(promotion)
     }
@@ -781,7 +775,7 @@ impl RemoteClient {
             );
         }
 
-        let resp = resp.error_for_status().context("promotion state status")?;
+        let resp = self.ensure_ok(resp, "promotion state")?;
 
         let state: HashMap<String, String> = resp.json().context("parse promotion state")?;
         Ok(state)
@@ -794,9 +788,9 @@ impl RemoteClient {
             .post(self.url(&format!("/repos/{}/bundles/{}/approve", repo, bundle_id)))
             .header(reqwest::header::AUTHORIZATION, self.auth())
             .send()
-            .context("approve request")?
-            .error_for_status()
-            .context("approve status")?;
+            .context("approve request")?;
+
+        let resp = self.ensure_ok(resp, "approve")?;
 
         let bundle: Bundle = resp.json().context("parse approved bundle")?;
         Ok(bundle)
@@ -858,20 +852,20 @@ impl RemoteClient {
                 "remote repo not found (create it with `converge remote create-repo` or POST /repos)"
             );
         }
-        let resp = resp.error_for_status().context("missing objects status")?;
+        let resp = self.ensure_ok(resp, "missing objects")?;
         let missing: MissingObjectsResponse = resp.json().context("parse missing objects")?;
 
         for id in missing.missing_blobs {
             let bytes = store.get_blob(&ObjectId(id.clone()))?;
             with_retries(&format!("upload blob {}", id), || {
-                self.client
+                let resp = self
+                    .client
                     .put(self.url(&format!("/repos/{}/objects/blobs/{}", repo, id)))
                     .header(reqwest::header::AUTHORIZATION, self.auth())
                     .body(bytes.clone())
                     .send()
-                    .context("send")?
-                    .error_for_status()
-                    .context("status")
+                    .context("send")?;
+                self.ensure_ok(resp, "upload blob")
             })?;
         }
 
@@ -879,14 +873,14 @@ impl RemoteClient {
             let rid = ObjectId(id.clone());
             let bytes = store.get_recipe_bytes(&rid)?;
             with_retries(&format!("upload recipe {}", id), || {
-                self.client
+                let resp = self
+                    .client
                     .put(self.url(&format!("/repos/{}/objects/recipes/{}", repo, id)))
                     .header(reqwest::header::AUTHORIZATION, self.auth())
                     .body(bytes.clone())
                     .send()
-                    .context("send")?
-                    .error_for_status()
-                    .context("status")
+                    .context("send")?;
+                self.ensure_ok(resp, "upload recipe")
             })?;
         }
 
@@ -899,14 +893,14 @@ impl RemoteClient {
             }
             let bytes = store.get_manifest_bytes(&mid)?;
             with_retries(&format!("upload manifest {}", id), || {
-                self.client
+                let resp = self
+                    .client
                     .put(self.url(&format!("/repos/{}/objects/manifests/{}", repo, id)))
                     .header(reqwest::header::AUTHORIZATION, self.auth())
                     .body(bytes.clone())
                     .send()
-                    .context("send")?
-                    .error_for_status()
-                    .context("status")
+                    .context("send")?;
+                self.ensure_ok(resp, "upload manifest")
             })?;
         }
         if !missing_manifests.is_empty() {
@@ -916,14 +910,14 @@ impl RemoteClient {
         // Upload snap record last.
         if missing.missing_snaps.contains(&snap.id) {
             with_retries("upload snap", || {
-                self.client
+                let resp = self
+                    .client
                     .put(self.url(&format!("/repos/{}/objects/snaps/{}", repo, snap.id)))
                     .header(reqwest::header::AUTHORIZATION, self.auth())
                     .json(snap)
                     .send()
-                    .context("send")?
-                    .error_for_status()
-                    .context("status")
+                    .context("send")?;
+                self.ensure_ok(resp, "upload snap")
             })?;
         }
 
@@ -974,21 +968,21 @@ impl RemoteClient {
             );
         }
 
-        let resp = resp.error_for_status().context("missing objects status")?;
+        let resp = self.ensure_ok(resp, "missing objects")?;
         let missing: MissingObjectsResponse = resp.json().context("parse missing objects")?;
 
         if !metadata_only {
             for id in missing.missing_blobs {
                 let bytes = store.get_blob(&ObjectId(id.clone()))?;
                 with_retries(&format!("upload blob {}", id), || {
-                    self.client
+                    let resp = self
+                        .client
                         .put(self.url(&format!("/repos/{}/objects/blobs/{}", repo, id)))
                         .header(reqwest::header::AUTHORIZATION, self.auth())
                         .body(bytes.clone())
                         .send()
-                        .context("send")?
-                        .error_for_status()
-                        .context("status")
+                        .context("send")?;
+                    self.ensure_ok(resp, "upload blob")
                 })?;
             }
         }
@@ -1006,14 +1000,14 @@ impl RemoteClient {
                 format!("/repos/{}/objects/recipes/{}", repo, id)
             };
             with_retries(&format!("upload recipe {}", id), || {
-                self.client
+                let resp = self
+                    .client
                     .put(self.url(&path))
                     .header(reqwest::header::AUTHORIZATION, self.auth())
                     .body(bytes.clone())
                     .send()
-                    .context("send")?
-                    .error_for_status()
-                    .context("status")
+                    .context("send")?;
+                self.ensure_ok(resp, "upload recipe")
             })?;
         }
 
@@ -1036,14 +1030,14 @@ impl RemoteClient {
                 format!("/repos/{}/objects/manifests/{}", repo, id)
             };
             with_retries(&format!("upload manifest {}", id), || {
-                self.client
+                let resp = self
+                    .client
                     .put(self.url(&path))
                     .header(reqwest::header::AUTHORIZATION, self.auth())
                     .body(bytes.clone())
                     .send()
-                    .context("send")?
-                    .error_for_status()
-                    .context("status")
+                    .context("send")?;
+                self.ensure_ok(resp, "upload manifest")
             })?;
         }
 
@@ -1056,19 +1050,20 @@ impl RemoteClient {
 
         if !missing.missing_snaps.is_empty() {
             with_retries("upload snap", || {
-                self.client
+                let resp = self
+                    .client
                     .put(self.url(&format!("/repos/{}/objects/snaps/{}", repo, snap.id)))
                     .header(reqwest::header::AUTHORIZATION, self.auth())
                     .json(snap)
                     .send()
-                    .context("send")?
-                    .error_for_status()
-                    .context("status")
+                    .context("send")?;
+                self.ensure_ok(resp, "upload snap")
             })?;
         }
 
         let resp = with_retries("create publication", || {
-            self.client
+            let resp = self
+                .client
                 .post(self.url(&format!("/repos/{}/publications", repo)))
                 .header(reqwest::header::AUTHORIZATION, self.auth())
                 .json(&CreatePublicationRequest {
@@ -1079,9 +1074,8 @@ impl RemoteClient {
                     resolution: resolution.clone(),
                 })
                 .send()
-                .context("send")?
-                .error_for_status()
-                .context("status")
+                .context("send")?;
+            self.ensure_ok(resp, "create publication")
         })?;
 
         let pubrec: Publication = resp.json().context("parse publication")?;
@@ -1154,15 +1148,13 @@ impl RemoteClient {
         }
 
         let snap_bytes = with_retries(&format!("fetch snap {}", snap_id), || {
-            self.client
+            let resp = self
+                .client
                 .get(self.url(&format!("/repos/{}/objects/snaps/{}", repo, snap_id)))
                 .header(reqwest::header::AUTHORIZATION, self.auth())
                 .send()
-                .context("send")?
-                .error_for_status()
-                .context("status")?
-                .bytes()
-                .context("bytes")
+                .context("send")?;
+            self.ensure_ok(resp, "fetch snap")?.bytes().context("bytes")
         })?;
 
         let snap: SnapRecord = serde_json::from_slice(&snap_bytes).context("parse snap")?;
@@ -1271,7 +1263,7 @@ fn fetch_manifest_tree_inner(
     }
 
     if !store.has_manifest(manifest_id) {
-        let bytes = remote
+        let resp = remote
             .client
             .get(remote.url(&format!(
                 "/repos/{}/objects/manifests/{}",
@@ -1280,9 +1272,9 @@ fn fetch_manifest_tree_inner(
             )))
             .header(reqwest::header::AUTHORIZATION, remote.auth())
             .send()
-            .context("fetch manifest")?
-            .error_for_status()
-            .context("fetch manifest status")?
+            .context("fetch manifest")?;
+        let bytes = remote
+            .ensure_ok(resp, "fetch manifest")?
             .bytes()
             .context("read manifest bytes")?;
 
@@ -1335,14 +1327,14 @@ fn fetch_blob_if_missing(
         return Ok(());
     }
     let bytes = with_retries(&format!("fetch blob {}", blob.as_str()), || {
-        remote
+        let resp = remote
             .client
             .get(remote.url(&format!("/repos/{}/objects/blobs/{}", repo, blob.as_str())))
             .header(reqwest::header::AUTHORIZATION, remote.auth())
             .send()
-            .context("send")?
-            .error_for_status()
-            .context("status")?
+            .context("send")?;
+        remote
+            .ensure_ok(resp, "fetch blob")?
             .bytes()
             .context("bytes")
     })?;
@@ -1370,7 +1362,7 @@ fn fetch_recipe_and_chunks(
 ) -> Result<()> {
     if !store.has_recipe(recipe) {
         let bytes = with_retries(&format!("fetch recipe {}", recipe.as_str()), || {
-            remote
+            let resp = remote
                 .client
                 .get(remote.url(&format!(
                     "/repos/{}/objects/recipes/{}",
@@ -1379,9 +1371,9 @@ fn fetch_recipe_and_chunks(
                 )))
                 .header(reqwest::header::AUTHORIZATION, remote.auth())
                 .send()
-                .context("send")?
-                .error_for_status()
-                .context("status")?
+                .context("send")?;
+            remote
+                .ensure_ok(resp, "fetch recipe")?
                 .bytes()
                 .context("bytes")
         })?;

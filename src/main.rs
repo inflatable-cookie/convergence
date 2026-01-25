@@ -69,6 +69,23 @@ enum Commands {
         command: RemoteCommands,
     },
 
+    /// Log in to a remote (configure remote + store token)
+    Login {
+        #[arg(long)]
+        url: String,
+        #[arg(long)]
+        token: String,
+        #[arg(long)]
+        repo: String,
+        #[arg(long, default_value = "main")]
+        scope: String,
+        #[arg(long, default_value = "dev-intake")]
+        gate: String,
+    },
+
+    /// Log out (clear stored remote token)
+    Logout,
+
     /// Show current remote identity
     Whoami {
         /// Emit JSON
@@ -629,6 +646,39 @@ fn run() -> Result<()> {
             }
         }
 
+        Some(Commands::Login {
+            url,
+            token,
+            repo,
+            scope,
+            gate,
+        }) => {
+            let ws = Workspace::discover(&std::env::current_dir().context("get current dir")?)?;
+            let mut cfg = ws.store.read_config()?;
+            let remote = RemoteConfig {
+                base_url: url,
+                token: None,
+                repo_id: repo,
+                scope,
+                gate,
+            };
+            ws.store
+                .set_remote_token(&remote, &token)
+                .context("store remote token in state.json")?;
+            cfg.remote = Some(remote);
+            ws.store.write_config(&cfg)?;
+            println!("Logged in");
+        }
+
+        Some(Commands::Logout) => {
+            let ws = Workspace::discover(&std::env::current_dir().context("get current dir")?)?;
+            let remote = require_remote(&ws.store)?;
+            ws.store
+                .clear_remote_token(&remote)
+                .context("clear remote token")?;
+            println!("Logged out");
+        }
+
         Some(Commands::Whoami { json }) => {
             let ws = Workspace::discover(&std::env::current_dir().context("get current dir")?)?;
             let (remote, token) = require_remote_and_token(&ws.store)?;
@@ -1151,7 +1201,9 @@ fn run() -> Result<()> {
             let token = ws
                 .store
                 .get_remote_token(&remote)?
-                .context("no remote token configured (run `converge remote set --url ... --token ... --repo ...`)")?;
+                .context(
+                    "no remote token configured (run `converge login --url ... --token ... --repo ...`)",
+                )?;
             let client = RemoteClient::new(remote.clone(), token)?;
             let mut pubs = client.list_publications()?;
             pubs.sort_by(|a, b| b.created_at.cmp(&a.created_at));
@@ -1578,15 +1630,14 @@ fn run() -> Result<()> {
 
 fn require_remote(store: &LocalStore) -> Result<RemoteConfig> {
     let cfg = store.read_config()?;
-    cfg.remote.context(
-        "no remote configured (run `converge remote set --url ... --token ... --repo ...`)",
-    )
+    cfg.remote
+        .context("no remote configured (run `converge login --url ... --token ... --repo ...`)")
 }
 
 fn require_remote_and_token(store: &LocalStore) -> Result<(RemoteConfig, String)> {
     let remote = require_remote(store)?;
     let token = store.get_remote_token(&remote)?.context(
-        "no remote token configured (run `converge remote set --url ... --token ... --repo ...`)",
+        "no remote token configured (run `converge login --url ... --token ... --repo ...`)",
     )?;
     Ok((remote, token))
 }
