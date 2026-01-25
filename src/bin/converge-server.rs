@@ -343,6 +343,22 @@ async fn run() -> Result<()> {
             "/tokens/:token_id/revoke",
             axum::routing::post(revoke_token),
         )
+        .route(
+            "/repos/:repo_id/members",
+            get(list_repo_members).post(add_repo_member),
+        )
+        .route(
+            "/repos/:repo_id/members/:handle",
+            axum::routing::delete(remove_repo_member),
+        )
+        .route(
+            "/repos/:repo_id/lanes/:lane_id/members",
+            get(list_lane_members).post(add_lane_member),
+        )
+        .route(
+            "/repos/:repo_id/lanes/:lane_id/members/:handle",
+            axum::routing::delete(remove_lane_member),
+        )
         .route("/repos", get(list_repos).post(create_repo))
         .route("/repos/:repo_id", get(get_repo))
         .route("/repos/:repo_id/permissions", get(get_repo_permissions))
@@ -809,6 +825,186 @@ async fn get_repo_permissions(
         "read": can_read(repo, &subject),
         "publish": can_publish(repo, &subject)
     })))
+}
+
+#[derive(Debug, serde::Deserialize)]
+struct AddMemberRequest {
+    handle: String,
+
+    #[serde(default)]
+    role: Option<String>,
+}
+
+async fn list_repo_members(
+    State(state): State<Arc<AppState>>,
+    Extension(subject): Extension<Subject>,
+    Path(repo_id): Path<String>,
+) -> Result<Json<serde_json::Value>, Response> {
+    let repos = state.repos.read().await;
+    let repo = repos.get(&repo_id).ok_or_else(not_found)?;
+    if !subject.admin && repo.owner_user_id.as_ref() != Some(&subject.user_id) {
+        return Err(forbidden());
+    }
+    Ok(Json(serde_json::json!({
+        "owner": repo.owner,
+        "readers": repo.readers,
+        "publishers": repo.publishers,
+        "owner_user_id": repo.owner_user_id,
+        "reader_user_ids": repo.reader_user_ids,
+        "publisher_user_ids": repo.publisher_user_ids,
+    })))
+}
+
+async fn add_repo_member(
+    State(state): State<Arc<AppState>>,
+    Extension(subject): Extension<Subject>,
+    Path(repo_id): Path<String>,
+    Json(payload): Json<AddMemberRequest>,
+) -> Result<Json<serde_json::Value>, Response> {
+    validate_user_handle(&payload.handle).map_err(bad_request)?;
+
+    let mut repos = state.repos.write().await;
+    let repo = repos.get_mut(&repo_id).ok_or_else(not_found)?;
+    if !subject.admin && repo.owner_user_id.as_ref() != Some(&subject.user_id) {
+        return Err(forbidden());
+    }
+
+    let users = state.users.read().await;
+    let (user_id, handle) = users
+        .values()
+        .find(|u| u.handle == payload.handle)
+        .map(|u| (u.id.clone(), u.handle.clone()))
+        .ok_or_else(|| bad_request(anyhow::anyhow!("unknown user handle")))?;
+    drop(users);
+
+    let role = payload.role.unwrap_or_else(|| "read".to_string());
+    match role.as_str() {
+        "read" => {
+            repo.readers.insert(handle);
+            repo.reader_user_ids.insert(user_id);
+        }
+        "publish" => {
+            repo.readers.insert(handle.clone());
+            repo.reader_user_ids.insert(user_id.clone());
+            repo.publishers.insert(handle);
+            repo.publisher_user_ids.insert(user_id);
+        }
+        _ => return Err(bad_request(anyhow::anyhow!("unknown role"))),
+    }
+
+    persist_repo(state.as_ref(), repo).map_err(internal_error)?;
+    Ok(Json(serde_json::json!({"ok": true})))
+}
+
+async fn remove_repo_member(
+    State(state): State<Arc<AppState>>,
+    Extension(subject): Extension<Subject>,
+    Path((repo_id, handle)): Path<(String, String)>,
+) -> Result<Json<serde_json::Value>, Response> {
+    validate_user_handle(&handle).map_err(bad_request)?;
+
+    let mut repos = state.repos.write().await;
+    let repo = repos.get_mut(&repo_id).ok_or_else(not_found)?;
+    if !subject.admin && repo.owner_user_id.as_ref() != Some(&subject.user_id) {
+        return Err(forbidden());
+    }
+
+    let users = state.users.read().await;
+    let uid = users
+        .values()
+        .find(|u| u.handle == handle)
+        .map(|u| u.id.clone());
+    drop(users);
+
+    repo.readers.remove(&handle);
+    repo.publishers.remove(&handle);
+    if let Some(uid) = uid {
+        repo.reader_user_ids.remove(&uid);
+        repo.publisher_user_ids.remove(&uid);
+    }
+
+    persist_repo(state.as_ref(), repo).map_err(internal_error)?;
+    Ok(Json(serde_json::json!({"ok": true})))
+}
+
+async fn list_lane_members(
+    State(state): State<Arc<AppState>>,
+    Extension(subject): Extension<Subject>,
+    Path((repo_id, lane_id)): Path<(String, String)>,
+) -> Result<Json<serde_json::Value>, Response> {
+    validate_lane_id(&lane_id).map_err(bad_request)?;
+    let repos = state.repos.read().await;
+    let repo = repos.get(&repo_id).ok_or_else(not_found)?;
+    if !subject.admin && repo.owner_user_id.as_ref() != Some(&subject.user_id) {
+        return Err(forbidden());
+    }
+    let lane = repo.lanes.get(&lane_id).ok_or_else(not_found)?;
+    Ok(Json(serde_json::json!({
+        "lane": lane.id,
+        "members": lane.members,
+        "member_user_ids": lane.member_user_ids,
+    })))
+}
+
+async fn add_lane_member(
+    State(state): State<Arc<AppState>>,
+    Extension(subject): Extension<Subject>,
+    Path((repo_id, lane_id)): Path<(String, String)>,
+    Json(payload): Json<AddMemberRequest>,
+) -> Result<Json<serde_json::Value>, Response> {
+    validate_lane_id(&lane_id).map_err(bad_request)?;
+    validate_user_handle(&payload.handle).map_err(bad_request)?;
+
+    let mut repos = state.repos.write().await;
+    let repo = repos.get_mut(&repo_id).ok_or_else(not_found)?;
+    if !subject.admin && repo.owner_user_id.as_ref() != Some(&subject.user_id) {
+        return Err(forbidden());
+    }
+
+    let users = state.users.read().await;
+    let (user_id, handle) = users
+        .values()
+        .find(|u| u.handle == payload.handle)
+        .map(|u| (u.id.clone(), u.handle.clone()))
+        .ok_or_else(|| bad_request(anyhow::anyhow!("unknown user handle")))?;
+    drop(users);
+
+    let lane = repo.lanes.get_mut(&lane_id).ok_or_else(not_found)?;
+    lane.members.insert(handle);
+    lane.member_user_ids.insert(user_id);
+    persist_repo(state.as_ref(), repo).map_err(internal_error)?;
+    Ok(Json(serde_json::json!({"ok": true})))
+}
+
+async fn remove_lane_member(
+    State(state): State<Arc<AppState>>,
+    Extension(subject): Extension<Subject>,
+    Path((repo_id, lane_id, handle)): Path<(String, String, String)>,
+) -> Result<Json<serde_json::Value>, Response> {
+    validate_lane_id(&lane_id).map_err(bad_request)?;
+    validate_user_handle(&handle).map_err(bad_request)?;
+
+    let mut repos = state.repos.write().await;
+    let repo = repos.get_mut(&repo_id).ok_or_else(not_found)?;
+    if !subject.admin && repo.owner_user_id.as_ref() != Some(&subject.user_id) {
+        return Err(forbidden());
+    }
+
+    let users = state.users.read().await;
+    let uid = users
+        .values()
+        .find(|u| u.handle == handle)
+        .map(|u| u.id.clone());
+    drop(users);
+
+    let lane = repo.lanes.get_mut(&lane_id).ok_or_else(not_found)?;
+    lane.members.remove(&handle);
+    if let Some(uid) = uid {
+        lane.member_user_ids.remove(&uid);
+    }
+
+    persist_repo(state.as_ref(), repo).map_err(internal_error)?;
+    Ok(Json(serde_json::json!({"ok": true})))
 }
 
 async fn list_lanes(
@@ -3375,6 +3571,21 @@ fn validate_scope_id(id: &str) -> Result<()> {
     {
         return Err(anyhow::anyhow!(
             "scope id must be lowercase alnum or '-', '/'"
+        ));
+    }
+    Ok(())
+}
+
+fn validate_user_handle(handle: &str) -> Result<()> {
+    if handle.is_empty() {
+        return Err(anyhow::anyhow!("user handle cannot be empty"));
+    }
+    if !handle
+        .chars()
+        .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
+    {
+        return Err(anyhow::anyhow!(
+            "user handle must be lowercase alnum or '-'"
         ));
     }
     Ok(())
