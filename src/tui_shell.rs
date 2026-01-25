@@ -90,7 +90,7 @@ impl UiMode {
     fn prompt(self) -> &'static str {
         match self {
             UiMode::Root => "root>",
-            UiMode::Snaps => "snaps>",
+            UiMode::Snaps => "history>",
             UiMode::Inbox => "inbox>",
             UiMode::Bundles => "bundles>",
             UiMode::Releases => "releases>",
@@ -624,6 +624,10 @@ fn input_hint_left(app: &App) -> Option<String> {
     match app.mode() {
         UiMode::Root => match app.root_ctx {
             RootContext::Local => {
+                if app.workspace.is_none() {
+                    return Some("init".to_string());
+                }
+
                 let mut changes = 0usize;
                 if let Some(v) = app.current_view::<RootView>() {
                     changes = v.change_summary.added
@@ -633,27 +637,33 @@ fn input_hint_left(app: &App) -> Option<String> {
                 }
 
                 if changes > 0 {
-                    Some("snap, snaps, help".to_string())
+                    Some("save  |  history".to_string())
                 } else if app.remote_configured {
                     let latest = app.latest_snap_id.clone();
                     let synced = app.lane_last_synced.get("default").cloned();
                     if latest.is_some() && latest != synced {
-                        Some("sync*, publish, snaps".to_string())
+                        Some("sync  |  history".to_string())
                     } else {
-                        Some("sync, publish, snaps".to_string())
+                        Some("publish  |  history".to_string())
                     }
                 } else {
-                    Some("snaps, help".to_string())
+                    Some("history".to_string())
                 }
             }
-            RootContext::Remote => Some("lanes, members, inbox".to_string()),
+            RootContext::Remote => {
+                if !app.remote_configured || app.remote_identity.is_none() {
+                    Some("login".to_string())
+                } else {
+                    Some("inbox  |  releases".to_string())
+                }
+            }
         },
-        UiMode::Snaps => Some("show, restore, msg".to_string()),
-        UiMode::Inbox => Some("fetch, bundle, help".to_string()),
-        UiMode::Bundles => Some("approve, promote, release".to_string()),
-        UiMode::Releases => Some("fetch, back".to_string()),
-        UiMode::Lanes => Some("fetch, back".to_string()),
-        UiMode::Superpositions => Some("resolve, publish, help".to_string()),
+        UiMode::Snaps => Some("Enter: show  |  restore".to_string()),
+        UiMode::Inbox => Some("Enter: fetch  |  bundle".to_string()),
+        UiMode::Bundles => Some("promote  |  release".to_string()),
+        UiMode::Releases => Some("Enter: fetch".to_string()),
+        UiMode::Lanes => Some("Enter: fetch".to_string()),
+        UiMode::Superpositions => Some("pick  |  apply".to_string()),
     }
 }
 
@@ -778,7 +788,7 @@ impl View for SnapsView {
     }
 
     fn title(&self) -> &str {
-        "Snaps"
+        "History"
     }
 
     fn updated_at(&self) -> &str {
@@ -835,12 +845,12 @@ impl View for SnapsView {
 
         let list = List::new(rows)
             .block(Block::default().borders(Borders::BOTTOM).title(format!(
-                    "snaps{} (commands: filter, open, msg, show, restore, back)",
-                    self.filter
-                        .as_ref()
-                        .map(|f| format!(" filter={}", f))
-                        .unwrap_or_default()
-                )))
+                "snaps{} (Enter: show; /: commands)",
+                self.filter
+                    .as_ref()
+                    .map(|f| format!(" filter={}", f))
+                    .unwrap_or_default()
+            )))
             .highlight_style(Style::default().bg(Color::DarkGray));
         frame.render_stateful_widget(list, parts[0], &mut state);
 
@@ -978,7 +988,7 @@ impl View for LanesView {
             .block(
                 Block::default()
                     .borders(Borders::BOTTOM)
-                    .title("(commands: fetch, back)".to_string()),
+                    .title("(Enter: fetch; /: commands)".to_string()),
             )
             .highlight_style(Style::default().bg(Color::DarkGray));
         frame.render_stateful_widget(list, parts[0], &mut state);
@@ -1073,7 +1083,7 @@ impl View for InboxView {
 
         let list = List::new(rows)
             .block(Block::default().borders(Borders::BOTTOM).title(format!(
-                "scope={} gate={}{} (commands: bundle, fetch, back)",
+                "scope={} gate={}{} (Enter: fetch; /: commands)",
                 self.scope,
                 self.gate,
                 self.filter
@@ -1189,7 +1199,7 @@ impl View for ReleasesView {
             .block(
                 Block::default()
                     .borders(Borders::BOTTOM)
-                    .title("channels (commands: fetch [--restore], back)"),
+                    .title("channels (Enter: fetch; /: commands)"),
             )
             .highlight_style(Style::default().bg(Color::DarkGray));
         frame.render_stateful_widget(list, parts[0], &mut state);
@@ -1281,7 +1291,7 @@ impl View for BundlesView {
 
         let list = List::new(rows)
             .block(Block::default().borders(Borders::BOTTOM).title(format!(
-                "scope={} gate={}{} (commands: approve, promote, release, superpositions, back)",
+                "scope={} gate={}{} (/ for commands)",
                 self.scope,
                 self.gate,
                 self.filter
@@ -1405,7 +1415,7 @@ impl View for SuperpositionsView {
 
         let list = List::new(rows)
             .block(Block::default().borders(Borders::BOTTOM).title(format!(
-                "bundle={}{}{} (commands: pick, clear, validate, apply, back; keys: Alt+1..9 pick, Alt+0 clear, Alt+n next missing, Alt+f next invalid)",
+                "bundle={}{}{} (pick; Alt+1..9, Alt+0; / for commands)",
                 self.bundle_id.chars().take(8).collect::<String>(),
                 self.filter
                     .as_ref()
@@ -1682,10 +1692,10 @@ fn local_root_command_defs() -> Vec<CommandDef> {
             help: "Initialize a workspace (.converge)",
         },
         CommandDef {
-            name: "snap",
+            name: "save",
             aliases: &[],
-            usage: "snap [-m <message>]",
-            help: "Create a snap",
+            usage: "save [-m <message>]",
+            help: "Save a snapshot",
         },
         CommandDef {
             name: "publish",
@@ -1706,10 +1716,10 @@ fn local_root_command_defs() -> Vec<CommandDef> {
             help: "Set/clear snap message",
         },
         CommandDef {
-            name: "snaps",
+            name: "history",
             aliases: &[],
-            usage: "snaps [--limit N]",
-            help: "Open the snap browser",
+            usage: "history [--limit N]",
+            help: "Browse saved snapshots",
         },
         CommandDef {
             name: "show",
@@ -2428,6 +2438,34 @@ fn root_command_defs(ctx: RootContext) -> Vec<CommandDef> {
     }
 }
 
+fn mode_specific_command_defs(mode: UiMode) -> Vec<CommandDef> {
+    match mode {
+        UiMode::Root => Vec::new(),
+        UiMode::Snaps => snaps_command_defs(),
+        UiMode::Inbox => inbox_command_defs(),
+        UiMode::Bundles => bundles_command_defs(),
+        UiMode::Releases => releases_command_defs(),
+        UiMode::Lanes => lanes_command_defs(),
+        UiMode::Superpositions => superpositions_command_defs(),
+    }
+}
+
+fn palette_command_defs(mode: UiMode, root_ctx: RootContext) -> Vec<CommandDef> {
+    // A "full" palette: root commands + the current mode's commands.
+    // This keeps the default UI calm while still making everything discoverable.
+    let mut all = root_command_defs(root_ctx);
+    all.extend(mode_specific_command_defs(mode));
+
+    let mut seen = std::collections::HashSet::new();
+    let mut out = Vec::new();
+    for d in all {
+        if seen.insert(d.name) {
+            out.push(d);
+        }
+    }
+    out
+}
+
 fn snaps_command_defs() -> Vec<CommandDef> {
     vec![
         CommandDef {
@@ -2744,6 +2782,74 @@ impl Default for App {
 }
 
 impl App {
+    fn run_default_action(&mut self) {
+        match self.mode() {
+            UiMode::Root => match self.root_ctx {
+                RootContext::Local => {
+                    if self.workspace.is_none() {
+                        self.cmd_init(&[]);
+                        return;
+                    }
+
+                    // If there are local changes, the default action is "save".
+                    let mut changes = 0usize;
+                    if let Some(v) = self.current_view::<RootView>() {
+                        changes = v.change_summary.added
+                            + v.change_summary.modified
+                            + v.change_summary.deleted
+                            + v.change_summary.renamed;
+                    }
+                    if changes > 0 {
+                        self.cmd_snap(&[]);
+                        return;
+                    }
+
+                    // Otherwise, default to opening history.
+                    self.cmd_snaps(&[]);
+                }
+                RootContext::Remote => {
+                    if !self.remote_configured || self.remote_identity.is_none() {
+                        self.open_modal(
+                            "Login",
+                            vec![
+                                "Remote is not ready yet.".to_string(),
+                                "".to_string(),
+                                "Use: login --url <url> --token <token> --repo <id>".to_string(),
+                            ],
+                        );
+                        return;
+                    }
+                    self.cmd_inbox(&[]);
+                }
+            },
+            UiMode::Snaps => self.cmd_snaps_show(&[]),
+            UiMode::Inbox => self.cmd_inbox_fetch_mode(&[]),
+            UiMode::Releases => self.cmd_releases_fetch_mode(&[]),
+            UiMode::Lanes => self.cmd_lanes_fetch_mode(&[]),
+            UiMode::Bundles => {
+                // If a bundle is blocked by superpositions, default to opening the resolver.
+                let Some(v) = self.current_view::<BundlesView>() else {
+                    return;
+                };
+                if v.items.is_empty() {
+                    return;
+                }
+                let idx = v.selected.min(v.items.len().saturating_sub(1));
+                let b = &v.items[idx];
+                let looks_like_superpositions = !b.promotable
+                    && b.reasons
+                        .iter()
+                        .any(|r| r.to_lowercase().contains("superposition"));
+                if looks_like_superpositions {
+                    self.cmd_bundles_superpositions_mode(&[]);
+                }
+            }
+            UiMode::Superpositions => {
+                // No automatic default action; this mode is intentionally explicit.
+            }
+        }
+    }
+
     fn refresh_remote_identity(&mut self, ws: &Workspace, now: OffsetDateTime) {
         // Avoid spamming whoami calls.
         if let Some(last) = self.remote_identity_last_fetch
@@ -3079,7 +3185,7 @@ impl App {
         let q = self.input.buf.trim_start_matches('/').trim().to_lowercase();
         if q.is_empty() {
             if forced_root {
-                let mut defs = root_command_defs(self.root_ctx);
+                let mut defs = palette_command_defs(self.mode(), self.root_ctx);
                 defs.sort_by(|a, b| a.name.cmp(b.name));
                 self.suggestions = defs;
                 self.suggestion_selected = 0;
@@ -3099,7 +3205,7 @@ impl App {
         }
 
         let mut defs = if forced_root {
-            root_command_defs(self.root_ctx)
+            palette_command_defs(self.mode(), self.root_ctx)
         } else {
             mode_command_defs(self.mode(), self.root_ctx)
         };
@@ -3182,7 +3288,9 @@ impl App {
         let args = &tokens[1..];
 
         let mode = self.mode();
-        let mut defs = if forced_root || mode == UiMode::Root {
+        let mut defs = if forced_root {
+            palette_command_defs(mode, self.root_ctx)
+        } else if mode == UiMode::Root {
             root_command_defs(self.root_ctx)
         } else {
             mode_command_defs(mode, self.root_ctx)
@@ -3227,11 +3335,11 @@ impl App {
                     self.push_output(vec!["refreshed".to_string()]);
                 }
                 "init" => self.cmd_init(args),
-                "snap" => self.cmd_snap(args),
+                "save" => self.cmd_snap(args),
                 "publish" => self.cmd_publish(args),
                 "sync" => self.cmd_sync(args),
                 "msg" => self.cmd_msg(args),
-                "snaps" => self.cmd_snaps(args),
+                "history" => self.cmd_snaps(args),
                 "show" => self.cmd_show(args),
                 "restore" => self.cmd_restore(args),
                 "mv" => self.cmd_mv(args),
@@ -3295,7 +3403,8 @@ impl App {
                     self.quit = true;
                 }
 
-                "init" | "snap" | "publish" | "snaps" | "show" | "restore" | "mv" | "chunking" => {
+                "init" | "save" | "publish" | "history" | "show" | "restore" | "mv"
+                | "chunking" => {
                     self.push_error("local command; press Tab to switch to local".to_string());
                 }
 
@@ -6654,6 +6763,7 @@ fn handle_key(app: &mut App, key: KeyEvent) {
 
         KeyCode::Enter => {
             if app.input.buf.is_empty() {
+                app.run_default_action();
                 return;
             }
 
@@ -8611,7 +8721,7 @@ fn draw_panel(frame: &mut ratatui::Frame, _app: &App, panel: &Panel, area: ratat
 
             let list = List::new(rows)
                 .block(Block::default().borders(Borders::BOTTOM).title(format!(
-                    "snaps{} (commands: open, show, restore, back)",
+                    "snaps{} (Enter: show; /: commands)",
                     filter
                         .as_ref()
                         .map(|f| format!(" filter={}", f))
