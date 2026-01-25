@@ -188,6 +188,78 @@ enum TextInputAction {
     ChunkingSet,
     RetentionKeepLast,
     RetentionKeepDays,
+
+    LoginUrl,
+    LoginToken,
+    LoginRepo,
+    LoginScope,
+    LoginGate,
+
+    FetchKind,
+    FetchId,
+    FetchUser,
+    FetchOptions,
+
+    PublishStart,
+    PublishSnap,
+    PublishScope,
+    PublishGate,
+    PublishMeta,
+
+    SyncStart,
+    SyncLane,
+    SyncClient,
+    SyncSnap,
+
+    ReleaseChannel,
+    ReleaseNotes,
+}
+
+#[derive(Clone, Debug)]
+struct LoginWizard {
+    url: Option<String>,
+    token: Option<String>,
+    repo: Option<String>,
+    scope: String,
+    gate: String,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum FetchKind {
+    Snap,
+    Bundle,
+    Release,
+    Lane,
+}
+
+#[derive(Clone, Debug)]
+struct FetchWizard {
+    kind: Option<FetchKind>,
+    id: Option<String>,
+    user: Option<String>,
+    options: Option<String>,
+}
+
+#[derive(Clone, Debug)]
+struct PublishWizard {
+    snap: Option<String>,
+    scope: Option<String>,
+    gate: Option<String>,
+    meta: bool,
+}
+
+#[derive(Clone, Debug)]
+struct SyncWizard {
+    snap: Option<String>,
+    lane: String,
+    client: Option<String>,
+}
+
+#[derive(Clone, Debug)]
+struct ReleaseWizard {
+    bundle_id: String,
+    channel: String,
+    notes: Option<String>,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -1892,8 +1964,8 @@ fn global_command_defs() -> Vec<CommandDef> {
         CommandDef {
             name: "login",
             aliases: &[],
-            usage: "login --url <url> --token <token> --repo <id> [--scope <id>] [--gate <id>]",
-            help: "Configure remote + store token",
+            usage: "login",
+            help: "Login (guided prompt)",
         },
         CommandDef {
             name: "logout",
@@ -1928,37 +2000,37 @@ fn local_root_command_defs() -> Vec<CommandDef> {
         CommandDef {
             name: "init",
             aliases: &[],
-            usage: "init [--force]",
+            usage: "init [force]",
             help: "Initialize a workspace (.converge)",
         },
         CommandDef {
             name: "save",
             aliases: &[],
-            usage: "save [-m <message>]",
+            usage: "save [message...]",
             help: "Save a snapshot",
         },
         CommandDef {
             name: "publish",
             aliases: &[],
-            usage: "publish [--snap-id <id>] [--scope <id>] [--gate <id>] [--metadata-only]",
+            usage: "publish [edit]",
             help: "Publish a snap to remote",
         },
         CommandDef {
             name: "sync",
             aliases: &[],
-            usage: "sync [--snap-id <id>] [--lane <id>] [--client-id <id>]",
-            help: "Sync a snap to your lane head",
+            usage: "sync [edit]",
+            help: "Sync to your lane (guided prompt)",
         },
         CommandDef {
             name: "msg",
             aliases: &[],
-            usage: "msg [<snap_id_prefix>] [<message...>|--clear]",
+            usage: "msg [<snap>] [<message...>|clear]",
             help: "Set/clear snap message",
         },
         CommandDef {
             name: "history",
             aliases: &[],
-            usage: "history [--limit N]",
+            usage: "history [N]",
             help: "Browse saved snapshots",
         },
         CommandDef {
@@ -1970,7 +2042,7 @@ fn local_root_command_defs() -> Vec<CommandDef> {
         CommandDef {
             name: "restore",
             aliases: &[],
-            usage: "restore <snap_id> [--force]",
+            usage: "restore <snap> [force]",
             help: "Restore a snap into the working directory",
         },
         CommandDef {
@@ -1982,7 +2054,7 @@ fn local_root_command_defs() -> Vec<CommandDef> {
         CommandDef {
             name: "purge",
             aliases: &[],
-            usage: "purge [--dry-run]",
+            usage: "purge [dry]",
             help: "Purge local objects (per retention policy)",
         },
         CommandDef {
@@ -2568,7 +2640,7 @@ fn remote_root_command_defs() -> Vec<CommandDef> {
         CommandDef {
             name: "fetch",
             aliases: &[],
-            usage: "fetch [--snap-id <id>] | fetch --lane <lane> [--user <user>] | fetch --bundle-id <id> | fetch --release <channel>",
+            usage: "fetch",
             help: "Fetch publications or lane heads into local store",
         },
         CommandDef {
@@ -2592,31 +2664,31 @@ fn remote_root_command_defs() -> Vec<CommandDef> {
         CommandDef {
             name: "member",
             aliases: &[],
-            usage: "member add|remove --handle <h> [--role read|publish]",
+            usage: "member add <handle> [read|publish] | member remove <handle>",
             help: "Manage repo membership",
         },
         CommandDef {
             name: "lane-member",
             aliases: &[],
-            usage: "lane-member add|remove --lane <id> --handle <h>",
+            usage: "lane-member add <lane> <handle> | lane-member remove <lane> <handle>",
             help: "Manage lane membership",
         },
         CommandDef {
             name: "inbox",
             aliases: &[],
-            usage: "inbox [--scope <id>] [--gate <id>] [--filter <q>] [--limit N]",
+            usage: "inbox [scope <id>] [gate <id>] [filter <q...>] [limit <n>]",
             help: "Open inbox browser",
         },
         CommandDef {
             name: "bundles",
             aliases: &[],
-            usage: "bundles [--scope <id>] [--gate <id>] [--filter <q>] [--limit N]",
+            usage: "bundles [scope <id>] [gate <id>] [filter <q...>] [limit <n>]",
             help: "Open bundles browser",
         },
         CommandDef {
             name: "bundle",
             aliases: &[],
-            usage: "bundle [--scope <id>] [--gate <id>] [--publication <id>...]",
+            usage: "bundle [scope <id>] [gate <id>] [publication <id>...]",
             help: "Create a bundle from publications",
         },
         CommandDef {
@@ -2628,31 +2700,31 @@ fn remote_root_command_defs() -> Vec<CommandDef> {
         CommandDef {
             name: "pin",
             aliases: &[],
-            usage: "pin --bundle-id <id> [--unpin]",
+            usage: "pin <bundle> [unpin]",
             help: "Pin or unpin a bundle",
         },
         CommandDef {
             name: "approve",
             aliases: &[],
-            usage: "approve --bundle-id <id>",
+            usage: "approve <bundle>",
             help: "Approve a bundle",
         },
         CommandDef {
             name: "promote",
             aliases: &[],
-            usage: "promote --bundle-id <id> [--to-gate <id>]",
+            usage: "promote <bundle> [to <gate>]",
             help: "Promote a bundle",
         },
         CommandDef {
             name: "release",
             aliases: &[],
-            usage: "release --channel <name> --bundle-id <id> [--notes <text>]",
+            usage: "release <channel> <bundle> [notes...]",
             help: "Create a release in a channel",
         },
         CommandDef {
             name: "superpositions",
             aliases: &["supers"],
-            usage: "superpositions --bundle-id <id> [--filter <q>]",
+            usage: "superpositions <bundle> [filter <q...>]",
             help: "Open superpositions browser",
         },
     ]);
@@ -2692,7 +2764,7 @@ fn snaps_command_defs() -> Vec<CommandDef> {
         CommandDef {
             name: "msg",
             aliases: &[],
-            usage: "msg <message> | msg --clear",
+            usage: "msg [message...] | msg clear",
             help: "Set/clear message on selected snap",
         },
         CommandDef {
@@ -2710,7 +2782,7 @@ fn snaps_command_defs() -> Vec<CommandDef> {
         CommandDef {
             name: "restore",
             aliases: &[],
-            usage: "restore [<snap_id_prefix>] [--force]",
+            usage: "restore [<snap>] [force]",
             help: "Restore selected snap",
         },
     ]
@@ -2756,8 +2828,14 @@ fn bundles_command_defs() -> Vec<CommandDef> {
         CommandDef {
             name: "promote",
             aliases: &[],
-            usage: "promote [--to-gate <id>]",
+            usage: "promote [to <gate>]",
             help: "Promote selected bundle",
+        },
+        CommandDef {
+            name: "release",
+            aliases: &[],
+            usage: "release",
+            help: "Create a release from selected bundle",
         },
         CommandDef {
             name: "superpositions",
@@ -2809,7 +2887,7 @@ fn superpositions_command_defs() -> Vec<CommandDef> {
         CommandDef {
             name: "apply",
             aliases: &[],
-            usage: "apply [--publish]",
+            usage: "apply [publish]",
             help: "Apply resolution and optionally publish",
         },
     ]
@@ -2843,7 +2921,7 @@ fn releases_command_defs() -> Vec<CommandDef> {
         CommandDef {
             name: "fetch",
             aliases: &[],
-            usage: "fetch [--restore] [--into <dir>] [--force]",
+            usage: "fetch [restore] [into <dir>] [force]",
             help: "Fetch selected release (optional restore)",
         },
     ]
@@ -2960,6 +3038,12 @@ struct App {
 
     modal: Option<Modal>,
 
+    login_wizard: Option<LoginWizard>,
+    fetch_wizard: Option<FetchWizard>,
+    publish_wizard: Option<PublishWizard>,
+    sync_wizard: Option<SyncWizard>,
+    release_wizard: Option<ReleaseWizard>,
+
     input: Input,
 
     suggestions: Vec<CommandDef>,
@@ -2990,6 +3074,12 @@ impl Default for App {
             last_command: None,
             last_result: None,
             modal: None,
+
+            login_wizard: None,
+            fetch_wizard: None,
+            publish_wizard: None,
+            sync_wizard: None,
+            release_wizard: None,
             input: Input::default(),
             suggestions: Vec::new(),
             suggestion_selected: 0,
@@ -3659,6 +3749,14 @@ impl App {
         self.modal = None;
     }
 
+    fn cancel_wizards(&mut self) {
+        self.login_wizard = None;
+        self.fetch_wizard = None;
+        self.publish_wizard = None;
+        self.sync_wizard = None;
+        self.release_wizard = None;
+    }
+
     fn recompute_suggestions(&mut self) {
         let show = self.input.buf.trim_start().starts_with('/');
         let q = self.input.buf.trim_start_matches('/').trim().to_lowercase();
@@ -4190,9 +4288,9 @@ impl App {
         let mut force = false;
         for a in args {
             match a.as_str() {
-                "--force" => force = true,
+                "--force" | "force" => force = true,
                 _ => {
-                    self.push_error(format!("unknown flag: {}", a));
+                    self.push_error("usage: init [force]".to_string());
                     return;
                 }
             }
@@ -4224,25 +4322,34 @@ impl App {
             return;
         };
 
-        let mut message: Option<String> = None;
-        let mut i = 0;
-        while i < args.len() {
-            match args[i].as_str() {
-                "-m" | "--message" => {
-                    i += 1;
-                    if i >= args.len() {
-                        self.push_error("missing value for -m/--message".to_string());
-                        return;
-                    }
-                    message = Some(args[i].clone());
+        // Flagless UX: `save [message...]`.
+        if !args.is_empty() && !args[0].starts_with('-') {
+            let msg = args.join(" ").trim().to_string();
+            let msg = if msg.is_empty() { None } else { Some(msg) };
+            match ws.create_snap(msg) {
+                Ok(snap) => {
+                    self.push_output(vec![format!("snap {}", snap.id)]);
+                    self.refresh_root_view();
                 }
-                a => {
-                    self.push_error(format!("unknown arg: {}", a));
-                    return;
+                Err(err) => {
+                    self.push_error(format!("snap: {:#}", err));
                 }
             }
-            i += 1;
+            return;
         }
+
+        let message = if args.is_empty() {
+            None
+        } else if args[0] == "-m" || args[0] == "--message" {
+            if args.len() < 2 {
+                self.push_error("missing value for -m/--message".to_string());
+                return;
+            }
+            Some(args[1..].join(" "))
+        } else {
+            self.push_error("usage: save [message...]".to_string());
+            return;
+        };
 
         match ws.create_snap(message) {
             Ok(snap) => {
@@ -4262,10 +4369,7 @@ impl App {
 
         if args.is_empty() {
             let Some(head_id) = ws.store.get_head().ok().flatten() else {
-                self.push_error(
-                    "usage: msg <snap_id_prefix> <message> | msg <snap_id_prefix> --clear"
-                        .to_string(),
-                );
+                self.push_error("usage: msg <snap> [<message...>|clear]".to_string());
                 return;
             };
             let snap = match ws.show_snap(&head_id) {
@@ -4280,7 +4384,7 @@ impl App {
         }
 
         let prefix = &args[0];
-        let clear = args.len() == 2 && args[1] == "--clear";
+        let clear = args.len() == 2 && (args[1] == "--clear" || args[1] == "clear");
         let interactive = args.len() == 1;
         let message = if clear || interactive {
             None
@@ -4357,7 +4461,7 @@ impl App {
             return;
         }
 
-        let clear = args.len() == 1 && args[0] == "--clear";
+        let clear = args.len() == 1 && (args[0] == "--clear" || args[0] == "clear");
         let message = if clear { None } else { Some(args.join(" ")) };
 
         if let Err(err) = ws.store.update_snap_message(&snap_id, message.as_deref()) {
@@ -4393,6 +4497,14 @@ impl App {
         };
 
         let mut limit: Option<usize> = None;
+
+        // Flagless UX: `history [N]`.
+        if args.len() == 1
+            && let Ok(n) = args[0].parse::<usize>()
+        {
+            limit = Some(n);
+        }
+
         let mut i = 0;
         while i < args.len() {
             match args[i].as_str() {
@@ -4406,6 +4518,16 @@ impl App {
                         Ok(n) => Some(n),
                         Err(_) => {
                             self.push_error("invalid --limit".to_string());
+                            return;
+                        }
+                    };
+                }
+                "limit" if i + 1 < args.len() => {
+                    i += 1;
+                    limit = match args[i].parse::<usize>() {
+                        Ok(n) => Some(n),
+                        Err(_) => {
+                            self.push_error("invalid limit".to_string());
                             return;
                         }
                     };
@@ -4610,7 +4732,7 @@ impl App {
         let mut snap_id: Option<String> = None;
         let mut force = false;
         for a in args {
-            if a == "--force" {
+            if a == "--force" || a == "force" {
                 force = true;
                 continue;
             }
@@ -4618,7 +4740,7 @@ impl App {
                 snap_id = Some(a.clone());
                 continue;
             }
-            self.push_error(format!("unknown arg: {}", a));
+            self.push_error("usage: restore [<snap>] [force]".to_string());
             return;
         }
 
@@ -4633,7 +4755,7 @@ impl App {
         }
 
         let Some(snap_id) = snap_id else {
-            self.push_error("usage: restore [<snap_id_prefix>] [--force]".to_string());
+            self.push_error("usage: restore [<snap>] [force]".to_string());
             return;
         };
 
@@ -4742,11 +4864,6 @@ impl App {
     }
 
     fn cmd_bundles_release_mode(&mut self, args: &[String]) {
-        if args.len() != 1 {
-            self.push_error("usage: release <channel>".to_string());
-            return;
-        }
-
         let Some(v) = self.current_view::<BundlesView>() else {
             self.push_error("not in bundles mode".to_string());
             return;
@@ -4757,6 +4874,15 @@ impl App {
         }
         let idx = v.selected.min(v.items.len().saturating_sub(1));
         let bundle_id = v.items[idx].id.clone();
+
+        if args.is_empty() {
+            self.start_release_wizard(bundle_id);
+            return;
+        }
+        if args.len() != 1 {
+            self.push_error("usage: release [<channel>]".to_string());
+            return;
+        }
 
         self.cmd_release(&[
             "--channel".to_string(),
@@ -5022,14 +5148,14 @@ impl App {
             return;
         };
         if args.is_empty() {
-            self.push_error("usage: restore <snap_id> [--force]".to_string());
+            self.push_error("usage: restore <snap> [force]".to_string());
             return;
         }
 
         let mut snap_id = None;
         let mut force = false;
         for a in args {
-            if a == "--force" {
+            if a == "--force" || a == "force" {
                 force = true;
                 continue;
             }
@@ -5037,7 +5163,7 @@ impl App {
                 snap_id = Some(a.clone());
                 continue;
             }
-            self.push_error(format!("unknown arg: {}", a));
+            self.push_error("usage: restore <snap> [force]".to_string());
             return;
         }
 
@@ -5199,9 +5325,9 @@ impl App {
         let mut dry_run = false;
         for a in args {
             match a.as_str() {
-                "--dry-run" => dry_run = true,
+                "--dry-run" | "dry" | "dry-run" => dry_run = true,
                 _ => {
-                    self.push_error("usage: gc [--dry-run]".to_string());
+                    self.push_error("usage: purge [dry]".to_string());
                     return;
                 }
             }
@@ -5217,7 +5343,7 @@ impl App {
 
         self.refresh_root_view();
         self.open_modal(
-            if dry_run { "GC (dry-run)" } else { "GC" },
+            if dry_run { "Purge (dry-run)" } else { "Purge" },
             vec![
                 format!("kept_snaps: {}", report.kept_snaps),
                 format!("pruned_snaps: {}", report.pruned_snaps),
@@ -5561,19 +5687,32 @@ impl App {
     }
 
     fn cmd_login(&mut self, args: &[String]) {
-        let Some(ws) = self.require_workspace() else {
+        let Some(_) = self.require_workspace() else {
             return;
         };
 
         if args.is_empty() {
-            self.open_modal(
-                "Login",
-                vec![
-                    "Use: login --url <url> --token <token> --repo <id>".to_string(),
-                    "".to_string(),
-                    "Optional: --scope <id> --gate <id>".to_string(),
-                ],
-            );
+            self.start_login_wizard();
+            return;
+        }
+
+        // Flagless UX: `login <url> <token> <repo> [scope] [gate]`.
+        if args.len() >= 3 && !args.iter().any(|a| a.starts_with("--")) {
+            if args.len() > 5 {
+                self.push_error("usage: login <url> <token> <repo> [scope] [gate]".to_string());
+                return;
+            }
+
+            let base_url = args[0].clone();
+            let token = args[1].clone();
+            let repo_id = args[2].clone();
+            let scope = args.get(3).cloned().unwrap_or_else(|| "main".to_string());
+            let gate = args
+                .get(4)
+                .cloned()
+                .unwrap_or_else(|| "dev-intake".to_string());
+
+            self.apply_login_config(base_url, token, repo_id, scope, gate);
             return;
         }
 
@@ -5619,45 +5758,14 @@ impl App {
         }
 
         let (Some(base_url), Some(token), Some(repo_id)) = (url, token, repo) else {
-            self.push_error(
-                "usage: login --url <url> --token <token> --repo <id> [--scope <id>] [--gate <id>]"
-                    .to_string(),
-            );
+            self.push_error("usage: login <url> <token> <repo> [scope] [gate]".to_string());
             return;
         };
 
         let scope = scope.unwrap_or_else(|| "main".to_string());
         let gate = gate.unwrap_or_else(|| "dev-intake".to_string());
 
-        let mut cfg = match ws.store.read_config() {
-            Ok(c) => c,
-            Err(err) => {
-                self.push_error(format!("read config: {:#}", err));
-                return;
-            }
-        };
-
-        let remote = RemoteConfig {
-            base_url: base_url.clone(),
-            token: None,
-            repo_id,
-            scope,
-            gate,
-        };
-
-        if let Err(err) = ws.store.set_remote_token(&remote, &token) {
-            self.push_error(format!("store remote token: {:#}", err));
-            return;
-        }
-
-        cfg.remote = Some(remote);
-        if let Err(err) = ws.store.write_config(&cfg) {
-            self.push_error(format!("write config: {:#}", err));
-            return;
-        }
-
-        self.push_output(vec![format!("logged in to {}", base_url)]);
-        self.refresh_root_view();
+        self.apply_login_config(base_url, token, repo_id, scope, gate);
     }
 
     fn cmd_logout(&mut self, _args: &[String]) {
@@ -5971,7 +6079,901 @@ impl App {
                     _ => {}
                 }
             }
+
+            TextInputAction::LoginUrl
+            | TextInputAction::LoginToken
+            | TextInputAction::LoginRepo
+            | TextInputAction::LoginScope
+            | TextInputAction::LoginGate => {
+                self.push_error("unexpected login wizard input".to_string());
+            }
+
+            _ => {
+                self.push_error("unexpected text input action".to_string());
+            }
         }
+    }
+
+    fn submit_text_input(&mut self, action: TextInputAction, value: String) {
+        match action {
+            TextInputAction::ChunkingSet
+            | TextInputAction::RetentionKeepLast
+            | TextInputAction::RetentionKeepDays => {
+                self.apply_text_input_action(action, value);
+            }
+            TextInputAction::LoginUrl
+            | TextInputAction::LoginToken
+            | TextInputAction::LoginRepo
+            | TextInputAction::LoginScope
+            | TextInputAction::LoginGate => {
+                self.continue_login_wizard(action, value);
+            }
+
+            TextInputAction::FetchKind
+            | TextInputAction::FetchId
+            | TextInputAction::FetchUser
+            | TextInputAction::FetchOptions => {
+                self.continue_fetch_wizard(action, value);
+            }
+
+            TextInputAction::PublishSnap
+            | TextInputAction::PublishStart
+            | TextInputAction::PublishScope
+            | TextInputAction::PublishGate
+            | TextInputAction::PublishMeta => {
+                self.continue_publish_wizard(action, value);
+            }
+
+            TextInputAction::SyncStart
+            | TextInputAction::SyncLane
+            | TextInputAction::SyncClient
+            | TextInputAction::SyncSnap => {
+                self.continue_sync_wizard(action, value);
+            }
+
+            TextInputAction::ReleaseChannel | TextInputAction::ReleaseNotes => {
+                self.continue_release_wizard(action, value);
+            }
+        }
+    }
+
+    fn start_login_wizard(&mut self) {
+        let Some(ws) = self.require_workspace() else {
+            return;
+        };
+
+        let remote = ws.store.read_config().ok().and_then(|c| c.remote);
+
+        let default_url = remote.as_ref().map(|r| r.base_url.clone());
+        let default_repo = remote.as_ref().map(|r| r.repo_id.clone());
+        let default_scope = remote
+            .as_ref()
+            .map(|r| r.scope.clone())
+            .unwrap_or_else(|| "main".to_string());
+        let default_gate = remote
+            .as_ref()
+            .map(|r| r.gate.clone())
+            .unwrap_or_else(|| "dev-intake".to_string());
+
+        self.login_wizard = Some(LoginWizard {
+            url: default_url.clone(),
+            token: None,
+            repo: default_repo,
+            scope: default_scope,
+            gate: default_gate,
+        });
+
+        self.open_text_input_modal(
+            "Login",
+            "url> ",
+            TextInputAction::LoginUrl,
+            default_url,
+            vec![
+                "Remote base URL (example: https://example.com)".to_string(),
+                "Esc cancels; Enter continues.".to_string(),
+            ],
+        );
+    }
+
+    fn continue_login_wizard(&mut self, action: TextInputAction, value: String) {
+        if self.login_wizard.is_none() {
+            self.push_error("login wizard not active".to_string());
+            return;
+        }
+
+        match action {
+            TextInputAction::LoginUrl => {
+                if let Some(w) = self.login_wizard.as_mut() {
+                    w.url = Some(value);
+                }
+                self.open_text_input_modal(
+                    "Login",
+                    "token> ",
+                    TextInputAction::LoginToken,
+                    None,
+                    vec![
+                        "Access token (will be stored locally).".to_string(),
+                        "Tip: paste it, then Enter.".to_string(),
+                    ],
+                );
+            }
+            TextInputAction::LoginToken => {
+                if let Some(w) = self.login_wizard.as_mut() {
+                    w.token = Some(value);
+                }
+                let repo_initial = self.login_wizard.as_ref().and_then(|w| w.repo.clone());
+                self.open_text_input_modal(
+                    "Login",
+                    "repo> ",
+                    TextInputAction::LoginRepo,
+                    repo_initial,
+                    vec!["Repo id".to_string()],
+                );
+            }
+            TextInputAction::LoginRepo => {
+                if let Some(w) = self.login_wizard.as_mut() {
+                    w.repo = Some(value);
+                }
+                let scope_initial = self.login_wizard.as_ref().map(|w| w.scope.clone());
+                self.open_text_input_modal(
+                    "Login",
+                    "scope> ",
+                    TextInputAction::LoginScope,
+                    scope_initial,
+                    vec!["Scope id".to_string()],
+                );
+            }
+            TextInputAction::LoginScope => {
+                if let Some(w) = self.login_wizard.as_mut()
+                    && !value.is_empty()
+                {
+                    w.scope = value;
+                }
+                let gate_initial = self.login_wizard.as_ref().map(|w| w.gate.clone());
+                self.open_text_input_modal(
+                    "Login",
+                    "gate> ",
+                    TextInputAction::LoginGate,
+                    gate_initial,
+                    vec!["Gate id".to_string()],
+                );
+            }
+            TextInputAction::LoginGate => {
+                if let Some(w) = self.login_wizard.as_mut()
+                    && !value.is_empty()
+                {
+                    w.gate = value;
+                }
+
+                let (base_url, token, repo_id, scope, gate) = match self.login_wizard.as_ref() {
+                    Some(w) => {
+                        let base_url = w.url.clone().unwrap_or_default();
+                        let token = w.token.clone().unwrap_or_default();
+                        let repo_id = w.repo.clone().unwrap_or_default();
+                        let scope = w.scope.clone();
+                        let gate = w.gate.clone();
+                        (base_url, token, repo_id, scope, gate)
+                    }
+                    None => {
+                        self.push_error("login wizard not active".to_string());
+                        return;
+                    }
+                };
+
+                if base_url.trim().is_empty() {
+                    self.push_error("login: missing url".to_string());
+                    self.login_wizard = None;
+                    return;
+                }
+                if token.trim().is_empty() {
+                    self.push_error("login: missing token".to_string());
+                    self.login_wizard = None;
+                    return;
+                }
+                if repo_id.trim().is_empty() {
+                    self.push_error("login: missing repo".to_string());
+                    self.login_wizard = None;
+                    return;
+                }
+
+                self.login_wizard = None;
+                self.apply_login_config(base_url, token, repo_id, scope, gate);
+            }
+
+            _ => {
+                self.push_error("unexpected login wizard input".to_string());
+            }
+        }
+    }
+
+    fn apply_login_config(
+        &mut self,
+        base_url: String,
+        token: String,
+        repo_id: String,
+        scope: String,
+        gate: String,
+    ) {
+        let Some(ws) = self.require_workspace() else {
+            return;
+        };
+
+        let mut cfg = match ws.store.read_config() {
+            Ok(c) => c,
+            Err(err) => {
+                self.push_error(format!("read config: {:#}", err));
+                return;
+            }
+        };
+
+        let remote = RemoteConfig {
+            base_url: base_url.clone(),
+            token: None,
+            repo_id,
+            scope,
+            gate,
+        };
+
+        if let Err(err) = ws.store.set_remote_token(&remote, &token) {
+            self.push_error(format!("store remote token: {:#}", err));
+            return;
+        }
+
+        cfg.remote = Some(remote);
+        if let Err(err) = ws.store.write_config(&cfg) {
+            self.push_error(format!("write config: {:#}", err));
+            return;
+        }
+
+        self.push_output(vec![format!("logged in to {}", base_url)]);
+        self.refresh_root_view();
+    }
+
+    fn start_fetch_wizard(&mut self) {
+        let Some(_) = self.require_workspace() else {
+            return;
+        };
+
+        if self.remote_client().is_none() {
+            // If fetch can't run, it's almost always because we need login.
+            self.start_login_wizard();
+            return;
+        }
+
+        self.fetch_wizard = Some(FetchWizard {
+            kind: None,
+            id: None,
+            user: None,
+            options: None,
+        });
+
+        self.open_text_input_modal(
+            "Fetch",
+            "what> ",
+            TextInputAction::FetchKind,
+            Some("snap".to_string()),
+            vec!["What to fetch? snap | bundle | release | lane".to_string()],
+        );
+    }
+
+    fn continue_fetch_wizard(&mut self, action: TextInputAction, value: String) {
+        if self.fetch_wizard.is_none() {
+            self.push_error("fetch wizard not active".to_string());
+            return;
+        }
+
+        match action {
+            TextInputAction::FetchKind => {
+                let v = value.trim().to_lowercase();
+                let v = if v.is_empty() { "snap".to_string() } else { v };
+                let kind = match v.as_str() {
+                    "snap" | "snaps" => Some(FetchKind::Snap),
+                    "bundle" | "bundles" => Some(FetchKind::Bundle),
+                    "release" | "releases" => Some(FetchKind::Release),
+                    "lane" | "lanes" => Some(FetchKind::Lane),
+                    _ => None,
+                };
+
+                let Some(kind) = kind else {
+                    self.open_text_input_modal(
+                        "Fetch",
+                        "what> ",
+                        TextInputAction::FetchKind,
+                        Some("snap".to_string()),
+                        vec![
+                            "error: choose snap | bundle | release | lane".to_string(),
+                            "".to_string(),
+                            "What to fetch?".to_string(),
+                        ],
+                    );
+                    return;
+                };
+
+                if let Some(w) = self.fetch_wizard.as_mut() {
+                    w.kind = Some(kind);
+                }
+
+                let (prompt, initial, lines) = match kind {
+                    FetchKind::Snap => (
+                        "snap id (blank=all)> ",
+                        None,
+                        vec!["Optional: leave blank to fetch all publications.".to_string()],
+                    ),
+                    FetchKind::Bundle => ("bundle id> ", None, vec!["Paste bundle id".to_string()]),
+                    FetchKind::Release => (
+                        "channel> ",
+                        None,
+                        vec!["Release channel name (example: main)".to_string()],
+                    ),
+                    FetchKind::Lane => (
+                        "lane id> ",
+                        Some("default".to_string()),
+                        vec!["Lane id (example: default)".to_string()],
+                    ),
+                };
+
+                self.open_text_input_modal(
+                    "Fetch",
+                    prompt,
+                    TextInputAction::FetchId,
+                    initial,
+                    lines,
+                );
+            }
+
+            TextInputAction::FetchId => {
+                let kind = self.fetch_wizard.as_ref().and_then(|w| w.kind);
+                let Some(kind) = kind else {
+                    self.start_fetch_wizard();
+                    return;
+                };
+
+                let id = value.trim().to_string();
+                if id.is_empty() && kind != FetchKind::Snap {
+                    let prompt = match kind {
+                        FetchKind::Bundle => "bundle id> ",
+                        FetchKind::Release => "channel> ",
+                        FetchKind::Lane => "lane id> ",
+                        FetchKind::Snap => "snap id (blank=all)> ",
+                    };
+                    self.open_text_input_modal(
+                        "Fetch",
+                        prompt,
+                        TextInputAction::FetchId,
+                        None,
+                        vec!["error: value required".to_string()],
+                    );
+                    return;
+                }
+
+                if let Some(w) = self.fetch_wizard.as_mut() {
+                    w.id = if id.is_empty() { None } else { Some(id) };
+                }
+
+                match kind {
+                    FetchKind::Lane => {
+                        self.open_text_input_modal(
+                            "Fetch",
+                            "user (blank=all)> ",
+                            TextInputAction::FetchUser,
+                            None,
+                            vec!["Optional: filter by user handle".to_string()],
+                        );
+                    }
+                    FetchKind::Bundle | FetchKind::Release => {
+                        self.open_text_input_modal(
+                            "Fetch",
+                            "options> ",
+                            TextInputAction::FetchOptions,
+                            None,
+                            vec![
+                                "Optional:".to_string(),
+                                "- empty: fetch only".to_string(),
+                                "- restore: also materialize into a directory".to_string(),
+                                "- into <dir>: choose directory (implies restore)".to_string(),
+                                "- force: overwrite files when restoring".to_string(),
+                            ],
+                        );
+                    }
+                    FetchKind::Snap => {
+                        self.finish_fetch_wizard();
+                    }
+                }
+            }
+
+            TextInputAction::FetchUser => {
+                let v = value.trim().to_string();
+                if let Some(w) = self.fetch_wizard.as_mut() {
+                    w.user = if v.is_empty() { None } else { Some(v) };
+                }
+                self.finish_fetch_wizard();
+            }
+
+            TextInputAction::FetchOptions => {
+                if let Some(w) = self.fetch_wizard.as_mut() {
+                    let v = value.trim().to_string();
+                    w.options = if v.is_empty() { None } else { Some(v) };
+                }
+                self.finish_fetch_wizard();
+            }
+
+            _ => {
+                self.push_error("unexpected fetch wizard input".to_string());
+            }
+        }
+    }
+
+    fn finish_fetch_wizard(&mut self) {
+        let Some(w) = self.fetch_wizard.clone() else {
+            self.push_error("fetch wizard not active".to_string());
+            return;
+        };
+        self.fetch_wizard = None;
+
+        let Some(kind) = w.kind else {
+            self.push_error("fetch: missing kind".to_string());
+            return;
+        };
+
+        let mut argv: Vec<String> = Vec::new();
+        match kind {
+            FetchKind::Snap => {
+                if let Some(id) = w.id {
+                    argv.extend(["--snap-id".to_string(), id]);
+                }
+            }
+            FetchKind::Bundle => {
+                let Some(id) = w.id else {
+                    self.push_error("fetch: missing bundle id".to_string());
+                    return;
+                };
+                argv.extend(["--bundle-id".to_string(), id]);
+            }
+            FetchKind::Release => {
+                let Some(id) = w.id else {
+                    self.push_error("fetch: missing channel".to_string());
+                    return;
+                };
+                argv.extend(["--release".to_string(), id]);
+            }
+            FetchKind::Lane => {
+                let Some(id) = w.id else {
+                    self.push_error("fetch: missing lane".to_string());
+                    return;
+                };
+                argv.extend(["--lane".to_string(), id]);
+                if let Some(u) = w.user {
+                    argv.extend(["--user".to_string(), u]);
+                }
+            }
+        }
+
+        if matches!(kind, FetchKind::Bundle | FetchKind::Release) {
+            let mut restore = false;
+            let mut into: Option<String> = None;
+            let mut force = false;
+
+            if let Some(s) = w.options {
+                let parts = s.split_whitespace().collect::<Vec<_>>();
+                let mut i = 0;
+                while i < parts.len() {
+                    match parts[i].to_lowercase().as_str() {
+                        "restore" => restore = true,
+                        "force" => force = true,
+                        "into" => {
+                            i += 1;
+                            if i < parts.len() {
+                                into = Some(parts[i].to_string());
+                            }
+                        }
+                        _ => {}
+                    }
+                    i += 1;
+                }
+
+                if into.is_some() || force {
+                    restore = true;
+                }
+            }
+
+            if restore {
+                argv.push("--restore".to_string());
+            }
+            if let Some(p) = into {
+                argv.extend(["--into".to_string(), p]);
+            }
+            if force {
+                argv.push("--force".to_string());
+            }
+        }
+
+        self.cmd_fetch_impl(&argv);
+    }
+
+    fn start_publish_wizard(&mut self, edit: bool) {
+        let Some(_) = self.require_workspace() else {
+            return;
+        };
+        let Some(cfg) = self.remote_config() else {
+            self.start_login_wizard();
+            return;
+        };
+
+        self.publish_wizard = Some(PublishWizard {
+            snap: None,
+            scope: Some(cfg.scope.clone()),
+            gate: Some(cfg.gate.clone()),
+            meta: false,
+        });
+
+        if edit {
+            self.open_text_input_modal(
+                "Publish",
+                "snap (blank=latest)> ",
+                TextInputAction::PublishSnap,
+                None,
+                vec![
+                    "Optional: snap id (leave blank to publish latest).".to_string(),
+                    "Esc cancels.".to_string(),
+                ],
+            );
+        } else {
+            self.open_text_input_modal(
+                "Publish",
+                "publish> ",
+                TextInputAction::PublishStart,
+                None,
+                vec![
+                    format!("Default: latest snap -> {}/{}", cfg.scope, cfg.gate),
+                    "Enter: publish now".to_string(),
+                    "Type `edit` to customize (snap/scope/gate/meta).".to_string(),
+                ],
+            );
+        }
+    }
+
+    fn continue_publish_wizard(&mut self, action: TextInputAction, value: String) {
+        if self.publish_wizard.is_none() {
+            self.push_error("publish wizard not active".to_string());
+            return;
+        }
+
+        match action {
+            TextInputAction::PublishStart => {
+                let v = value.trim().to_string();
+                if v.is_empty() {
+                    self.publish_wizard = None;
+                    self.cmd_publish_impl(&[]);
+                    return;
+                }
+
+                let v_lc = v.to_lowercase();
+                if matches!(v_lc.as_str(), "edit" | "prompt" | "custom") {
+                    // Jump into the snap prompt (blank=latest).
+                    self.open_text_input_modal(
+                        "Publish",
+                        "snap (blank=latest)> ",
+                        TextInputAction::PublishSnap,
+                        None,
+                        vec!["Optional: snap id".to_string()],
+                    );
+                    return;
+                }
+
+                // Treat any other input as a snap id override.
+                if let Some(w) = self.publish_wizard.as_mut() {
+                    w.snap = Some(v);
+                }
+
+                let initial = self.publish_wizard.as_ref().and_then(|w| w.scope.clone());
+                self.open_text_input_modal(
+                    "Publish",
+                    "scope> ",
+                    TextInputAction::PublishScope,
+                    initial,
+                    vec!["Scope id (Enter keeps default).".to_string()],
+                );
+            }
+            TextInputAction::PublishSnap => {
+                let v = value.trim().to_string();
+                if let Some(w) = self.publish_wizard.as_mut() {
+                    w.snap = if v.is_empty() { None } else { Some(v) };
+                }
+
+                let initial = self.publish_wizard.as_ref().and_then(|w| w.scope.clone());
+                self.open_text_input_modal(
+                    "Publish",
+                    "scope> ",
+                    TextInputAction::PublishScope,
+                    initial,
+                    vec!["Scope id (Enter keeps default).".to_string()],
+                );
+            }
+            TextInputAction::PublishScope => {
+                let v = value.trim().to_string();
+                if let Some(w) = self.publish_wizard.as_mut() {
+                    w.scope = if v.is_empty() { None } else { Some(v) };
+                }
+
+                let initial = self.publish_wizard.as_ref().and_then(|w| w.gate.clone());
+                self.open_text_input_modal(
+                    "Publish",
+                    "gate> ",
+                    TextInputAction::PublishGate,
+                    initial,
+                    vec!["Gate id (Enter keeps default).".to_string()],
+                );
+            }
+            TextInputAction::PublishGate => {
+                let v = value.trim().to_string();
+                if let Some(w) = self.publish_wizard.as_mut() {
+                    w.gate = if v.is_empty() { None } else { Some(v) };
+                }
+
+                self.open_text_input_modal(
+                    "Publish",
+                    "metadata-only? (y/N)> ",
+                    TextInputAction::PublishMeta,
+                    Some("n".to_string()),
+                    vec![
+                        "If yes, publish metadata only (objects may be missing until later)."
+                            .to_string(),
+                    ],
+                );
+            }
+            TextInputAction::PublishMeta => {
+                let v = value.trim().to_lowercase();
+                let meta = matches!(v.as_str(), "y" | "yes" | "true" | "1");
+                if let Some(w) = self.publish_wizard.as_mut() {
+                    w.meta = meta;
+                }
+                self.finish_publish_wizard();
+            }
+            _ => {
+                self.push_error("unexpected publish wizard input".to_string());
+            }
+        }
+    }
+
+    fn finish_publish_wizard(&mut self) {
+        let Some(w) = self.publish_wizard.clone() else {
+            self.push_error("publish wizard not active".to_string());
+            return;
+        };
+        self.publish_wizard = None;
+
+        let mut argv: Vec<String> = Vec::new();
+        if let Some(s) = w.snap {
+            argv.extend(["--snap-id".to_string(), s]);
+        }
+        if let Some(s) = w.scope {
+            argv.extend(["--scope".to_string(), s]);
+        }
+        if let Some(g) = w.gate {
+            argv.extend(["--gate".to_string(), g]);
+        }
+        if w.meta {
+            argv.push("--metadata-only".to_string());
+        }
+
+        self.cmd_publish_impl(&argv);
+    }
+
+    fn start_sync_wizard(&mut self, edit: bool) {
+        let Some(_) = self.require_workspace() else {
+            return;
+        };
+        if self.remote_config().is_none() {
+            self.start_login_wizard();
+            return;
+        }
+
+        self.sync_wizard = Some(SyncWizard {
+            snap: None,
+            lane: "default".to_string(),
+            client: None,
+        });
+
+        if edit {
+            self.open_text_input_modal(
+                "Sync",
+                "lane> ",
+                TextInputAction::SyncLane,
+                Some("default".to_string()),
+                vec!["Lane id (Enter keeps default).".to_string()],
+            );
+        } else {
+            self.open_text_input_modal(
+                "Sync",
+                "sync> ",
+                TextInputAction::SyncStart,
+                None,
+                vec![
+                    "Default: latest snap -> lane=default".to_string(),
+                    "Enter: sync now".to_string(),
+                    "Type a lane id, or `edit` to customize (lane/client/snap).".to_string(),
+                ],
+            );
+        }
+    }
+
+    fn continue_sync_wizard(&mut self, action: TextInputAction, value: String) {
+        if self.sync_wizard.is_none() {
+            self.push_error("sync wizard not active".to_string());
+            return;
+        }
+
+        match action {
+            TextInputAction::SyncStart => {
+                let v = value.trim().to_string();
+                if v.is_empty() {
+                    self.sync_wizard = None;
+                    self.cmd_sync_impl(&[]);
+                    return;
+                }
+
+                let v_lc = v.to_lowercase();
+                if matches!(v_lc.as_str(), "edit" | "prompt" | "custom") {
+                    self.open_text_input_modal(
+                        "Sync",
+                        "lane> ",
+                        TextInputAction::SyncLane,
+                        Some("default".to_string()),
+                        vec!["Lane id (Enter keeps default).".to_string()],
+                    );
+                    return;
+                }
+
+                if let Some(w) = self.sync_wizard.as_mut() {
+                    w.lane = v;
+                }
+                self.open_text_input_modal(
+                    "Sync",
+                    "client (blank=auto)> ",
+                    TextInputAction::SyncClient,
+                    None,
+                    vec!["Optional: client id (rarely needed).".to_string()],
+                );
+            }
+
+            TextInputAction::SyncLane => {
+                let v = value.trim().to_string();
+                if let Some(w) = self.sync_wizard.as_mut()
+                    && !v.is_empty()
+                {
+                    w.lane = v;
+                }
+                self.open_text_input_modal(
+                    "Sync",
+                    "client (blank=auto)> ",
+                    TextInputAction::SyncClient,
+                    None,
+                    vec!["Optional: client id (rarely needed).".to_string()],
+                );
+            }
+
+            TextInputAction::SyncClient => {
+                let v = value.trim().to_string();
+                if let Some(w) = self.sync_wizard.as_mut() {
+                    w.client = if v.is_empty() { None } else { Some(v) };
+                }
+                self.open_text_input_modal(
+                    "Sync",
+                    "snap (blank=latest)> ",
+                    TextInputAction::SyncSnap,
+                    None,
+                    vec!["Optional: snap id (leave blank for latest).".to_string()],
+                );
+            }
+
+            TextInputAction::SyncSnap => {
+                let v = value.trim().to_string();
+                if let Some(w) = self.sync_wizard.as_mut() {
+                    w.snap = if v.is_empty() { None } else { Some(v) };
+                }
+                self.finish_sync_wizard();
+            }
+
+            _ => {
+                self.push_error("unexpected sync wizard input".to_string());
+            }
+        }
+    }
+
+    fn finish_sync_wizard(&mut self) {
+        let Some(w) = self.sync_wizard.clone() else {
+            self.push_error("sync wizard not active".to_string());
+            return;
+        };
+        self.sync_wizard = None;
+
+        let mut argv: Vec<String> = Vec::new();
+        if let Some(s) = w.snap {
+            argv.extend(["--snap-id".to_string(), s]);
+        }
+        if !w.lane.trim().is_empty() {
+            argv.extend(["--lane".to_string(), w.lane]);
+        }
+        if let Some(c) = w.client {
+            argv.extend(["--client-id".to_string(), c]);
+        }
+        self.cmd_sync_impl(&argv);
+    }
+
+    fn start_release_wizard(&mut self, bundle_id: String) {
+        self.release_wizard = Some(ReleaseWizard {
+            bundle_id,
+            channel: "main".to_string(),
+            notes: None,
+        });
+
+        self.open_text_input_modal(
+            "Release",
+            "channel> ",
+            TextInputAction::ReleaseChannel,
+            Some("main".to_string()),
+            vec![
+                "Release channel name (example: main).".to_string(),
+                "Esc cancels.".to_string(),
+            ],
+        );
+    }
+
+    fn continue_release_wizard(&mut self, action: TextInputAction, value: String) {
+        if self.release_wizard.is_none() {
+            self.push_error("release wizard not active".to_string());
+            return;
+        }
+
+        match action {
+            TextInputAction::ReleaseChannel => {
+                let v = value.trim().to_string();
+                if let Some(w) = self.release_wizard.as_mut()
+                    && !v.is_empty()
+                {
+                    w.channel = v;
+                }
+
+                self.open_text_input_modal(
+                    "Release",
+                    "notes (blank=none)> ",
+                    TextInputAction::ReleaseNotes,
+                    None,
+                    vec!["Optional release notes.".to_string()],
+                );
+            }
+
+            TextInputAction::ReleaseNotes => {
+                let v = value.trim().to_string();
+                if let Some(w) = self.release_wizard.as_mut() {
+                    w.notes = if v.is_empty() { None } else { Some(v) };
+                }
+                self.finish_release_wizard();
+            }
+
+            _ => {
+                self.push_error("unexpected release wizard input".to_string());
+            }
+        }
+    }
+
+    fn finish_release_wizard(&mut self) {
+        let Some(w) = self.release_wizard.clone() else {
+            self.push_error("release wizard not active".to_string());
+            return;
+        };
+        self.release_wizard = None;
+
+        let mut argv = vec![
+            "--channel".to_string(),
+            w.channel,
+            "--bundle-id".to_string(),
+            w.bundle_id,
+        ];
+        if let Some(n) = w.notes {
+            argv.extend(["--notes".to_string(), n]);
+        }
+        self.cmd_release(&argv);
     }
 
     fn cmd_ping(&mut self, _args: &[String]) {
@@ -5995,11 +6997,25 @@ impl App {
     }
 
     fn cmd_publish(&mut self, args: &[String]) {
+        if args.len() == 1 && matches!(args[0].as_str(), "edit" | "prompt" | "custom") {
+            self.start_publish_wizard(true);
+            return;
+        }
+
+        if args.is_empty() {
+            self.start_publish_wizard(false);
+            return;
+        }
+        self.cmd_publish_impl(args);
+    }
+
+    fn cmd_publish_impl(&mut self, args: &[String]) {
         let Some(ws) = self.require_workspace() else {
             return;
         };
         let Some(cfg) = self.remote_config() else {
-            self.push_error("no remote configured".to_string());
+            // Treat as a guided "fix it" path.
+            self.start_login_wizard();
             return;
         };
 
@@ -6008,42 +7024,106 @@ impl App {
         let mut gate: Option<String> = None;
         let mut metadata_only = false;
 
-        let mut i = 0;
-        while i < args.len() {
-            match args[i].as_str() {
-                "--snap-id" => {
-                    i += 1;
-                    if i >= args.len() {
-                        self.push_error("missing value for --snap-id".to_string());
-                        return;
+        // Flagless UX:
+        // - `publish` (defaults to latest snap + configured scope/gate)
+        // - `publish <snap> [scope] [gate]`
+        // - `publish [snap <id>] [scope <id>] [gate <id>] [meta]`
+        if !args.iter().any(|a| a.starts_with("--")) {
+            let mut i = 0;
+            while i < args.len() {
+                match args[i].as_str() {
+                    "snap" => {
+                        i += 1;
+                        let Some(v) = args.get(i) else {
+                            self.push_error(
+                                "usage: publish [snap <id>] [scope <id>] [gate <id>] [meta]"
+                                    .to_string(),
+                            );
+                            return;
+                        };
+                        snap_id = Some(v.clone());
                     }
-                    snap_id = Some(args[i].clone());
-                }
-                "--scope" => {
-                    i += 1;
-                    if i >= args.len() {
-                        self.push_error("missing value for --scope".to_string());
-                        return;
+                    "scope" => {
+                        i += 1;
+                        let Some(v) = args.get(i) else {
+                            self.push_error(
+                                "usage: publish [snap <id>] [scope <id>] [gate <id>] [meta]"
+                                    .to_string(),
+                            );
+                            return;
+                        };
+                        scope = Some(v.clone());
                     }
-                    scope = Some(args[i].clone());
-                }
-                "--gate" => {
-                    i += 1;
-                    if i >= args.len() {
-                        self.push_error("missing value for --gate".to_string());
-                        return;
+                    "gate" => {
+                        i += 1;
+                        let Some(v) = args.get(i) else {
+                            self.push_error(
+                                "usage: publish [snap <id>] [scope <id>] [gate <id>] [meta]"
+                                    .to_string(),
+                            );
+                            return;
+                        };
+                        gate = Some(v.clone());
                     }
-                    gate = Some(args[i].clone());
+                    "meta" | "metadata" | "metadata-only" => {
+                        metadata_only = true;
+                    }
+                    a => {
+                        if snap_id.is_none() {
+                            snap_id = Some(a.to_string());
+                        } else if scope.is_none() {
+                            scope = Some(a.to_string());
+                        } else if gate.is_none() {
+                            gate = Some(a.to_string());
+                        } else {
+                            self.push_error(
+                                "usage: publish [snap <id>] [scope <id>] [gate <id>] [meta]"
+                                    .to_string(),
+                            );
+                            return;
+                        }
+                    }
                 }
-                "--metadata-only" => {
-                    metadata_only = true;
-                }
-                a => {
-                    self.push_error(format!("unknown arg: {}", a));
-                    return;
-                }
+                i += 1;
             }
-            i += 1;
+        } else {
+            let mut i = 0;
+            while i < args.len() {
+                match args[i].as_str() {
+                    "--snap-id" => {
+                        i += 1;
+                        if i >= args.len() {
+                            self.push_error("missing value for --snap-id".to_string());
+                            return;
+                        }
+                        snap_id = Some(args[i].clone());
+                    }
+                    "--scope" => {
+                        i += 1;
+                        if i >= args.len() {
+                            self.push_error("missing value for --scope".to_string());
+                            return;
+                        }
+                        scope = Some(args[i].clone());
+                    }
+                    "--gate" => {
+                        i += 1;
+                        if i >= args.len() {
+                            self.push_error("missing value for --gate".to_string());
+                            return;
+                        }
+                        gate = Some(args[i].clone());
+                    }
+                    "--metadata-only" => {
+                        metadata_only = true;
+                    }
+                    a => {
+                        self.push_error(format!("unknown arg: {}", a));
+                        return;
+                    }
+                }
+                i += 1;
+            }
         }
 
         let snap_id = match snap_id {
@@ -6075,9 +7155,9 @@ impl App {
             Ok(Some(t)) => t,
             Ok(None) => {
                 self.push_error(
-                    "no remote token configured (run `login --url ... --token ... --repo ...`)"
-                        .to_string(),
+                    "no remote token configured (run `login <url> <token> <repo>`)".to_string(),
                 );
+                self.start_login_wizard();
                 return;
             }
             Err(err) => {
@@ -6120,6 +7200,14 @@ impl App {
     }
 
     fn cmd_fetch(&mut self, args: &[String]) {
+        if args.is_empty() {
+            self.start_fetch_wizard();
+            return;
+        }
+        self.cmd_fetch_impl(args);
+    }
+
+    fn cmd_fetch_impl(&mut self, args: &[String]) {
         let Some(ws) = self.require_workspace() else {
             return;
         };
@@ -6137,77 +7225,121 @@ impl App {
         let mut restore = false;
         let mut into: Option<String> = None;
         let mut force = false;
+
+        // Flagless UX:
+        // - `fetch snap <id>`
+        // - `fetch bundle <id> [restore] [into <dir>] [force]`
+        // - `fetch release <channel> [restore] [into <dir>] [force]`
+        // - `fetch lane <lane> [user <handle>]`
+        // - `fetch <snap_id>` (shorthand)
+        let mut free = Vec::new();
         let mut i = 0;
         while i < args.len() {
             match args[i].as_str() {
-                "--snap-id" => {
+                "--snap-id" | "snap" => {
                     i += 1;
-                    if i >= args.len() {
-                        self.push_error("missing value for --snap-id".to_string());
+                    let Some(v) = args.get(i) else {
+                        self.push_error(
+                            "usage: fetch (snap|bundle|release|lane) <id...>".to_string(),
+                        );
                         return;
-                    }
-                    snap_id = Some(args[i].clone());
+                    };
+                    snap_id = Some(v.clone());
                 }
-                "--bundle-id" => {
+                "--bundle-id" | "bundle" => {
                     i += 1;
-                    if i >= args.len() {
-                        self.push_error("missing value for --bundle-id".to_string());
+                    let Some(v) = args.get(i) else {
+                        self.push_error(
+                            "usage: fetch (snap|bundle|release|lane) <id...>".to_string(),
+                        );
                         return;
-                    }
-                    bundle_id = Some(args[i].clone());
+                    };
+                    bundle_id = Some(v.clone());
                 }
-                "--release" => {
+                "--release" | "release" => {
                     i += 1;
-                    if i >= args.len() {
-                        self.push_error("missing value for --release".to_string());
+                    let Some(v) = args.get(i) else {
+                        self.push_error(
+                            "usage: fetch (snap|bundle|release|lane) <id...>".to_string(),
+                        );
                         return;
-                    }
-                    release = Some(args[i].clone());
+                    };
+                    release = Some(v.clone());
                 }
-                "--lane" => {
+                "--lane" | "lane" => {
                     i += 1;
-                    if i >= args.len() {
-                        self.push_error("missing value for --lane".to_string());
+                    let Some(v) = args.get(i) else {
+                        self.push_error(
+                            "usage: fetch (snap|bundle|release|lane) <id...>".to_string(),
+                        );
                         return;
-                    }
-                    lane = Some(args[i].clone());
+                    };
+                    lane = Some(v.clone());
                 }
-                "--user" => {
+                "--user" | "user" => {
                     i += 1;
-                    if i >= args.len() {
-                        self.push_error("missing value for --user".to_string());
+                    let Some(v) = args.get(i) else {
+                        self.push_error("usage: fetch lane <lane> [user <handle>]".to_string());
                         return;
-                    }
-                    user = Some(args[i].clone());
+                    };
+                    user = Some(v.clone());
                 }
-                "--restore" => {
+                "--restore" | "restore" => {
                     restore = true;
                 }
-                "--into" => {
+                "--into" | "into" => {
                     i += 1;
-                    if i >= args.len() {
-                        self.push_error("missing value for --into".to_string());
+                    let Some(v) = args.get(i) else {
+                        self.push_error("usage: fetch [restore] [into <dir>] [force]".to_string());
                         return;
-                    }
-                    into = Some(args[i].clone());
+                    };
+                    into = Some(v.clone());
                 }
-                "--force" => {
+                "--force" | "force" => {
                     force = true;
                 }
                 a => {
-                    self.push_error(format!("unknown arg: {}", a));
-                    return;
+                    free.push(a.to_string());
                 }
             }
             i += 1;
+        }
+
+        // Allow `fetch <snap_id>` shorthand.
+        if !free.is_empty()
+            && snap_id.is_none()
+            && bundle_id.is_none()
+            && release.is_none()
+            && lane.is_none()
+            && user.is_none()
+            && free.len() == 1
+        {
+            snap_id = Some(free[0].clone());
+            free.clear();
+        }
+
+        // Allow `fetch lane <lane> <user>` shorthand.
+        if !free.is_empty() && lane.is_some() && user.is_none() && free.len() == 1 {
+            user = Some(free[0].clone());
+            free.clear();
+        }
+
+        if !free.is_empty() {
+            self.push_error("usage: fetch (snap|bundle|release|lane) <id...>".to_string());
+            return;
         }
 
         if (bundle_id.is_some() || release.is_some())
             && (snap_id.is_some() || lane.is_some() || user.is_some())
         {
             self.push_error(
-                "fetch: use either --snap-id/--lane, or --bundle-id, or --release".to_string(),
+                "fetch: choose one target: snap/lane, or bundle, or release".to_string(),
             );
+            return;
+        }
+
+        if bundle_id.is_some() && release.is_some() {
+            self.push_error("fetch: choose one target: bundle or release".to_string());
             return;
         }
 
@@ -6383,11 +7515,25 @@ impl App {
     }
 
     fn cmd_sync(&mut self, args: &[String]) {
+        if args.len() == 1 && matches!(args[0].as_str(), "edit" | "prompt" | "custom") {
+            self.start_sync_wizard(true);
+            return;
+        }
+
+        if args.is_empty() {
+            self.start_sync_wizard(false);
+            return;
+        }
+
+        self.cmd_sync_impl(args);
+    }
+
+    fn cmd_sync_impl(&mut self, args: &[String]) {
         let Some(ws) = self.require_workspace() else {
             return;
         };
         let Some(cfg) = self.remote_config() else {
-            self.push_error("no remote configured".to_string());
+            self.start_login_wizard();
             return;
         };
 
@@ -6395,39 +7541,96 @@ impl App {
         let mut lane: String = "default".to_string();
         let mut client_id: Option<String> = None;
 
-        let mut i = 0;
-        while i < args.len() {
-            match args[i].as_str() {
-                "--snap-id" => {
-                    i += 1;
-                    if i >= args.len() {
-                        self.push_error("missing value for --snap-id".to_string());
-                        return;
+        // Flagless UX:
+        // - `sync` (defaults to latest snap + lane=default)
+        // - `sync <snap> [lane] [client]`
+        // - `sync [snap <id>] [lane <id>] [client <id>]`
+        if !args.iter().any(|a| a.starts_with("--")) {
+            let mut i = 0;
+            while i < args.len() {
+                match args[i].as_str() {
+                    "snap" => {
+                        i += 1;
+                        let Some(v) = args.get(i) else {
+                            self.push_error(
+                                "usage: sync [snap <id>] [lane <id>] [client <id>]".to_string(),
+                            );
+                            return;
+                        };
+                        snap_id = Some(v.clone());
                     }
-                    snap_id = Some(args[i].clone());
-                }
-                "--lane" => {
-                    i += 1;
-                    if i >= args.len() {
-                        self.push_error("missing value for --lane".to_string());
-                        return;
+                    "lane" => {
+                        i += 1;
+                        let Some(v) = args.get(i) else {
+                            self.push_error(
+                                "usage: sync [snap <id>] [lane <id>] [client <id>]".to_string(),
+                            );
+                            return;
+                        };
+                        lane = v.clone();
                     }
-                    lane = args[i].clone();
-                }
-                "--client-id" => {
-                    i += 1;
-                    if i >= args.len() {
-                        self.push_error("missing value for --client-id".to_string());
-                        return;
+                    "client" | "client-id" => {
+                        i += 1;
+                        let Some(v) = args.get(i) else {
+                            self.push_error(
+                                "usage: sync [snap <id>] [lane <id>] [client <id>]".to_string(),
+                            );
+                            return;
+                        };
+                        client_id = Some(v.clone());
                     }
-                    client_id = Some(args[i].clone());
+                    a => {
+                        if snap_id.is_none() {
+                            snap_id = Some(a.to_string());
+                        } else if lane == "default" {
+                            lane = a.to_string();
+                        } else if client_id.is_none() {
+                            client_id = Some(a.to_string());
+                        } else {
+                            self.push_error(
+                                "usage: sync [snap <id>] [lane <id>] [client <id>]".to_string(),
+                            );
+                            return;
+                        }
+                    }
                 }
-                a => {
-                    self.push_error(format!("unknown arg: {}", a));
-                    return;
-                }
+                i += 1;
             }
-            i += 1;
+        } else {
+            let mut i = 0;
+            while i < args.len() {
+                match args[i].as_str() {
+                    "--snap-id" => {
+                        i += 1;
+                        if i >= args.len() {
+                            self.push_error("missing value for --snap-id".to_string());
+                            return;
+                        }
+                        snap_id = Some(args[i].clone());
+                    }
+                    "--lane" => {
+                        i += 1;
+                        if i >= args.len() {
+                            self.push_error("missing value for --lane".to_string());
+                            return;
+                        }
+                        lane = args[i].clone();
+                    }
+                    "--client-id" => {
+                        i += 1;
+                        if i >= args.len() {
+                            self.push_error("missing value for --client-id".to_string());
+                            return;
+                        }
+                        client_id = Some(args[i].clone());
+                    }
+                    a => {
+                        self.push_error(format!("unknown arg: {}", a));
+                        return;
+                    }
+                }
+                i += 1;
+            }
         }
 
         let snap_id = match snap_id {
@@ -6459,9 +7662,9 @@ impl App {
             Ok(Some(t)) => t,
             Ok(None) => {
                 self.push_error(
-                    "no remote token configured (run `login --url ... --token ... --repo ...`)"
-                        .to_string(),
+                    "no remote token configured (run `login <url> <token> <repo>`)".to_string(),
                 );
+                self.start_login_wizard();
                 return;
             }
             Err(err) => {
@@ -7755,7 +8958,26 @@ fn handle_modal_key(app: &mut App, key: KeyEvent) {
                 KeyCode::Esc => ModalAction::Close,
                 KeyCode::Enter => {
                     let raw = m.input.buf.trim().to_string();
-                    if raw.is_empty() {
+                    let allow_empty = matches!(
+                        action,
+                        TextInputAction::LoginScope
+                            | TextInputAction::LoginGate
+                            | TextInputAction::FetchId
+                            | TextInputAction::FetchUser
+                            | TextInputAction::FetchOptions
+                            | TextInputAction::PublishSnap
+                            | TextInputAction::PublishStart
+                            | TextInputAction::PublishScope
+                            | TextInputAction::PublishGate
+                            | TextInputAction::PublishMeta
+                            | TextInputAction::SyncStart
+                            | TextInputAction::SyncLane
+                            | TextInputAction::SyncClient
+                            | TextInputAction::SyncSnap
+                            | TextInputAction::ReleaseChannel
+                            | TextInputAction::ReleaseNotes
+                    );
+                    if raw.is_empty() && !allow_empty {
                         m.lines.retain(|l| !l.starts_with("error:"));
                         m.lines.push("error: value required".to_string());
                         return;
@@ -7793,6 +9015,30 @@ fn handle_modal_key(app: &mut App, key: KeyEvent) {
                                 }
                             }
                         }
+
+                        // Wizards / prompts.
+                        TextInputAction::LoginUrl
+                        | TextInputAction::LoginToken
+                        | TextInputAction::LoginRepo
+                        | TextInputAction::LoginScope
+                        | TextInputAction::LoginGate => Ok(()),
+
+                        TextInputAction::FetchKind
+                        | TextInputAction::FetchId
+                        | TextInputAction::FetchUser
+                        | TextInputAction::FetchOptions
+                        | TextInputAction::PublishStart
+                        | TextInputAction::PublishSnap
+                        | TextInputAction::PublishScope
+                        | TextInputAction::PublishGate
+                        | TextInputAction::PublishMeta => Ok(()),
+
+                        TextInputAction::SyncStart
+                        | TextInputAction::SyncLane
+                        | TextInputAction::SyncClient
+                        | TextInputAction::SyncSnap => Ok(()),
+
+                        TextInputAction::ReleaseChannel | TextInputAction::ReleaseNotes => Ok(()),
                     };
 
                     match validate {
@@ -7864,6 +9110,7 @@ fn handle_modal_key(app: &mut App, key: KeyEvent) {
         ModalAction::None => {}
         ModalAction::Close => {
             app.close_modal();
+            app.cancel_wizards();
         }
         ModalAction::SubmitSnapMessage { snap_id, msg } => {
             app.close_modal();
@@ -7913,7 +9160,7 @@ fn handle_modal_key(app: &mut App, key: KeyEvent) {
 
         ModalAction::SubmitTextInput { action, value } => {
             app.close_modal();
-            app.apply_text_input_action(action, value);
+            app.submit_text_input(action, value);
         }
     }
 }
