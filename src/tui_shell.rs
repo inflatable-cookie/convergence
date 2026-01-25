@@ -213,6 +213,30 @@ enum TextInputAction {
 
     ReleaseChannel,
     ReleaseNotes,
+
+    ReleaseBundleId,
+
+    PromoteToGate,
+    PromoteBundleId,
+
+    PinBundleId,
+    PinAction,
+
+    ApproveBundleId,
+    SuperpositionsBundleId,
+
+    MemberAction,
+    MemberHandle,
+    MemberRole,
+
+    LaneMemberAction,
+    LaneMemberLane,
+    LaneMemberHandle,
+
+    BrowseScope,
+    BrowseGate,
+    BrowseFilter,
+    BrowseLimit,
 }
 
 #[derive(Clone, Debug)]
@@ -260,6 +284,52 @@ struct ReleaseWizard {
     bundle_id: String,
     channel: String,
     notes: Option<String>,
+}
+
+#[derive(Clone, Debug)]
+struct PinWizard {
+    bundle_id: Option<String>,
+}
+
+#[derive(Clone, Debug)]
+struct PromoteWizard {
+    bundle_id: String,
+    candidates: Vec<String>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum MemberAction {
+    Add,
+    Remove,
+}
+
+#[derive(Clone, Debug)]
+struct MemberWizard {
+    action: Option<MemberAction>,
+    handle: Option<String>,
+    role: String,
+}
+
+#[derive(Clone, Debug)]
+struct LaneMemberWizard {
+    action: Option<MemberAction>,
+    lane: Option<String>,
+    handle: Option<String>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum BrowseTarget {
+    Inbox,
+    Bundles,
+}
+
+#[derive(Clone, Debug)]
+struct BrowseWizard {
+    target: BrowseTarget,
+    scope: String,
+    gate: String,
+    filter: Option<String>,
+    limit: Option<usize>,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -1202,6 +1272,7 @@ struct InboxView {
     scope: String,
     gate: String,
     filter: Option<String>,
+    limit: Option<usize>,
     items: Vec<crate::remote::Publication>,
     selected: usize,
 }
@@ -1395,12 +1466,15 @@ impl View for InboxView {
 
         let list = List::new(rows)
             .block(Block::default().borders(Borders::BOTTOM).title(format!(
-                "scope={} gate={}{} (Enter: fetch; /: commands)",
+                "scope={} gate={}{}{} (Enter: bundle; /: commands)",
                 self.scope,
                 self.gate,
                 self.filter
                     .as_ref()
                     .map(|f| format!(" filter={}", f))
+                    .unwrap_or_default(),
+                self.limit
+                    .map(|n| format!(" limit={}", n))
                     .unwrap_or_default()
             )))
             .highlight_style(Style::default().bg(Color::DarkGray));
@@ -1436,6 +1510,7 @@ struct BundlesView {
     scope: String,
     gate: String,
     filter: Option<String>,
+    limit: Option<usize>,
     items: Vec<crate::remote::Bundle>,
     selected: usize,
 }
@@ -1603,12 +1678,15 @@ impl View for BundlesView {
 
         let list = List::new(rows)
             .block(Block::default().borders(Borders::BOTTOM).title(format!(
-                "scope={} gate={}{} (/ for commands)",
+                "scope={} gate={}{}{} (/ for commands)",
                 self.scope,
                 self.gate,
                 self.filter
                     .as_ref()
                     .map(|f| format!(" filter={}", f))
+                    .unwrap_or_default(),
+                self.limit
+                    .map(|n| format!(" limit={}", n))
                     .unwrap_or_default()
             )))
             .highlight_style(Style::default().bg(Color::DarkGray));
@@ -2664,32 +2742,32 @@ fn remote_root_command_defs() -> Vec<CommandDef> {
         CommandDef {
             name: "member",
             aliases: &[],
-            usage: "member add <handle> [read|publish] | member remove <handle>",
-            help: "Manage repo membership",
+            usage: "member",
+            help: "Manage repo membership (guided prompt)",
         },
         CommandDef {
             name: "lane-member",
             aliases: &[],
-            usage: "lane-member add <lane> <handle> | lane-member remove <lane> <handle>",
-            help: "Manage lane membership",
+            usage: "lane-member",
+            help: "Manage lane membership (guided prompt)",
         },
         CommandDef {
             name: "inbox",
             aliases: &[],
-            usage: "inbox [scope <id>] [gate <id>] [filter <q...>] [limit <n>]",
+            usage: "inbox [edit]",
             help: "Open inbox browser",
         },
         CommandDef {
             name: "bundles",
             aliases: &[],
-            usage: "bundles [scope <id>] [gate <id>] [filter <q...>] [limit <n>]",
+            usage: "bundles [edit]",
             help: "Open bundles browser",
         },
         CommandDef {
             name: "bundle",
             aliases: &[],
-            usage: "bundle [scope <id>] [gate <id>] [publication <id>...]",
-            help: "Create a bundle from publications",
+            usage: "bundle",
+            help: "Create a bundle (opens Inbox)",
         },
         CommandDef {
             name: "pins",
@@ -2700,32 +2778,32 @@ fn remote_root_command_defs() -> Vec<CommandDef> {
         CommandDef {
             name: "pin",
             aliases: &[],
-            usage: "pin <bundle> [unpin]",
-            help: "Pin or unpin a bundle",
+            usage: "pin",
+            help: "Pin/unpin a bundle (guided)",
         },
         CommandDef {
             name: "approve",
             aliases: &[],
-            usage: "approve <bundle>",
-            help: "Approve a bundle",
+            usage: "approve",
+            help: "Approve a bundle (guided)",
         },
         CommandDef {
             name: "promote",
             aliases: &[],
-            usage: "promote <bundle> [to <gate>]",
-            help: "Promote a bundle",
+            usage: "promote",
+            help: "Promote a bundle (guided)",
         },
         CommandDef {
             name: "release",
             aliases: &[],
-            usage: "release <channel> <bundle> [notes...]",
-            help: "Create a release in a channel",
+            usage: "release",
+            help: "Create a release (guided)",
         },
         CommandDef {
             name: "superpositions",
             aliases: &["supers"],
-            usage: "superpositions <bundle> [filter <q...>]",
-            help: "Open superpositions browser",
+            usage: "superpositions",
+            help: "Open superpositions (guided)",
         },
     ]);
     out
@@ -2797,6 +2875,12 @@ fn inbox_command_defs() -> Vec<CommandDef> {
             help: "Return to root",
         },
         CommandDef {
+            name: "edit",
+            aliases: &[],
+            usage: "edit",
+            help: "Edit scope/gate/filter/limit",
+        },
+        CommandDef {
             name: "bundle",
             aliases: &[],
             usage: "bundle [<publication_id>]",
@@ -2820,10 +2904,22 @@ fn bundles_command_defs() -> Vec<CommandDef> {
             help: "Return to root",
         },
         CommandDef {
+            name: "edit",
+            aliases: &[],
+            usage: "edit",
+            help: "Edit scope/gate/filter/limit",
+        },
+        CommandDef {
             name: "approve",
             aliases: &[],
             usage: "approve [<bundle_id>]",
             help: "Approve selected bundle",
+        },
+        CommandDef {
+            name: "pin",
+            aliases: &[],
+            usage: "pin [unpin]",
+            help: "Pin/unpin selected bundle",
         },
         CommandDef {
             name: "promote",
@@ -3043,6 +3139,11 @@ struct App {
     publish_wizard: Option<PublishWizard>,
     sync_wizard: Option<SyncWizard>,
     release_wizard: Option<ReleaseWizard>,
+    pin_wizard: Option<PinWizard>,
+    promote_wizard: Option<PromoteWizard>,
+    member_wizard: Option<MemberWizard>,
+    lane_member_wizard: Option<LaneMemberWizard>,
+    browse_wizard: Option<BrowseWizard>,
 
     input: Input,
 
@@ -3080,6 +3181,11 @@ impl Default for App {
             publish_wizard: None,
             sync_wizard: None,
             release_wizard: None,
+            pin_wizard: None,
+            promote_wizard: None,
+            member_wizard: None,
+            lane_member_wizard: None,
+            browse_wizard: None,
             input: Input::default(),
             suggestions: Vec::new(),
             suggestion_selected: 0,
@@ -3215,7 +3321,7 @@ impl App {
                 }
             },
             UiMode::Snaps => vec!["show".to_string(), "restore".to_string()],
-            UiMode::Inbox => vec!["fetch".to_string(), "bundle".to_string()],
+            UiMode::Inbox => vec!["bundle".to_string(), "fetch".to_string()],
             UiMode::Releases => vec!["fetch".to_string(), "back".to_string()],
             UiMode::Lanes => vec!["fetch".to_string(), "back".to_string()],
             UiMode::Bundles => {
@@ -3755,6 +3861,11 @@ impl App {
         self.publish_wizard = None;
         self.sync_wizard = None;
         self.release_wizard = None;
+        self.pin_wizard = None;
+        self.promote_wizard = None;
+        self.member_wizard = None;
+        self.lane_member_wizard = None;
+        self.browse_wizard = None;
     }
 
     fn recompute_suggestions(&mut self) {
@@ -4029,6 +4140,13 @@ impl App {
                     self.pop_mode();
                     self.push_output(vec!["back".to_string()]);
                 }
+                "edit" => {
+                    if !args.is_empty() {
+                        self.push_error("usage: edit".to_string());
+                        return;
+                    }
+                    self.start_browse_wizard(BrowseTarget::Inbox);
+                }
                 "bundle" => self.cmd_inbox_bundle_mode(args),
                 "fetch" => self.cmd_inbox_fetch_mode(args),
                 _ => {
@@ -4045,7 +4163,15 @@ impl App {
                     self.pop_mode();
                     self.push_output(vec!["back".to_string()]);
                 }
+                "edit" => {
+                    if !args.is_empty() {
+                        self.push_error("usage: edit".to_string());
+                        return;
+                    }
+                    self.start_browse_wizard(BrowseTarget::Bundles);
+                }
                 "approve" => self.cmd_bundles_approve_mode(args),
+                "pin" => self.cmd_bundles_pin_mode(args),
                 "promote" => self.cmd_bundles_promote_mode(args),
                 "release" => self.cmd_bundles_release_mode(args),
                 "superpositions" | "supers" => self.cmd_bundles_superpositions_mode(args),
@@ -4846,6 +4972,30 @@ impl App {
         self.cmd_approve(&["--bundle-id".to_string(), bundle_id]);
     }
 
+    fn cmd_bundles_pin_mode(&mut self, args: &[String]) {
+        if args.len() > 1 {
+            self.push_error("usage: pin [unpin]".to_string());
+            return;
+        }
+
+        let Some(v) = self.current_view::<BundlesView>() else {
+            self.push_error("not in bundles mode".to_string());
+            return;
+        };
+        if v.items.is_empty() {
+            self.push_error("(no selection)".to_string());
+            return;
+        }
+        let idx = v.selected.min(v.items.len().saturating_sub(1));
+        let bundle_id = v.items[idx].id.clone();
+
+        let mut argv = vec!["--bundle-id".to_string(), bundle_id];
+        if args.first().is_some_and(|s| s == "unpin") {
+            argv.push("--unpin".to_string());
+        }
+        self.cmd_pin(&argv);
+    }
+
     fn cmd_bundles_promote_mode(&mut self, args: &[String]) {
         let Some(v) = self.current_view::<BundlesView>() else {
             self.push_error("not in bundles mode".to_string());
@@ -4987,9 +5137,9 @@ impl App {
         let mut publish = false;
         for a in args {
             match a.as_str() {
-                "--publish" => publish = true,
+                "--publish" | "publish" => publish = true,
                 _ => {
-                    self.push_error("usage: apply [--publish]".to_string());
+                    self.push_error("usage: apply [publish]".to_string());
                     return;
                 }
             }
@@ -6134,6 +6284,87 @@ impl App {
             TextInputAction::ReleaseChannel | TextInputAction::ReleaseNotes => {
                 self.continue_release_wizard(action, value);
             }
+
+            TextInputAction::ReleaseBundleId => {
+                let id = value.trim().to_string();
+                if id.is_empty() {
+                    self.push_error("missing bundle id".to_string());
+                    return;
+                }
+                self.start_release_wizard(id);
+            }
+
+            TextInputAction::PromoteToGate => {
+                self.continue_promote_wizard(value);
+            }
+
+            TextInputAction::PromoteBundleId => {
+                let id = value.trim().to_string();
+                if id.is_empty() {
+                    self.push_error("missing bundle id".to_string());
+                    return;
+                }
+                self.cmd_promote(&["--bundle-id".to_string(), id]);
+            }
+
+            TextInputAction::PinBundleId => {
+                let id = value.trim().to_string();
+                if id.is_empty() {
+                    self.push_error("missing bundle id".to_string());
+                    return;
+                }
+                if let Some(w) = self.pin_wizard.as_mut() {
+                    w.bundle_id = Some(id);
+                }
+                self.open_text_input_modal(
+                    "Pin",
+                    "action (pin/unpin)> ",
+                    TextInputAction::PinAction,
+                    Some("pin".to_string()),
+                    vec!["Choose pin or unpin".to_string()],
+                );
+            }
+
+            TextInputAction::PinAction => {
+                self.finish_pin_wizard(value);
+            }
+
+            TextInputAction::ApproveBundleId => {
+                let id = value.trim().to_string();
+                if id.is_empty() {
+                    self.push_error("missing bundle id".to_string());
+                    return;
+                }
+                self.cmd_approve(&["--bundle-id".to_string(), id]);
+            }
+
+            TextInputAction::SuperpositionsBundleId => {
+                let id = value.trim().to_string();
+                if id.is_empty() {
+                    self.push_error("missing bundle id".to_string());
+                    return;
+                }
+                self.cmd_superpositions(&["--bundle-id".to_string(), id]);
+            }
+
+            TextInputAction::MemberAction
+            | TextInputAction::MemberHandle
+            | TextInputAction::MemberRole => {
+                self.continue_member_wizard(action, value);
+            }
+
+            TextInputAction::LaneMemberAction
+            | TextInputAction::LaneMemberLane
+            | TextInputAction::LaneMemberHandle => {
+                self.continue_lane_member_wizard(action, value);
+            }
+
+            TextInputAction::BrowseScope
+            | TextInputAction::BrowseGate
+            | TextInputAction::BrowseFilter
+            | TextInputAction::BrowseLimit => {
+                self.continue_browse_wizard(action, value);
+            }
         }
     }
 
@@ -6974,6 +7205,718 @@ impl App {
             argv.extend(["--notes".to_string(), n]);
         }
         self.cmd_release(&argv);
+    }
+
+    fn start_pin_wizard(&mut self) {
+        if self.remote_client().is_none() {
+            self.start_login_wizard();
+            return;
+        }
+
+        self.pin_wizard = Some(PinWizard { bundle_id: None });
+        self.open_text_input_modal(
+            "Pin",
+            "bundle id> ",
+            TextInputAction::PinBundleId,
+            None,
+            vec!["Bundle id".to_string()],
+        );
+    }
+
+    fn finish_pin_wizard(&mut self, value: String) {
+        let Some(w) = self.pin_wizard.clone() else {
+            self.push_error("pin wizard not active".to_string());
+            return;
+        };
+
+        let bundle_id = match w.bundle_id {
+            Some(id) if !id.trim().is_empty() => id,
+            _ => {
+                self.pin_wizard = None;
+                self.push_error("pin: missing bundle id".to_string());
+                return;
+            }
+        };
+
+        let v = value.trim().to_lowercase();
+        let unpin = matches!(v.as_str(), "unpin" | "u" | "rm" | "remove");
+
+        self.pin_wizard = None;
+
+        let client = match self.remote_client() {
+            Some(c) => c,
+            None => return,
+        };
+        let res = if unpin {
+            client.unpin_bundle(&bundle_id)
+        } else {
+            client.pin_bundle(&bundle_id)
+        };
+        match res {
+            Ok(()) => {
+                if unpin {
+                    self.push_output(vec![format!("unpinned {}", bundle_id)]);
+                } else {
+                    self.push_output(vec![format!("pinned {}", bundle_id)]);
+                }
+                self.refresh_root_view();
+            }
+            Err(err) => {
+                self.push_error(format!("pin: {:#}", err));
+            }
+        }
+    }
+
+    fn start_promote_wizard(
+        &mut self,
+        bundle_id: String,
+        candidates: Vec<String>,
+        initial: Option<String>,
+    ) {
+        let initial = initial.or_else(|| candidates.first().cloned());
+        let preview = candidates
+            .iter()
+            .take(12)
+            .cloned()
+            .collect::<Vec<_>>()
+            .join(", ");
+
+        self.promote_wizard = Some(PromoteWizard {
+            bundle_id,
+            candidates,
+        });
+
+        self.open_text_input_modal(
+            "Promote",
+            "to gate> ",
+            TextInputAction::PromoteToGate,
+            initial,
+            vec![
+                "Choose a destination gate.".to_string(),
+                format!("candidates: {}", preview),
+            ],
+        );
+    }
+
+    fn continue_promote_wizard(&mut self, value: String) {
+        let Some(w) = self.promote_wizard.clone() else {
+            self.push_error("promote wizard not active".to_string());
+            return;
+        };
+        let gate = value.trim().to_string();
+        if gate.is_empty() {
+            self.start_promote_wizard(w.bundle_id, w.candidates, None);
+            self.push_error("missing to gate".to_string());
+            return;
+        }
+        if !w.candidates.iter().any(|g| g == &gate) {
+            self.start_promote_wizard(w.bundle_id, w.candidates, Some(gate));
+            self.push_error("invalid gate (not a candidate)".to_string());
+            return;
+        }
+
+        self.promote_wizard = None;
+        let client = match self.remote_client() {
+            Some(c) => c,
+            None => return,
+        };
+        match client.promote_bundle(&w.bundle_id, &gate) {
+            Ok(_) => {
+                self.push_output(vec![format!("promoted {} -> {}", w.bundle_id, gate)]);
+                self.refresh_root_view();
+            }
+            Err(err) => self.push_error(format!("promote: {:#}", err)),
+        }
+    }
+
+    fn start_member_wizard(&mut self, action: Option<MemberAction>) {
+        if self.remote_client().is_none() {
+            self.start_login_wizard();
+            return;
+        }
+
+        self.member_wizard = Some(MemberWizard {
+            action,
+            handle: None,
+            role: "read".to_string(),
+        });
+
+        match action {
+            None => {
+                self.open_text_input_modal(
+                    "Member",
+                    "action> ",
+                    TextInputAction::MemberAction,
+                    Some("add".to_string()),
+                    vec!["add | remove".to_string()],
+                );
+            }
+            Some(_) => {
+                self.open_text_input_modal(
+                    "Member",
+                    "handle> ",
+                    TextInputAction::MemberHandle,
+                    None,
+                    vec!["GitHub handle / user handle".to_string()],
+                );
+            }
+        }
+    }
+
+    fn continue_member_wizard(&mut self, action: TextInputAction, value: String) {
+        if self.member_wizard.is_none() {
+            self.push_error("member wizard not active".to_string());
+            return;
+        }
+
+        match action {
+            TextInputAction::MemberAction => {
+                let v = value.trim().to_lowercase();
+                let act = match v.as_str() {
+                    "add" => Some(MemberAction::Add),
+                    "remove" | "rm" | "del" => Some(MemberAction::Remove),
+                    _ => None,
+                };
+                let Some(act) = act else {
+                    self.open_text_input_modal(
+                        "Member",
+                        "action> ",
+                        TextInputAction::MemberAction,
+                        Some("add".to_string()),
+                        vec!["error: choose add | remove".to_string()],
+                    );
+                    return;
+                };
+                if let Some(w) = self.member_wizard.as_mut() {
+                    w.action = Some(act);
+                }
+                self.open_text_input_modal(
+                    "Member",
+                    "handle> ",
+                    TextInputAction::MemberHandle,
+                    None,
+                    vec!["GitHub handle / user handle".to_string()],
+                );
+            }
+            TextInputAction::MemberHandle => {
+                let handle = value.trim().to_string();
+                if handle.is_empty() {
+                    self.open_text_input_modal(
+                        "Member",
+                        "handle> ",
+                        TextInputAction::MemberHandle,
+                        None,
+                        vec!["error: value required".to_string()],
+                    );
+                    return;
+                }
+                let act = self.member_wizard.as_ref().and_then(|w| w.action);
+                if let Some(w) = self.member_wizard.as_mut() {
+                    w.handle = Some(handle);
+                }
+                match act {
+                    Some(MemberAction::Add) => {
+                        self.open_text_input_modal(
+                            "Member",
+                            "role (read/publish)> ",
+                            TextInputAction::MemberRole,
+                            Some("read".to_string()),
+                            vec!["Default: read".to_string()],
+                        );
+                    }
+                    Some(MemberAction::Remove) => {
+                        self.finish_member_wizard();
+                    }
+                    None => {
+                        self.start_member_wizard(None);
+                    }
+                }
+            }
+            TextInputAction::MemberRole => {
+                let role = value.trim().to_lowercase();
+                let role = if role.is_empty() {
+                    "read".to_string()
+                } else {
+                    role
+                };
+                if role != "read" && role != "publish" {
+                    self.open_text_input_modal(
+                        "Member",
+                        "role (read/publish)> ",
+                        TextInputAction::MemberRole,
+                        Some(role),
+                        vec!["error: role must be read or publish".to_string()],
+                    );
+                    return;
+                }
+                if let Some(w) = self.member_wizard.as_mut() {
+                    w.role = role;
+                }
+                self.finish_member_wizard();
+            }
+            _ => {
+                self.push_error("unexpected member wizard input".to_string());
+            }
+        }
+    }
+
+    fn finish_member_wizard(&mut self) {
+        let Some(w) = self.member_wizard.clone() else {
+            self.push_error("member wizard not active".to_string());
+            return;
+        };
+        self.member_wizard = None;
+
+        let client = match self.remote_client() {
+            Some(c) => c,
+            None => return,
+        };
+        let Some(action) = w.action else {
+            self.push_error("member: missing action".to_string());
+            return;
+        };
+        let Some(handle) = w.handle else {
+            self.push_error("member: missing handle".to_string());
+            return;
+        };
+
+        match action {
+            MemberAction::Add => match client.add_repo_member(&handle, &w.role) {
+                Ok(()) => {
+                    self.push_output(vec![format!("added {} ({})", handle, w.role)]);
+                    self.refresh_root_view();
+                }
+                Err(err) => self.push_error(format!("member add: {:#}", err)),
+            },
+            MemberAction::Remove => match client.remove_repo_member(&handle) {
+                Ok(()) => {
+                    self.push_output(vec![format!("removed {}", handle)]);
+                    self.refresh_root_view();
+                }
+                Err(err) => self.push_error(format!("member remove: {:#}", err)),
+            },
+        }
+    }
+
+    fn start_lane_member_wizard(&mut self, action: Option<MemberAction>) {
+        if self.remote_client().is_none() {
+            self.start_login_wizard();
+            return;
+        }
+
+        self.lane_member_wizard = Some(LaneMemberWizard {
+            action,
+            lane: None,
+            handle: None,
+        });
+
+        match action {
+            None => {
+                self.open_text_input_modal(
+                    "Lane Member",
+                    "action> ",
+                    TextInputAction::LaneMemberAction,
+                    Some("add".to_string()),
+                    vec!["add | remove".to_string()],
+                );
+            }
+            Some(_) => {
+                self.open_text_input_modal(
+                    "Lane Member",
+                    "lane> ",
+                    TextInputAction::LaneMemberLane,
+                    Some("default".to_string()),
+                    vec!["Lane id".to_string()],
+                );
+            }
+        }
+    }
+
+    fn continue_lane_member_wizard(&mut self, action: TextInputAction, value: String) {
+        if self.lane_member_wizard.is_none() {
+            self.push_error("lane-member wizard not active".to_string());
+            return;
+        }
+
+        match action {
+            TextInputAction::LaneMemberAction => {
+                let v = value.trim().to_lowercase();
+                let act = match v.as_str() {
+                    "add" => Some(MemberAction::Add),
+                    "remove" | "rm" | "del" => Some(MemberAction::Remove),
+                    _ => None,
+                };
+                let Some(act) = act else {
+                    self.open_text_input_modal(
+                        "Lane Member",
+                        "action> ",
+                        TextInputAction::LaneMemberAction,
+                        Some("add".to_string()),
+                        vec!["error: choose add | remove".to_string()],
+                    );
+                    return;
+                };
+                if let Some(w) = self.lane_member_wizard.as_mut() {
+                    w.action = Some(act);
+                }
+                self.open_text_input_modal(
+                    "Lane Member",
+                    "lane> ",
+                    TextInputAction::LaneMemberLane,
+                    Some("default".to_string()),
+                    vec!["Lane id".to_string()],
+                );
+            }
+            TextInputAction::LaneMemberLane => {
+                let lane = value.trim().to_string();
+                if lane.is_empty() {
+                    self.open_text_input_modal(
+                        "Lane Member",
+                        "lane> ",
+                        TextInputAction::LaneMemberLane,
+                        Some("default".to_string()),
+                        vec!["error: value required".to_string()],
+                    );
+                    return;
+                }
+                if let Some(w) = self.lane_member_wizard.as_mut() {
+                    w.lane = Some(lane);
+                }
+                self.open_text_input_modal(
+                    "Lane Member",
+                    "handle> ",
+                    TextInputAction::LaneMemberHandle,
+                    None,
+                    vec!["User handle".to_string()],
+                );
+            }
+            TextInputAction::LaneMemberHandle => {
+                let handle = value.trim().to_string();
+                if handle.is_empty() {
+                    self.open_text_input_modal(
+                        "Lane Member",
+                        "handle> ",
+                        TextInputAction::LaneMemberHandle,
+                        None,
+                        vec!["error: value required".to_string()],
+                    );
+                    return;
+                }
+                if let Some(w) = self.lane_member_wizard.as_mut() {
+                    w.handle = Some(handle);
+                }
+                self.finish_lane_member_wizard();
+            }
+            _ => {
+                self.push_error("unexpected lane-member wizard input".to_string());
+            }
+        }
+    }
+
+    fn finish_lane_member_wizard(&mut self) {
+        let Some(w) = self.lane_member_wizard.clone() else {
+            self.push_error("lane-member wizard not active".to_string());
+            return;
+        };
+        self.lane_member_wizard = None;
+
+        let client = match self.remote_client() {
+            Some(c) => c,
+            None => return,
+        };
+        let Some(action) = w.action else {
+            self.push_error("lane-member: missing action".to_string());
+            return;
+        };
+        let Some(lane) = w.lane else {
+            self.push_error("lane-member: missing lane".to_string());
+            return;
+        };
+        let Some(handle) = w.handle else {
+            self.push_error("lane-member: missing handle".to_string());
+            return;
+        };
+
+        match action {
+            MemberAction::Add => match client.add_lane_member(&lane, &handle) {
+                Ok(()) => {
+                    self.push_output(vec![format!("added {} to lane {}", handle, lane)]);
+                    self.refresh_root_view();
+                }
+                Err(err) => self.push_error(format!("lane-member add: {:#}", err)),
+            },
+            MemberAction::Remove => match client.remove_lane_member(&lane, &handle) {
+                Ok(()) => {
+                    self.push_output(vec![format!("removed {} from lane {}", handle, lane)]);
+                    self.refresh_root_view();
+                }
+                Err(err) => self.push_error(format!("lane-member remove: {:#}", err)),
+            },
+        }
+    }
+
+    fn start_browse_wizard(&mut self, target: BrowseTarget) {
+        let cfg = match self.remote_config() {
+            Some(c) => c,
+            None => {
+                self.start_login_wizard();
+                return;
+            }
+        };
+
+        let (scope, gate, filter, limit) = match target {
+            BrowseTarget::Inbox => self
+                .current_view::<InboxView>()
+                .map(|v| (v.scope.clone(), v.gate.clone(), v.filter.clone(), v.limit))
+                .unwrap_or((cfg.scope.clone(), cfg.gate.clone(), None, None)),
+            BrowseTarget::Bundles => self
+                .current_view::<BundlesView>()
+                .map(|v| (v.scope.clone(), v.gate.clone(), v.filter.clone(), v.limit))
+                .unwrap_or((cfg.scope.clone(), cfg.gate.clone(), None, None)),
+        };
+
+        self.browse_wizard = Some(BrowseWizard {
+            target,
+            scope,
+            gate,
+            filter,
+            limit,
+        });
+
+        let initial = self.browse_wizard.as_ref().map(|w| w.scope.clone());
+        self.open_text_input_modal(
+            "Browse",
+            "scope> ",
+            TextInputAction::BrowseScope,
+            initial,
+            vec!["Scope id (Enter keeps current).".to_string()],
+        );
+    }
+
+    fn continue_browse_wizard(&mut self, action: TextInputAction, value: String) {
+        if self.browse_wizard.is_none() {
+            self.push_error("browse wizard not active".to_string());
+            return;
+        }
+
+        match action {
+            TextInputAction::BrowseScope => {
+                let v = value.trim().to_string();
+                if let Some(w) = self.browse_wizard.as_mut()
+                    && !v.is_empty()
+                {
+                    w.scope = v;
+                }
+                let initial = self.browse_wizard.as_ref().map(|w| w.gate.clone());
+                self.open_text_input_modal(
+                    "Browse",
+                    "gate> ",
+                    TextInputAction::BrowseGate,
+                    initial,
+                    vec!["Gate id (Enter keeps current).".to_string()],
+                );
+            }
+            TextInputAction::BrowseGate => {
+                let v = value.trim().to_string();
+                if let Some(w) = self.browse_wizard.as_mut()
+                    && !v.is_empty()
+                {
+                    w.gate = v;
+                }
+                let initial = self.browse_wizard.as_ref().and_then(|w| w.filter.clone());
+                self.open_text_input_modal(
+                    "Browse",
+                    "filter (blank=none)> ",
+                    TextInputAction::BrowseFilter,
+                    initial,
+                    vec!["Optional filter query".to_string()],
+                );
+            }
+            TextInputAction::BrowseFilter => {
+                let v = value.trim().to_string();
+                if let Some(w) = self.browse_wizard.as_mut() {
+                    w.filter = if v.is_empty() { None } else { Some(v) };
+                }
+                let initial = self
+                    .browse_wizard
+                    .as_ref()
+                    .and_then(|w| w.limit)
+                    .map(|n| n.to_string());
+                self.open_text_input_modal(
+                    "Browse",
+                    "limit (blank=none)> ",
+                    TextInputAction::BrowseLimit,
+                    initial,
+                    vec!["Optional limit".to_string()],
+                );
+            }
+            TextInputAction::BrowseLimit => {
+                let v = value.trim().to_string();
+                let limit = if v.is_empty() {
+                    None
+                } else {
+                    match v.parse::<usize>() {
+                        Ok(n) => Some(n),
+                        Err(_) => {
+                            self.open_text_input_modal(
+                                "Browse",
+                                "limit (blank=none)> ",
+                                TextInputAction::BrowseLimit,
+                                Some(v),
+                                vec!["error: invalid number".to_string()],
+                            );
+                            return;
+                        }
+                    }
+                };
+                if let Some(w) = self.browse_wizard.as_mut() {
+                    w.limit = limit;
+                }
+                self.finish_browse_wizard();
+            }
+            _ => {
+                self.push_error("unexpected browse wizard input".to_string());
+            }
+        }
+    }
+
+    fn finish_browse_wizard(&mut self) {
+        let Some(w) = self.browse_wizard.clone() else {
+            self.push_error("browse wizard not active".to_string());
+            return;
+        };
+        self.browse_wizard = None;
+
+        match w.target {
+            BrowseTarget::Inbox => self.open_inbox_view(w.scope, w.gate, w.filter, w.limit),
+            BrowseTarget::Bundles => self.open_bundles_view(w.scope, w.gate, w.filter, w.limit),
+        }
+    }
+
+    fn open_inbox_view(
+        &mut self,
+        scope: String,
+        gate: String,
+        filter: Option<String>,
+        limit: Option<usize>,
+    ) {
+        let client = match self.remote_client() {
+            Some(c) => c,
+            None => {
+                self.start_login_wizard();
+                return;
+            }
+        };
+
+        let filter_lc = filter.as_ref().map(|s| s.to_lowercase());
+        let pubs = match client.list_publications() {
+            Ok(p) => p,
+            Err(err) => {
+                self.push_error(format!("inbox: {:#}", err));
+                return;
+            }
+        };
+
+        let mut pubs = pubs
+            .into_iter()
+            .filter(|p| p.scope == scope && p.gate == gate)
+            .filter(|p| {
+                let Some(q) = filter_lc.as_deref() else {
+                    return true;
+                };
+                if p.id.to_lowercase().contains(q)
+                    || p.snap_id.to_lowercase().contains(q)
+                    || p.publisher.to_lowercase().contains(q)
+                    || p.created_at.to_lowercase().contains(q)
+                {
+                    return true;
+                }
+                if let Some(r) = &p.resolution
+                    && r.bundle_id.to_lowercase().contains(q)
+                {
+                    return true;
+                }
+                false
+            })
+            .collect::<Vec<_>>();
+        pubs.sort_by(|a, b| b.created_at.cmp(&a.created_at));
+        if let Some(n) = limit {
+            pubs.truncate(n);
+        }
+
+        let count = pubs.len();
+        self.push_view(InboxView {
+            updated_at: now_ts(),
+            scope,
+            gate,
+            filter,
+            limit,
+            items: pubs,
+            selected: 0,
+        });
+        self.push_output(vec![format!("opened inbox ({} items)", count)]);
+    }
+
+    fn open_bundles_view(
+        &mut self,
+        scope: String,
+        gate: String,
+        filter: Option<String>,
+        limit: Option<usize>,
+    ) {
+        let client = match self.remote_client() {
+            Some(c) => c,
+            None => {
+                self.start_login_wizard();
+                return;
+            }
+        };
+
+        let filter_lc = filter.as_ref().map(|s| s.to_lowercase());
+        let bundles = match client.list_bundles() {
+            Ok(b) => b,
+            Err(err) => {
+                self.push_error(format!("bundles: {:#}", err));
+                return;
+            }
+        };
+
+        let mut bundles = bundles
+            .into_iter()
+            .filter(|b| b.scope == scope && b.gate == gate)
+            .filter(|b| {
+                let Some(q) = filter_lc.as_deref() else {
+                    return true;
+                };
+                if b.id.to_lowercase().contains(q)
+                    || b.created_by.to_lowercase().contains(q)
+                    || b.created_at.to_lowercase().contains(q)
+                    || b.root_manifest.to_lowercase().contains(q)
+                {
+                    return true;
+                }
+                if b.reasons.iter().any(|r| r.to_lowercase().contains(q)) {
+                    return true;
+                }
+                false
+            })
+            .collect::<Vec<_>>();
+        bundles.sort_by(|a, b| b.created_at.cmp(&a.created_at));
+        if let Some(n) = limit {
+            bundles.truncate(n);
+        }
+
+        let count = bundles.len();
+        self.push_view(BundlesView {
+            updated_at: now_ts(),
+            scope,
+            gate,
+            filter,
+            limit,
+            items: bundles,
+            selected: 0,
+        });
+        self.push_output(vec![format!("opened bundles ({} items)", count)]);
     }
 
     fn cmd_ping(&mut self, _args: &[String]) {
@@ -7820,21 +8763,84 @@ impl App {
         }
 
         lines.push("".to_string());
-        lines.push("hint: use `member add/remove` and `lane-member add/remove`".to_string());
+        lines.push("hint: type `member` or `lane-member`".to_string());
         self.open_modal("Members", lines);
     }
 
     fn cmd_member(&mut self, args: &[String]) {
-        let client = match self.remote_client() {
-            Some(c) => c,
-            None => return,
-        };
         if args.is_empty() {
-            self.push_error(
-                "usage: member add|remove --handle <h> [--role read|publish]".to_string(),
-            );
+            self.start_member_wizard(None);
             return;
         }
+
+        // Prompt-first UX:
+        // - `member` -> wizard
+        // - `member add` / `member remove` -> wizard
+        // - `member add <handle> [read|publish]`
+        // - `member remove <handle>`
+        let sub = args[0].as_str();
+        if matches!(sub, "add" | "remove" | "rm") {
+            let action = if sub == "add" {
+                Some(MemberAction::Add)
+            } else {
+                Some(MemberAction::Remove)
+            };
+            if args.len() == 1 {
+                self.start_member_wizard(action);
+                return;
+            }
+            let handle = args[1].trim().to_string();
+            if handle.is_empty() {
+                self.start_member_wizard(action);
+                return;
+            }
+
+            let client = match self.remote_client() {
+                Some(c) => c,
+                None => {
+                    self.start_login_wizard();
+                    return;
+                }
+            };
+
+            match action {
+                Some(MemberAction::Add) => {
+                    let role = args.get(2).cloned().unwrap_or_else(|| "read".to_string());
+                    let role_lc = role.to_lowercase();
+                    if role_lc != "read" && role_lc != "publish" {
+                        self.push_error("role must be read or publish".to_string());
+                        return;
+                    }
+                    match client.add_repo_member(&handle, &role_lc) {
+                        Ok(()) => {
+                            self.push_output(vec![format!("added {} ({})", handle, role_lc)]);
+                            self.refresh_root_view();
+                        }
+                        Err(err) => self.push_error(format!("member add: {:#}", err)),
+                    }
+                }
+                Some(MemberAction::Remove) => match client.remove_repo_member(&handle) {
+                    Ok(()) => {
+                        self.push_output(vec![format!("removed {}", handle)]);
+                        self.refresh_root_view();
+                    }
+                    Err(err) => self.push_error(format!("member remove: {:#}", err)),
+                },
+                None => {
+                    self.start_member_wizard(None);
+                }
+            }
+            return;
+        }
+
+        // Back-compat: accept legacy flag form.
+        let client = match self.remote_client() {
+            Some(c) => c,
+            None => {
+                self.start_login_wizard();
+                return;
+            }
+        };
 
         let sub = &args[0];
         let mut handle: Option<String> = None;
@@ -7887,21 +8893,74 @@ impl App {
                 }
                 Err(err) => self.push_error(format!("member remove: {:#}", err)),
             },
-            _ => self.push_error(
-                "usage: member add|remove --handle <h> [--role read|publish]".to_string(),
-            ),
+            _ => self.start_member_wizard(None),
         }
     }
 
     fn cmd_lane_member(&mut self, args: &[String]) {
-        let client = match self.remote_client() {
-            Some(c) => c,
-            None => return,
-        };
         if args.is_empty() {
-            self.push_error("usage: lane-member add|remove --lane <id> --handle <h>".to_string());
+            self.start_lane_member_wizard(None);
             return;
         }
+
+        // Prompt-first UX:
+        // - `lane-member` -> wizard
+        // - `lane-member add` / `lane-member remove` -> wizard
+        // - `lane-member add <lane> <handle>`
+        // - `lane-member remove <lane> <handle>`
+        let sub = args[0].as_str();
+        if matches!(sub, "add" | "remove" | "rm") {
+            let action = if sub == "add" {
+                Some(MemberAction::Add)
+            } else {
+                Some(MemberAction::Remove)
+            };
+            if args.len() < 3 {
+                self.start_lane_member_wizard(action);
+                return;
+            }
+            let lane = args[1].trim().to_string();
+            let handle = args[2].trim().to_string();
+            if lane.is_empty() || handle.is_empty() {
+                self.start_lane_member_wizard(action);
+                return;
+            }
+
+            let client = match self.remote_client() {
+                Some(c) => c,
+                None => {
+                    self.start_login_wizard();
+                    return;
+                }
+            };
+            match action {
+                Some(MemberAction::Add) => match client.add_lane_member(&lane, &handle) {
+                    Ok(()) => {
+                        self.push_output(vec![format!("added {} to lane {}", handle, lane)]);
+                        self.refresh_root_view();
+                    }
+                    Err(err) => self.push_error(format!("lane-member add: {:#}", err)),
+                },
+                Some(MemberAction::Remove) => match client.remove_lane_member(&lane, &handle) {
+                    Ok(()) => {
+                        self.push_output(vec![format!("removed {} from lane {}", handle, lane)]);
+                        self.refresh_root_view();
+                    }
+                    Err(err) => self.push_error(format!("lane-member remove: {:#}", err)),
+                },
+                None => self.start_lane_member_wizard(None),
+            }
+            return;
+        }
+
+        // Back-compat: accept legacy flag form.
+        let client = match self.remote_client() {
+            Some(c) => c,
+            None => {
+                self.start_login_wizard();
+                return;
+            }
+        };
 
         let sub = &args[0];
         let mut lane: Option<String> = None;
@@ -7958,19 +9017,22 @@ impl App {
                 }
                 Err(err) => self.push_error(format!("lane-member remove: {:#}", err)),
             },
-            _ => self
-                .push_error("usage: lane-member add|remove --lane <id> --handle <h>".to_string()),
+            _ => self.start_lane_member_wizard(None),
         }
     }
 
     fn cmd_inbox(&mut self, args: &[String]) {
-        let client = match self.remote_client() {
-            Some(c) => c,
-            None => return,
-        };
+        if args.len() == 1 && args[0] == "edit" {
+            self.start_browse_wizard(BrowseTarget::Inbox);
+            return;
+        }
+
         let cfg = match self.remote_config() {
             Some(c) => c,
-            None => return,
+            None => {
+                self.start_login_wizard();
+                return;
+            }
         };
 
         let mut scope: Option<String> = None;
@@ -7981,7 +9043,7 @@ impl App {
         let mut i = 0;
         while i < args.len() {
             match args[i].as_str() {
-                "--scope" => {
+                "--scope" | "scope" => {
                     i += 1;
                     if i >= args.len() {
                         self.push_error("missing value for --scope".to_string());
@@ -7989,7 +9051,7 @@ impl App {
                     }
                     scope = Some(args[i].clone());
                 }
-                "--gate" => {
+                "--gate" | "gate" => {
                     i += 1;
                     if i >= args.len() {
                         self.push_error("missing value for --gate".to_string());
@@ -7997,7 +9059,7 @@ impl App {
                     }
                     gate = Some(args[i].clone());
                 }
-                "--limit" => {
+                "--limit" | "limit" => {
                     i += 1;
                     if i >= args.len() {
                         self.push_error("missing value for --limit".to_string());
@@ -8011,7 +9073,7 @@ impl App {
                         }
                     };
                 }
-                "--filter" => {
+                "--filter" | "filter" => {
                     i += 1;
                     if i >= args.len() {
                         self.push_error("missing value for --filter".to_string());
@@ -8029,63 +9091,21 @@ impl App {
 
         let scope = scope.unwrap_or(cfg.scope);
         let gate = gate.unwrap_or(cfg.gate);
-        let filter_lc = filter.as_ref().map(|s| s.to_lowercase());
-
-        let pubs = match client.list_publications() {
-            Ok(p) => p,
-            Err(err) => {
-                self.push_error(format!("inbox: {:#}", err));
-                return;
-            }
-        };
-
-        let mut pubs = pubs
-            .into_iter()
-            .filter(|p| p.scope == scope && p.gate == gate)
-            .filter(|p| {
-                let Some(q) = filter_lc.as_deref() else {
-                    return true;
-                };
-                if p.id.to_lowercase().contains(q)
-                    || p.snap_id.to_lowercase().contains(q)
-                    || p.publisher.to_lowercase().contains(q)
-                    || p.created_at.to_lowercase().contains(q)
-                {
-                    return true;
-                }
-                if let Some(r) = &p.resolution
-                    && r.bundle_id.to_lowercase().contains(q)
-                {
-                    return true;
-                }
-                false
-            })
-            .collect::<Vec<_>>();
-        pubs.sort_by(|a, b| b.created_at.cmp(&a.created_at));
-        if let Some(n) = limit {
-            pubs.truncate(n);
-        }
-
-        let count = pubs.len();
-        self.push_view(InboxView {
-            updated_at: now_ts(),
-            scope,
-            gate,
-            filter,
-            items: pubs,
-            selected: 0,
-        });
-        self.push_output(vec![format!("opened inbox ({} items)", count)]);
+        self.open_inbox_view(scope, gate, filter, limit);
     }
 
     fn cmd_bundles(&mut self, args: &[String]) {
-        let client = match self.remote_client() {
-            Some(c) => c,
-            None => return,
-        };
+        if args.len() == 1 && args[0] == "edit" {
+            self.start_browse_wizard(BrowseTarget::Bundles);
+            return;
+        }
+
         let cfg = match self.remote_config() {
             Some(c) => c,
-            None => return,
+            None => {
+                self.start_login_wizard();
+                return;
+            }
         };
 
         let mut scope: Option<String> = None;
@@ -8096,7 +9116,7 @@ impl App {
         let mut i = 0;
         while i < args.len() {
             match args[i].as_str() {
-                "--scope" => {
+                "--scope" | "scope" => {
                     i += 1;
                     if i >= args.len() {
                         self.push_error("missing value for --scope".to_string());
@@ -8104,7 +9124,7 @@ impl App {
                     }
                     scope = Some(args[i].clone());
                 }
-                "--gate" => {
+                "--gate" | "gate" => {
                     i += 1;
                     if i >= args.len() {
                         self.push_error("missing value for --gate".to_string());
@@ -8112,7 +9132,7 @@ impl App {
                     }
                     gate = Some(args[i].clone());
                 }
-                "--limit" => {
+                "--limit" | "limit" => {
                     i += 1;
                     if i >= args.len() {
                         self.push_error("missing value for --limit".to_string());
@@ -8126,7 +9146,7 @@ impl App {
                         }
                     };
                 }
-                "--filter" => {
+                "--filter" | "filter" => {
                     i += 1;
                     if i >= args.len() {
                         self.push_error("missing value for --filter".to_string());
@@ -8144,61 +9164,33 @@ impl App {
 
         let scope = scope.unwrap_or(cfg.scope);
         let gate = gate.unwrap_or(cfg.gate);
-        let filter_lc = filter.as_ref().map(|s| s.to_lowercase());
-
-        let bundles = match client.list_bundles() {
-            Ok(b) => b,
-            Err(err) => {
-                self.push_error(format!("bundles: {:#}", err));
-                return;
-            }
-        };
-
-        let mut bundles = bundles
-            .into_iter()
-            .filter(|b| b.scope == scope && b.gate == gate)
-            .filter(|b| {
-                let Some(q) = filter_lc.as_deref() else {
-                    return true;
-                };
-                if b.id.to_lowercase().contains(q)
-                    || b.created_by.to_lowercase().contains(q)
-                    || b.created_at.to_lowercase().contains(q)
-                    || b.root_manifest.to_lowercase().contains(q)
-                {
-                    return true;
-                }
-                if b.reasons.iter().any(|r| r.to_lowercase().contains(q)) {
-                    return true;
-                }
-                false
-            })
-            .collect::<Vec<_>>();
-        bundles.sort_by(|a, b| b.created_at.cmp(&a.created_at));
-        if let Some(n) = limit {
-            bundles.truncate(n);
-        }
-
-        let count = bundles.len();
-        self.push_view(BundlesView {
-            updated_at: now_ts(),
-            scope,
-            gate,
-            filter,
-            items: bundles,
-            selected: 0,
-        });
-        self.push_output(vec![format!("opened bundles ({} items)", count)]);
+        self.open_bundles_view(scope, gate, filter, limit);
     }
 
     fn cmd_bundle(&mut self, args: &[String]) {
+        if args.is_empty() {
+            self.cmd_inbox(&[]);
+            self.push_output(vec![
+                "opened inbox for bundling".to_string(),
+                "tip: select a publication, then use `bundle` (or rotate hints then Enter)"
+                    .to_string(),
+            ]);
+            return;
+        }
+
         let client = match self.remote_client() {
             Some(c) => c,
-            None => return,
+            None => {
+                self.start_login_wizard();
+                return;
+            }
         };
         let cfg = match self.remote_config() {
             Some(c) => c,
-            None => return,
+            None => {
+                self.start_login_wizard();
+                return;
+            }
         };
 
         let mut scope: Option<String> = None;
@@ -8292,9 +9284,17 @@ impl App {
     }
 
     fn cmd_pin(&mut self, args: &[String]) {
+        if args.is_empty() {
+            self.start_pin_wizard();
+            return;
+        }
+
         let client = match self.remote_client() {
             Some(c) => c,
-            None => return,
+            None => {
+                self.start_login_wizard();
+                return;
+            }
         };
 
         let mut bundle_id: Option<String> = None;
@@ -8303,7 +9303,7 @@ impl App {
         let mut i = 0;
         while i < args.len() {
             match args[i].as_str() {
-                "--bundle-id" => {
+                "--bundle-id" | "bundle" => {
                     i += 1;
                     if i >= args.len() {
                         self.push_error("missing value for --bundle-id".to_string());
@@ -8311,19 +9311,24 @@ impl App {
                     }
                     bundle_id = Some(args[i].clone());
                 }
-                "--unpin" => {
+                "--unpin" | "unpin" => {
                     unpin = true;
                 }
                 a => {
-                    self.push_error(format!("unknown arg: {}", a));
-                    return;
+                    // Positional shorthand: `pin <bundle_id>` or `pin <bundle_id> unpin`.
+                    if !a.starts_with("--") && bundle_id.is_none() {
+                        bundle_id = Some(a.to_string());
+                    } else {
+                        self.push_error(format!("unknown arg: {}", a));
+                        return;
+                    }
                 }
             }
             i += 1;
         }
 
         let Some(bundle_id) = bundle_id else {
-            self.push_error("usage: pin --bundle-id <id> [--unpin]".to_string());
+            self.push_error("usage: pin <bundle_id> [unpin]".to_string());
             return;
         };
 
@@ -8348,16 +9353,30 @@ impl App {
     }
 
     fn cmd_approve(&mut self, args: &[String]) {
+        if args.is_empty() {
+            self.open_text_input_modal(
+                "Approve",
+                "bundle id> ",
+                TextInputAction::ApproveBundleId,
+                None,
+                vec!["Bundle id".to_string()],
+            );
+            return;
+        }
+
         let client = match self.remote_client() {
             Some(c) => c,
-            None => return,
+            None => {
+                self.start_login_wizard();
+                return;
+            }
         };
         let mut bundle_id: Option<String> = None;
 
         let mut i = 0;
         while i < args.len() {
             match args[i].as_str() {
-                "--bundle-id" => {
+                "--bundle-id" | "bundle" => {
                     i += 1;
                     if i >= args.len() {
                         self.push_error("missing value for --bundle-id".to_string());
@@ -8366,15 +9385,20 @@ impl App {
                     bundle_id = Some(args[i].clone());
                 }
                 a => {
-                    self.push_error(format!("unknown arg: {}", a));
-                    return;
+                    // Positional shorthand: `approve <bundle_id>`.
+                    if !a.starts_with("--") && bundle_id.is_none() {
+                        bundle_id = Some(a.to_string());
+                    } else {
+                        self.push_error(format!("unknown arg: {}", a));
+                        return;
+                    }
                 }
             }
             i += 1;
         }
 
         let Some(bundle_id) = bundle_id else {
-            self.push_error("usage: approve --bundle-id <id>".to_string());
+            self.push_error("usage: approve <bundle_id>".to_string());
             return;
         };
 
@@ -8385,9 +9409,23 @@ impl App {
     }
 
     fn cmd_promote(&mut self, args: &[String]) {
+        if args.is_empty() {
+            self.open_text_input_modal(
+                "Promote",
+                "bundle id> ",
+                TextInputAction::PromoteBundleId,
+                None,
+                vec!["Bundle id".to_string()],
+            );
+            return;
+        }
+
         let client = match self.remote_client() {
             Some(c) => c,
-            None => return,
+            None => {
+                self.start_login_wizard();
+                return;
+            }
         };
 
         let mut bundle_id: Option<String> = None;
@@ -8396,7 +9434,7 @@ impl App {
         let mut i = 0;
         while i < args.len() {
             match args[i].as_str() {
-                "--bundle-id" => {
+                "--bundle-id" | "bundle" => {
                     i += 1;
                     if i >= args.len() {
                         self.push_error("missing value for --bundle-id".to_string());
@@ -8404,7 +9442,7 @@ impl App {
                     }
                     bundle_id = Some(args[i].clone());
                 }
-                "--to-gate" => {
+                "--to-gate" | "to" => {
                     i += 1;
                     if i >= args.len() {
                         self.push_error("missing value for --to-gate".to_string());
@@ -8413,15 +9451,33 @@ impl App {
                     to_gate = Some(args[i].clone());
                 }
                 a => {
-                    self.push_error(format!("unknown arg: {}", a));
-                    return;
+                    // Positional shorthand: `promote <bundle_id> [to <gate>]`.
+                    if !a.starts_with("--") {
+                        if bundle_id.is_none() {
+                            bundle_id = Some(a.to_string());
+                        } else if to_gate.is_none() {
+                            to_gate = Some(a.to_string());
+                        } else {
+                            self.push_error(format!("unknown arg: {}", a));
+                            return;
+                        }
+                    } else {
+                        self.push_error(format!("unknown arg: {}", a));
+                        return;
+                    }
                 }
             }
             i += 1;
         }
 
         let Some(bundle_id) = bundle_id else {
-            self.push_error("usage: promote --bundle-id <id> [--to-gate <id>]".to_string());
+            self.open_text_input_modal(
+                "Promote",
+                "bundle id> ",
+                TextInputAction::PromoteBundleId,
+                None,
+                vec!["Bundle id".to_string()],
+            );
             return;
         };
 
@@ -8454,10 +9510,11 @@ impl App {
                 if next.len() == 1 {
                     next[0].clone()
                 } else {
-                    self.push_error(
-                        "missing --to-gate and could not infer a unique downstream gate"
-                            .to_string(),
-                    );
+                    if next.is_empty() {
+                        self.push_error("no downstream gates for bundle gate".to_string());
+                        return;
+                    }
+                    self.start_promote_wizard(bundle_id.clone(), next, None);
                     return;
                 }
             }
@@ -8470,19 +9527,42 @@ impl App {
     }
 
     fn cmd_release(&mut self, args: &[String]) {
+        if args.is_empty() {
+            self.open_text_input_modal(
+                "Release",
+                "bundle id> ",
+                TextInputAction::ReleaseBundleId,
+                None,
+                vec!["Bundle id".to_string()],
+            );
+            return;
+        }
+
         let client = match self.remote_client() {
             Some(c) => c,
-            None => return,
+            None => {
+                self.start_login_wizard();
+                return;
+            }
         };
 
         let mut channel: Option<String> = None;
         let mut bundle_id: Option<String> = None;
         let mut notes: Option<String> = None;
 
+        // Positional shorthand: `release <channel> <bundle_id> [notes...]`.
+        if !args.iter().any(|a| a.starts_with("--")) && args.len() >= 2 {
+            channel = Some(args[0].clone());
+            bundle_id = Some(args[1].clone());
+            if args.len() > 2 {
+                notes = Some(args[2..].join(" "));
+            }
+        }
+
         let mut i = 0;
         while i < args.len() {
             match args[i].as_str() {
-                "--channel" => {
+                "--channel" | "channel" => {
                     i += 1;
                     if i >= args.len() {
                         self.push_error("missing value for --channel".to_string());
@@ -8490,7 +9570,7 @@ impl App {
                     }
                     channel = Some(args[i].clone());
                 }
-                "--bundle-id" => {
+                "--bundle-id" | "bundle" => {
                     i += 1;
                     if i >= args.len() {
                         self.push_error("missing value for --bundle-id".to_string());
@@ -8498,7 +9578,7 @@ impl App {
                     }
                     bundle_id = Some(args[i].clone());
                 }
-                "--notes" => {
+                "--notes" | "notes" => {
                     i += 1;
                     if i >= args.len() {
                         self.push_error("missing value for --notes".to_string());
@@ -8507,17 +9587,17 @@ impl App {
                     notes = Some(args[i].clone());
                 }
                 a => {
-                    self.push_error(format!("unknown arg: {}", a));
-                    return;
+                    if a.starts_with("--") {
+                        self.push_error(format!("unknown arg: {}", a));
+                        return;
+                    }
                 }
             }
             i += 1;
         }
 
         let (Some(channel), Some(bundle_id)) = (channel, bundle_id) else {
-            self.push_error(
-                "usage: release --channel <name> --bundle-id <id> [--notes <text>]".to_string(),
-            );
+            self.push_error("usage: release <channel> <bundle_id> [notes...]".to_string());
             return;
         };
 
@@ -8538,15 +9618,29 @@ impl App {
         };
         let client = match self.remote_client() {
             Some(c) => c,
-            None => return,
+            None => {
+                self.start_login_wizard();
+                return;
+            }
         };
+
+        if args.is_empty() {
+            self.open_text_input_modal(
+                "Superpositions",
+                "bundle id> ",
+                TextInputAction::SuperpositionsBundleId,
+                None,
+                vec!["Bundle id".to_string()],
+            );
+            return;
+        }
 
         let mut bundle_id: Option<String> = None;
         let mut filter: Option<String> = None;
         let mut i = 0;
         while i < args.len() {
             match args[i].as_str() {
-                "--bundle-id" => {
+                "--bundle-id" | "bundle" => {
                     i += 1;
                     if i >= args.len() {
                         self.push_error("missing value for --bundle-id".to_string());
@@ -8554,7 +9648,7 @@ impl App {
                     }
                     bundle_id = Some(args[i].clone());
                 }
-                "--filter" => {
+                "--filter" | "filter" => {
                     i += 1;
                     if i >= args.len() {
                         self.push_error("missing value for --filter".to_string());
@@ -8563,15 +9657,20 @@ impl App {
                     filter = Some(args[i].clone());
                 }
                 a => {
-                    self.push_error(format!("unknown arg: {}", a));
-                    return;
+                    // Positional shorthand: `superpositions <bundle_id>`.
+                    if !a.starts_with("--") && bundle_id.is_none() {
+                        bundle_id = Some(a.to_string());
+                    } else {
+                        self.push_error(format!("unknown arg: {}", a));
+                        return;
+                    }
                 }
             }
             i += 1;
         }
 
         let Some(bundle_id) = bundle_id else {
-            self.push_error("usage: superpositions --bundle-id <id>".to_string());
+            self.push_error("usage: superpositions <bundle_id>".to_string());
             return;
         };
 
@@ -8976,6 +10075,10 @@ fn handle_modal_key(app: &mut App, key: KeyEvent) {
                             | TextInputAction::SyncSnap
                             | TextInputAction::ReleaseChannel
                             | TextInputAction::ReleaseNotes
+                            | TextInputAction::PinAction
+                            | TextInputAction::MemberRole
+                            | TextInputAction::BrowseFilter
+                            | TextInputAction::BrowseLimit
                     );
                     if raw.is_empty() && !allow_empty {
                         m.lines.retain(|l| !l.starts_with("error:"));
@@ -9028,6 +10131,23 @@ fn handle_modal_key(app: &mut App, key: KeyEvent) {
                         | TextInputAction::FetchUser
                         | TextInputAction::FetchOptions
                         | TextInputAction::PublishStart
+                        | TextInputAction::PromoteToGate
+                        | TextInputAction::PromoteBundleId
+                        | TextInputAction::ReleaseBundleId
+                        | TextInputAction::PinBundleId
+                        | TextInputAction::PinAction
+                        | TextInputAction::ApproveBundleId
+                        | TextInputAction::SuperpositionsBundleId
+                        | TextInputAction::MemberAction
+                        | TextInputAction::MemberHandle
+                        | TextInputAction::MemberRole
+                        | TextInputAction::LaneMemberAction
+                        | TextInputAction::LaneMemberLane
+                        | TextInputAction::LaneMemberHandle
+                        | TextInputAction::BrowseScope
+                        | TextInputAction::BrowseGate
+                        | TextInputAction::BrowseFilter
+                        | TextInputAction::BrowseLimit
                         | TextInputAction::PublishSnap
                         | TextInputAction::PublishScope
                         | TextInputAction::PublishGate

@@ -30,10 +30,9 @@ This phase is scoped to the TUI command shell (`src/tui_shell.rs`). The standalo
 
 ### C) Cover Remaining Commands
 
-- [ ] Inbox/bundles filters: prompt for filter/limit/scope/gate when requested.
-- [ ] Bundles actions: prompt for `to gate` / `channel` / `notes` when missing.
-- [x] Bundles: `release` prompts for channel + notes in Bundles mode.
-- [ ] Admin: `member` / `lane-member` guided prompts.
+- [x] Inbox/bundles filters: prompt for filter/limit/scope/gate when requested.
+- [x] Bundles actions: prompt for `to gate` / `channel` / `notes` when missing.
+- [x] Admin: `member` / `lane-member` guided prompts.
 
 ## Exit Criteria
 
