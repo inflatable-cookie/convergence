@@ -32,7 +32,7 @@ Out of scope:
 
 ### C) Tests
 
-- [ ] Add a lightweight test for release list sorting/grouping helper (if extracted).
+- [x] Add a lightweight test for release list sorting/grouping helper (if extracted).
 
 ## Exit Criteria
 

@@ -276,7 +276,12 @@ impl RemoteClient {
     ) -> Result<reqwest::blocking::Response> {
         if resp.status() == reqwest::StatusCode::UNAUTHORIZED {
             anyhow::bail!(
-                "unauthorized (token invalid/expired; run `converge login --url ... --token ... --repo ...` or `converge remote set --url ... --token ... --repo ...`)"
+                "unauthorized (token invalid/expired; run `converge login --url ... --token ... --repo ...`)"
+            );
+        }
+        if resp.status() == reqwest::StatusCode::FORBIDDEN {
+            anyhow::bail!(
+                "forbidden (insufficient permissions; check repo membership/role or admin)"
             );
         }
         resp.error_for_status()

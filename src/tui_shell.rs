@@ -2659,6 +2659,29 @@ fn server_label(base_url: &str) -> String {
     s.to_string()
 }
 
+fn latest_releases_by_channel(
+    releases: Vec<crate::remote::Release>,
+) -> Vec<crate::remote::Release> {
+    let mut latest: std::collections::HashMap<String, crate::remote::Release> =
+        std::collections::HashMap::new();
+    for r in releases {
+        match latest.get(&r.channel) {
+            None => {
+                latest.insert(r.channel.clone(), r);
+            }
+            Some(prev) => {
+                if r.released_at > prev.released_at {
+                    latest.insert(r.channel.clone(), r);
+                }
+            }
+        }
+    }
+
+    let mut out = latest.into_values().collect::<Vec<_>>();
+    out.sort_by(|a, b| a.channel.cmp(&b.channel));
+    out
+}
+
 struct App {
     workspace: Option<Workspace>,
     workspace_err: Option<String>,
@@ -4878,7 +4901,7 @@ impl App {
             (url, token, repo, scope, gate)
         else {
             self.push_error(
-                "usage: remote set --url <url> --token <token> --repo <id> --scope <id> --gate <id>"
+                "usage: remote set --url <url> --token <token> --repo <id> --scope <id> --gate <id> (tip: use `login ...`)"
                     .to_string(),
             );
             return;
@@ -5637,24 +5660,7 @@ impl App {
             }
         };
 
-        // Reduce to latest per channel.
-        let mut latest: std::collections::HashMap<String, crate::remote::Release> =
-            std::collections::HashMap::new();
-        for r in releases {
-            match latest.get(&r.channel) {
-                None => {
-                    latest.insert(r.channel.clone(), r);
-                }
-                Some(prev) => {
-                    if r.released_at > prev.released_at {
-                        latest.insert(r.channel.clone(), r);
-                    }
-                }
-            }
-        }
-
-        let mut items = latest.into_values().collect::<Vec<_>>();
-        items.sort_by(|a, b| a.channel.cmp(&b.channel));
+        let items = latest_releases_by_channel(releases);
 
         let count = items.len();
         self.push_view(ReleasesView {
@@ -7662,20 +7668,7 @@ fn dashboard_lines(ws: &Workspace, ctx: &RenderCtx, primary: RootContext) -> Res
         // Release summary.
         if let Ok(releases) = client.list_releases() {
             sum.releases_total = releases.len();
-            let mut latest: std::collections::HashMap<String, crate::remote::Release> =
-                std::collections::HashMap::new();
-            for r in releases {
-                match latest.get(&r.channel) {
-                    None => {
-                        latest.insert(r.channel.clone(), r);
-                    }
-                    Some(prev) => {
-                        if r.released_at > prev.released_at {
-                            latest.insert(r.channel.clone(), r);
-                        }
-                    }
-                }
-            }
+            let latest = latest_releases_by_channel(releases);
             sum.releases_channels = latest.len();
             if sum.releases_total == 0 {
                 out.push("releases: (none)".to_string());
@@ -7684,18 +7677,14 @@ fn dashboard_lines(ws: &Workspace, ctx: &RenderCtx, primary: RootContext) -> Res
                     "releases: {} total ({} channels)",
                     sum.releases_total, sum.releases_channels
                 ));
-                let mut keys = latest.keys().cloned().collect::<Vec<_>>();
-                keys.sort();
-                for ch in keys.into_iter().take(3) {
-                    if let Some(r) = latest.get(&ch) {
-                        let short = r.bundle_id.chars().take(8).collect::<String>();
-                        out.push(format!(
-                            "release: {} {} {}",
-                            ch,
-                            short,
-                            fmt_ts_list(&r.released_at, ctx)
-                        ));
-                    }
+                for r in latest.iter().take(3) {
+                    let short = r.bundle_id.chars().take(8).collect::<String>();
+                    out.push(format!(
+                        "release: {} {} {}",
+                        r.channel,
+                        short,
+                        fmt_ts_list(&r.released_at, ctx)
+                    ));
                 }
             }
         }
@@ -8207,6 +8196,44 @@ mod rename_tests {
         }
 
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod releases_tests {
+    use super::*;
+
+    fn mk_release(
+        id: &str,
+        channel: &str,
+        bundle_id: &str,
+        released_at: &str,
+    ) -> crate::remote::Release {
+        crate::remote::Release {
+            id: id.to_string(),
+            channel: channel.to_string(),
+            bundle_id: bundle_id.to_string(),
+            scope: "main".to_string(),
+            gate: "dev-intake".to_string(),
+            released_by: "dev".to_string(),
+            released_by_user_id: None,
+            released_at: released_at.to_string(),
+            notes: None,
+        }
+    }
+
+    #[test]
+    fn latest_releases_by_channel_picks_latest_and_sorts() {
+        let out = latest_releases_by_channel(vec![
+            mk_release("r1", "stable", "b1", "2026-01-25T00:00:00Z"),
+            mk_release("r2", "stable", "b2", "2026-01-25T01:00:00Z"),
+            mk_release("r3", "beta", "b3", "2026-01-25T00:30:00Z"),
+        ]);
+        assert_eq!(out.len(), 2);
+        assert_eq!(out[0].channel, "beta");
+        assert_eq!(out[0].bundle_id, "b3");
+        assert_eq!(out[1].channel, "stable");
+        assert_eq!(out[1].bundle_id, "b2");
     }
 }
 

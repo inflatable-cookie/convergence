@@ -1298,7 +1298,7 @@ fn draw_overview(frame: &mut ratatui::Frame, app: &App, area: Rect) {
         None => {
             lines.push(Line::from(vec![
                 Span::styled("Remote: ", Style::default().fg(Color::Gray)),
-                Span::raw("(not configured; run `converge remote set ...`)"),
+                Span::raw("(not configured; run `converge login ...`)"),
             ]));
         }
         Some(r) => {
