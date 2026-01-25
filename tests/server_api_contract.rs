@@ -105,6 +105,13 @@ fn server_api_contract_happy_path_and_auth_failures() -> Result<()> {
         .context("list releases unauth")?;
     assert_eq!(rels.status(), reqwest::StatusCode::UNAUTHORIZED);
 
+    // GC endpoint requires auth.
+    let gc = client
+        .post(format!("{}/repos/test/gc", server.base_url))
+        .send()
+        .context("gc unauth")?;
+    assert_eq!(gc.status(), reqwest::StatusCode::UNAUTHORIZED);
+
     // Configure metadata-only publications for dev-intake.
     let mut graph: serde_json::Value = client
         .get(format!("{}/repos/test/gate-graph", server.base_url))
@@ -262,6 +269,30 @@ fn server_api_contract_happy_path_and_auth_failures() -> Result<()> {
         rel.get("channel"),
         Some(&serde_json::Value::String("stable".to_string()))
     );
+
+    // GC dry run shape.
+    let gc: serde_json::Value = client
+        .post(format!(
+            "{}/repos/test/gc?dry_run=true&prune_metadata=true",
+            server.base_url
+        ))
+        .header(
+            reqwest::header::AUTHORIZATION,
+            common::auth_header(&server.token),
+        )
+        .send()
+        .context("gc")?
+        .error_for_status()
+        .context("gc status")?
+        .json()
+        .context("parse gc")?;
+    assert_eq!(gc.get("dry_run"), Some(&serde_json::Value::Bool(true)));
+    assert_eq!(
+        gc.get("prune_metadata"),
+        Some(&serde_json::Value::Bool(true))
+    );
+    assert!(gc.get("kept").is_some());
+    assert!(gc.get("deleted").is_some());
 
     let rels: serde_json::Value = client
         .get(format!("{}/repos/test/releases", server.base_url))
