@@ -361,6 +361,12 @@ struct ChangeSummary {
     renamed: usize,
 }
 
+impl ChangeSummary {
+    fn total(&self) -> usize {
+        self.added + self.modified + self.deleted + self.renamed
+    }
+}
+
 fn render_view_chrome(
     frame: &mut ratatui::Frame,
     title: &str,
@@ -913,6 +919,8 @@ struct SnapsView {
     selected: usize,
 
     head_id: Option<String>,
+
+    pending_changes: Option<ChangeSummary>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -1188,19 +1196,34 @@ impl View for SnapsView {
 
         let mut state = ListState::default();
         if !self.items.is_empty() {
-            state.select(Some(self.selected.min(self.items.len().saturating_sub(1))));
+            let offset = if self.pending_changes.is_some() { 1 } else { 0 };
+            state.select(Some(
+                offset + self.selected.min(self.items.len().saturating_sub(1)),
+            ));
         }
 
         let mut rows = Vec::new();
+
+        let has_pending = self.pending_changes.is_some_and(|s| s.total() > 0);
+        let head_style = Style::default()
+            .fg(Color::Green)
+            .add_modifier(Modifier::BOLD);
+
+        if let Some(sum) = self.pending_changes
+            && has_pending
+        {
+            let total = sum.total();
+            let label = if total == 1 { "change" } else { "changes" };
+            rows.push(ListItem::new(format!("> {} {}", total, label)).style(head_style));
+        }
+
         for s in &self.items {
             let is_head = self.head_id.as_deref() == Some(s.id.as_str());
             let sid = s.id.chars().take(8).collect::<String>();
             let msg = s.message.clone().unwrap_or_default();
             let marker = if is_head { "*" } else { " " };
-            let id_style = if is_head {
-                Style::default()
-                    .fg(Color::Green)
-                    .add_modifier(Modifier::BOLD)
+            let id_style = if is_head && !has_pending {
+                head_style
             } else {
                 Style::default()
             };
@@ -1218,7 +1241,8 @@ impl View for SnapsView {
 
             rows.push(ListItem::new(row).style(id_style));
         }
-        if rows.is_empty() {
+
+        if self.items.is_empty() {
             rows.push(ListItem::new("(no snaps)"));
         }
 
@@ -2098,12 +2122,6 @@ fn local_root_command_defs() -> Vec<CommandDef> {
             aliases: &[],
             usage: "sync [edit]",
             help: "Sync to your lane (guided prompt)",
-        },
-        CommandDef {
-            name: "msg",
-            aliases: &[],
-            usage: "msg [<snap>] [<message...>|clear]",
-            help: "Set/clear snap message",
         },
         CommandDef {
             name: "history",
@@ -3906,7 +3924,31 @@ impl App {
             }
         }
 
-        scored.sort_by(|(sa, a), (sb, b)| sb.cmp(sa).then_with(|| a.name.cmp(b.name)));
+        // If a command is visible in the input hints, prioritize it in suggestions.
+        // This makes the "type the first letter then Enter" flow match what the UI is already nudging.
+        let hint_order = self.primary_hint_commands();
+        let mut hint_pos = std::collections::HashMap::<String, usize>::new();
+        for (i, h) in hint_order.into_iter().enumerate() {
+            hint_pos.insert(h, i);
+        }
+
+        scored.sort_by(|(sa, a), (sb, b)| {
+            let ha = hint_pos
+                .get(a.name)
+                .copied()
+                .or_else(|| a.aliases.iter().find_map(|al| hint_pos.get(*al).copied()));
+            let hb = hint_pos
+                .get(b.name)
+                .copied()
+                .or_else(|| b.aliases.iter().find_map(|al| hint_pos.get(*al).copied()));
+
+            match (ha, hb) {
+                (Some(ia), Some(ib)) => ia.cmp(&ib),
+                (Some(_), None) => std::cmp::Ordering::Less,
+                (None, Some(_)) => std::cmp::Ordering::Greater,
+                (None, None) => sb.cmp(sa).then_with(|| a.name.cmp(b.name)),
+            }
+        });
         self.suggestions = scored.into_iter().map(|(_, d)| d).collect();
         self.suggestion_selected = self.suggestion_selected.min(self.suggestions.len());
     }
@@ -4015,7 +4057,6 @@ impl App {
                 "save" => self.cmd_snap(args),
                 "publish" => self.cmd_publish(args),
                 "sync" => self.cmd_sync(args),
-                "msg" => self.cmd_msg(args),
                 "history" => self.cmd_snaps(args),
                 "show" => self.cmd_show(args),
                 "restore" => self.cmd_restore(args),
@@ -4488,83 +4529,6 @@ impl App {
         }
     }
 
-    fn cmd_msg(&mut self, args: &[String]) {
-        let Some(ws) = self.require_workspace() else {
-            return;
-        };
-
-        if args.is_empty() {
-            let Some(head_id) = ws.store.get_head().ok().flatten() else {
-                self.push_error("usage: msg <snap> [<message...>|clear]".to_string());
-                return;
-            };
-            let snap = match ws.show_snap(&head_id) {
-                Ok(s) => s,
-                Err(err) => {
-                    self.push_error(format!("show snap: {:#}", err));
-                    return;
-                }
-            };
-            self.open_snap_message_modal(snap.id, snap.message);
-            return;
-        }
-
-        let prefix = &args[0];
-        let clear = args.len() == 2 && (args[1] == "--clear" || args[1] == "clear");
-        let interactive = args.len() == 1;
-        let message = if clear || interactive {
-            None
-        } else {
-            Some(args[1..].join(" "))
-        };
-
-        let snaps = match ws.list_snaps() {
-            Ok(s) => s,
-            Err(err) => {
-                self.push_error(format!("list snaps: {:#}", err));
-                return;
-            }
-        };
-        let matches = snaps
-            .iter()
-            .filter(|s| s.id.starts_with(prefix))
-            .map(|s| s.id.clone())
-            .collect::<Vec<_>>();
-        if matches.is_empty() {
-            self.push_error(format!("no snap matches {}", prefix));
-            return;
-        }
-        if matches.len() > 1 {
-            self.push_error(format!("ambiguous snap prefix {}", prefix));
-            return;
-        }
-        let snap_id = &matches[0];
-
-        if interactive {
-            let snap = match ws.show_snap(snap_id) {
-                Ok(s) => s,
-                Err(err) => {
-                    self.push_error(format!("show snap: {:#}", err));
-                    return;
-                }
-            };
-            self.open_snap_message_modal(snap.id, snap.message);
-            return;
-        }
-
-        if let Err(err) = ws.store.update_snap_message(snap_id, message.as_deref()) {
-            self.push_error(format!("set message: {:#}", err));
-            return;
-        }
-
-        self.refresh_root_view();
-        if clear {
-            self.push_output(vec![format!("cleared message for {}", snap_id)]);
-        } else {
-            self.push_output(vec![format!("updated message for {}", snap_id)]);
-        }
-    }
-
     fn cmd_snaps_msg(&mut self, args: &[String]) {
         let Some(ws) = self.require_workspace() else {
             return;
@@ -4622,6 +4586,11 @@ impl App {
             return;
         };
 
+        let rctx = RenderCtx {
+            now: OffsetDateTime::now_utc(),
+            ts_mode: self.ts_mode,
+        };
+
         let mut limit: Option<usize> = None;
 
         // Flagless UX: `history [N]`.
@@ -4676,6 +4645,11 @@ impl App {
 
                 let head_id = ws.store.get_head().ok().flatten();
 
+                let pending_changes = local_status_lines(&ws, &rctx)
+                    .ok()
+                    .map(|lines| extract_change_summary(lines).0)
+                    .and_then(|sum| if sum.total() > 0 { Some(sum) } else { None });
+
                 self.push_view(SnapsView {
                     updated_at: now_ts(),
                     filter: None,
@@ -4684,6 +4658,8 @@ impl App {
                     selected: 0,
 
                     head_id,
+
+                    pending_changes,
                 });
                 self.push_output(vec!["opened snaps".to_string()]);
             }
@@ -4889,9 +4865,19 @@ impl App {
             Ok(()) => {
                 self.push_output(vec![format!("restored {}", snap_id)]);
 
+                let ts_mode = self.ts_mode;
                 if let Some(v) = self.current_view_mut::<SnapsView>() {
                     v.head_id = Some(snap_id.clone());
                     v.updated_at = now_ts();
+
+                    let rctx = RenderCtx {
+                        now: OffsetDateTime::now_utc(),
+                        ts_mode,
+                    };
+                    v.pending_changes = local_status_lines(&ws, &rctx)
+                        .ok()
+                        .map(|lines| extract_change_summary(lines).0)
+                        .and_then(|sum| if sum.total() > 0 { Some(sum) } else { None });
                 }
 
                 self.refresh_root_view();
@@ -9747,6 +9733,34 @@ fn score_match(q: &str, candidate: &str) -> i32 {
     0
 }
 
+#[cfg(test)]
+fn sort_scored_suggestions_for_tests(
+    mut scored: Vec<(i32, CommandDef)>,
+    hints: &[&str],
+) -> Vec<CommandDef> {
+    let mut hint_pos = std::collections::HashMap::<String, usize>::new();
+    for (i, h) in hints.iter().enumerate() {
+        hint_pos.insert((*h).to_string(), i);
+    }
+    scored.sort_by(|(sa, a), (sb, b)| {
+        let ha = hint_pos
+            .get(a.name)
+            .copied()
+            .or_else(|| a.aliases.iter().find_map(|al| hint_pos.get(*al).copied()));
+        let hb = hint_pos
+            .get(b.name)
+            .copied()
+            .or_else(|| b.aliases.iter().find_map(|al| hint_pos.get(*al).copied()));
+        match (ha, hb) {
+            (Some(ia), Some(ib)) => ia.cmp(&ib),
+            (Some(_), None) => std::cmp::Ordering::Less,
+            (None, Some(_)) => std::cmp::Ordering::Greater,
+            (None, None) => sb.cmp(sa).then_with(|| a.name.cmp(b.name)),
+        }
+    });
+    scored.into_iter().map(|(_, d)| d).collect()
+}
+
 fn tokenize(input: &str) -> Result<Vec<String>> {
     let mut out = Vec::new();
     let mut cur = String::new();
@@ -11634,6 +11648,52 @@ mod releases_tests {
         assert_eq!(out[0].bundle_id, "b3");
         assert_eq!(out[1].channel, "stable");
         assert_eq!(out[1].bundle_id, "b2");
+    }
+}
+
+#[cfg(test)]
+mod suggestion_tests {
+    use super::*;
+
+    #[test]
+    fn hinted_commands_outrank_better_score() {
+        let help = CommandDef {
+            name: "help",
+            aliases: &["h"],
+            usage: "",
+            help: "",
+        };
+        let history = CommandDef {
+            name: "history",
+            aliases: &[],
+            usage: "",
+            help: "",
+        };
+
+        let defs = sort_scored_suggestions_for_tests(
+            vec![(100, help), (44, history)],
+            &["save", "history"],
+        );
+        assert_eq!(defs[0].name, "history");
+    }
+
+    #[test]
+    fn non_hinted_suggestions_keep_score_order() {
+        let a = CommandDef {
+            name: "alpha",
+            aliases: &[],
+            usage: "",
+            help: "",
+        };
+        let b = CommandDef {
+            name: "beta",
+            aliases: &[],
+            usage: "",
+            help: "",
+        };
+
+        let defs = sort_scored_suggestions_for_tests(vec![(10, a), (20, b)], &[]);
+        assert_eq!(defs[0].name, "beta");
     }
 }
 
