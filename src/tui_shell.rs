@@ -30,6 +30,24 @@ use time::OffsetDateTime;
 use time::format_description::FormatItem;
 use time::format_description::well_known::Rfc3339;
 
+mod commands;
+use commands::{
+    bundles_command_defs, global_command_defs, inbox_command_defs, lanes_command_defs,
+    releases_command_defs, root_command_defs, snaps_command_defs, superpositions_command_defs,
+};
+
+mod input;
+use input::Input;
+
+mod suggest;
+use suggest::{score_match, sort_scored_suggestions};
+
+mod view;
+use view::{RenderCtx, View, render_view_chrome, render_view_chrome_with_header};
+
+mod views;
+use views::SnapsView;
+
 pub fn run() -> Result<()> {
     if !io::stdin().is_terminal() || !io::stdout().is_terminal() {
         anyhow::bail!("TUI requires an interactive terminal (TTY)");
@@ -128,25 +146,7 @@ impl TimestampMode {
     }
 }
 
-#[derive(Clone, Copy, Debug)]
-struct RenderCtx {
-    now: OffsetDateTime,
-    ts_mode: TimestampMode,
-}
-
-trait View: Any {
-    fn as_any(&self) -> &dyn Any;
-    fn as_any_mut(&mut self) -> &mut dyn Any;
-
-    fn mode(&self) -> UiMode;
-    fn title(&self) -> &str;
-    fn updated_at(&self) -> &str;
-
-    fn move_up(&mut self) {}
-    fn move_down(&mut self) {}
-
-    fn render(&self, frame: &mut ratatui::Frame, area: ratatui::layout::Rect, ctx: &RenderCtx);
-}
+// RenderCtx and View live in src/tui_shell/view.rs
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum EntryKind {
@@ -367,31 +367,7 @@ impl ChangeSummary {
     }
 }
 
-fn render_view_chrome(
-    frame: &mut ratatui::Frame,
-    title: &str,
-    updated_at: &str,
-    area: ratatui::layout::Rect,
-) -> ratatui::layout::Rect {
-    let header = Line::from(vec![
-        Span::styled(title.to_string(), Style::default().fg(Color::Yellow)),
-        Span::raw("  "),
-        Span::styled(fmt_ts_ui(updated_at), Style::default().fg(Color::Gray)),
-    ]);
-
-    render_view_chrome_with_header(frame, header, area)
-}
-
-fn render_view_chrome_with_header<'a>(
-    frame: &mut ratatui::Frame,
-    header: Line<'a>,
-    area: ratatui::layout::Rect,
-) -> ratatui::layout::Rect {
-    let outer = Block::default().borders(Borders::ALL).title(header);
-    let inner = outer.inner(area);
-    frame.render_widget(outer, area);
-    inner
-}
+// render_view_chrome lives in src/tui_shell/view.rs
 
 fn extract_change_summary(mut lines: Vec<String>) -> (ChangeSummary, Vec<String>) {
     let mut sum = ChangeSummary::default();
@@ -910,19 +886,6 @@ fn style_root_line(s: &str) -> Line<'static> {
     Line::from(spans)
 }
 
-#[derive(Debug)]
-struct SnapsView {
-    updated_at: String,
-    filter: Option<String>,
-    all_items: Vec<crate::model::SnapRecord>,
-    items: Vec<crate::model::SnapRecord>,
-    selected: usize,
-
-    head_id: Option<String>,
-
-    pending_changes: Option<ChangeSummary>,
-}
-
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum SettingsItemKind {
     ToggleTimestamps,
@@ -1149,143 +1112,6 @@ impl View for SettingsView {
             }
         };
 
-        frame.render_widget(Paragraph::new(details).wrap(Wrap { trim: false }), parts[1]);
-    }
-}
-
-impl View for SnapsView {
-    fn as_any(&self) -> &dyn Any {
-        self
-    }
-
-    fn as_any_mut(&mut self) -> &mut dyn Any {
-        self
-    }
-
-    fn mode(&self) -> UiMode {
-        UiMode::Snaps
-    }
-
-    fn title(&self) -> &str {
-        "History"
-    }
-
-    fn updated_at(&self) -> &str {
-        &self.updated_at
-    }
-
-    fn move_up(&mut self) {
-        self.selected = self.selected.saturating_sub(1);
-    }
-
-    fn move_down(&mut self) {
-        if self.items.is_empty() {
-            self.selected = 0;
-            return;
-        }
-        let max = self.items.len().saturating_sub(1);
-        self.selected = (self.selected + 1).min(max);
-    }
-
-    fn render(&self, frame: &mut ratatui::Frame, area: ratatui::layout::Rect, ctx: &RenderCtx) {
-        let inner = render_view_chrome(frame, self.title(), self.updated_at(), area);
-        let parts = Layout::default()
-            .direction(Direction::Vertical)
-            .constraints([Constraint::Percentage(65), Constraint::Percentage(35)])
-            .split(inner);
-
-        let mut state = ListState::default();
-        if !self.items.is_empty() {
-            let offset = if self.pending_changes.is_some() { 1 } else { 0 };
-            state.select(Some(
-                offset + self.selected.min(self.items.len().saturating_sub(1)),
-            ));
-        }
-
-        let mut rows = Vec::new();
-
-        let has_pending = self.pending_changes.is_some_and(|s| s.total() > 0);
-        let head_style = Style::default()
-            .fg(Color::Green)
-            .add_modifier(Modifier::BOLD);
-
-        if let Some(sum) = self.pending_changes
-            && has_pending
-        {
-            let total = sum.total();
-            let label = if total == 1 { "change" } else { "changes" };
-            rows.push(ListItem::new(format!("> {} {}", total, label)).style(head_style));
-        }
-
-        for s in &self.items {
-            let is_head = self.head_id.as_deref() == Some(s.id.as_str());
-            let sid = s.id.chars().take(8).collect::<String>();
-            let msg = s.message.clone().unwrap_or_default();
-            let marker = if is_head { "*" } else { " " };
-            let id_style = if is_head && !has_pending {
-                head_style
-            } else {
-                Style::default()
-            };
-            let row = if msg.is_empty() {
-                format!("{} {} {}", marker, sid, fmt_ts_list(&s.created_at, ctx))
-            } else {
-                format!(
-                    "{} {} {} {}",
-                    marker,
-                    sid,
-                    fmt_ts_list(&s.created_at, ctx),
-                    msg
-                )
-            };
-
-            rows.push(ListItem::new(row).style(id_style));
-        }
-
-        if self.items.is_empty() {
-            rows.push(ListItem::new("(no snaps)"));
-        }
-
-        let list = List::new(rows)
-            .block(Block::default().borders(Borders::BOTTOM).title(format!(
-                "snaps{} (Enter: show; /: commands)",
-                self.filter
-                    .as_ref()
-                    .map(|f| format!(" filter={}", f))
-                    .unwrap_or_default()
-            )))
-            .highlight_style(Style::default().bg(Color::DarkGray));
-        frame.render_stateful_widget(list, parts[0], &mut state);
-
-        let details = if self.items.is_empty() {
-            vec![Line::from("(no selection)")]
-        } else {
-            let idx = self.selected.min(self.items.len().saturating_sub(1));
-            let s = &self.items[idx];
-            let mut out = Vec::new();
-            if self.head_id.as_deref() == Some(s.id.as_str()) {
-                out.push(Line::from("active: yes"));
-            }
-            out.push(Line::from(format!("id: {}", s.id)));
-            out.push(Line::from(format!(
-                "created_at: {}",
-                fmt_ts_ui(&s.created_at)
-            )));
-            if let Some(msg) = &s.message
-                && !msg.is_empty()
-            {
-                out.push(Line::from(format!("message: {}", msg)));
-            }
-            out.push(Line::from(format!(
-                "root_manifest: {}",
-                s.root_manifest.as_str()
-            )));
-            out.push(Line::from(format!(
-                "stats: files={} dirs={} symlinks={} bytes={}",
-                s.stats.files, s.stats.dirs, s.stats.symlinks, s.stats.bytes
-            )));
-            out
-        };
         frame.render_widget(Paragraph::new(details).wrap(Wrap { trim: false }), parts[1]);
     }
 }
@@ -1954,213 +1780,12 @@ impl View for SuperpositionsView {
     }
 }
 
-#[derive(Debug, Default)]
-struct Input {
-    buf: String,
-    cursor: usize,
-    history: Vec<String>,
-    history_pos: Option<usize>,
-}
-
-impl Input {
-    fn clear(&mut self) {
-        self.buf.clear();
-        self.cursor = 0;
-        self.history_pos = None;
-    }
-
-    fn insert_char(&mut self, c: char) {
-        self.buf.insert(self.cursor, c);
-        self.cursor += 1;
-    }
-
-    fn backspace(&mut self) {
-        if self.cursor == 0 {
-            return;
-        }
-        self.cursor -= 1;
-        self.buf.remove(self.cursor);
-    }
-
-    fn delete(&mut self) {
-        if self.cursor >= self.buf.len() {
-            return;
-        }
-        self.buf.remove(self.cursor);
-    }
-
-    fn move_left(&mut self) {
-        self.cursor = self.cursor.saturating_sub(1);
-    }
-
-    fn move_right(&mut self) {
-        self.cursor = (self.cursor + 1).min(self.buf.len());
-    }
-
-    fn set(&mut self, s: String) {
-        self.buf = s;
-        self.cursor = self.buf.len();
-    }
-
-    fn push_history(&mut self, line: &str) {
-        let line = line.trim();
-        if line.is_empty() {
-            return;
-        }
-        if self.history.last().map(|s| s.as_str()) == Some(line) {
-            return;
-        }
-        self.history.push(line.to_string());
-        self.history_pos = None;
-    }
-
-    fn history_up(&mut self) {
-        if self.history.is_empty() {
-            return;
-        }
-        let next = match self.history_pos {
-            None => self.history.len().saturating_sub(1),
-            Some(i) => i.saturating_sub(1),
-        };
-        self.history_pos = Some(next);
-        self.set(self.history[next].clone());
-    }
-
-    fn history_down(&mut self) {
-        let Some(i) = self.history_pos else {
-            return;
-        };
-        if i + 1 >= self.history.len() {
-            self.history_pos = None;
-            self.clear();
-            return;
-        }
-        let next = i + 1;
-        self.history_pos = Some(next);
-        self.set(self.history[next].clone());
-    }
-}
-
 #[derive(Clone, Debug)]
 struct CommandDef {
     name: &'static str,
     aliases: &'static [&'static str],
     usage: &'static str,
     help: &'static str,
-}
-
-fn global_command_defs() -> Vec<CommandDef> {
-    vec![
-        CommandDef {
-            name: "help",
-            aliases: &["h", "?"],
-            usage: "help [command]",
-            help: "Show help",
-        },
-        CommandDef {
-            name: "settings",
-            aliases: &[],
-            usage: "settings",
-            help: "Open settings",
-        },
-        CommandDef {
-            name: "login",
-            aliases: &[],
-            usage: "login",
-            help: "Login (guided prompt)",
-        },
-        CommandDef {
-            name: "logout",
-            aliases: &[],
-            usage: "logout",
-            help: "Clear stored remote token",
-        },
-        CommandDef {
-            name: "quit",
-            aliases: &[],
-            usage: "quit",
-            help: "Exit",
-        },
-    ]
-}
-
-fn local_root_command_defs() -> Vec<CommandDef> {
-    let mut out = global_command_defs();
-    out.extend(vec![
-        CommandDef {
-            name: "status",
-            aliases: &["st"],
-            usage: "status",
-            help: "Refresh local status root view",
-        },
-        CommandDef {
-            name: "refresh",
-            aliases: &["r"],
-            usage: "refresh",
-            help: "Refresh local status root view",
-        },
-        CommandDef {
-            name: "init",
-            aliases: &[],
-            usage: "init [force]",
-            help: "Initialize a workspace (.converge)",
-        },
-        CommandDef {
-            name: "save",
-            aliases: &[],
-            usage: "save [message...]",
-            help: "Save a snapshot",
-        },
-        CommandDef {
-            name: "publish",
-            aliases: &[],
-            usage: "publish [edit]",
-            help: "Publish a snap to remote",
-        },
-        CommandDef {
-            name: "sync",
-            aliases: &[],
-            usage: "sync [edit]",
-            help: "Sync to your lane (guided prompt)",
-        },
-        CommandDef {
-            name: "history",
-            aliases: &[],
-            usage: "history [N]",
-            help: "Browse saved snapshots",
-        },
-        CommandDef {
-            name: "show",
-            aliases: &[],
-            usage: "show <snap_id>",
-            help: "Show a snap",
-        },
-        CommandDef {
-            name: "restore",
-            aliases: &[],
-            usage: "restore <snap> [force]",
-            help: "Restore a snap into the working directory",
-        },
-        CommandDef {
-            name: "mv",
-            aliases: &["move"],
-            usage: "mv <from> <to>",
-            help: "Move/rename a path (case-safe)",
-        },
-        CommandDef {
-            name: "purge",
-            aliases: &[],
-            usage: "purge [dry]",
-            help: "Purge local objects (per retention policy)",
-        },
-        CommandDef {
-            name: "clear",
-            aliases: &[],
-            usage: "clear",
-            help: "Clear last output/log",
-        },
-    ]);
-    out
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
@@ -2704,341 +2329,6 @@ fn diff_trees_with_renames(
 
     out.sort_by(|a, b| a.sort_key().cmp(&b.sort_key()));
     Ok(out)
-}
-
-fn remote_root_command_defs() -> Vec<CommandDef> {
-    let mut out = global_command_defs();
-    out.extend(vec![
-        CommandDef {
-            name: "status",
-            aliases: &["st"],
-            usage: "status",
-            help: "Show detailed status (modal)",
-        },
-        CommandDef {
-            name: "refresh",
-            aliases: &["r"],
-            usage: "refresh",
-            help: "Refresh dashboard",
-        },
-        CommandDef {
-            name: "remote",
-            aliases: &[],
-            usage: "remote show|ping|set|unset",
-            help: "Show/ping the configured remote",
-        },
-        CommandDef {
-            name: "ping",
-            aliases: &[],
-            usage: "ping",
-            help: "Ping remote /healthz",
-        },
-        CommandDef {
-            name: "fetch",
-            aliases: &[],
-            usage: "fetch",
-            help: "Fetch publications or lane heads into local store",
-        },
-        CommandDef {
-            name: "lanes",
-            aliases: &[],
-            usage: "lanes",
-            help: "List lanes and lane heads",
-        },
-        CommandDef {
-            name: "releases",
-            aliases: &[],
-            usage: "releases",
-            help: "Open releases browser",
-        },
-        CommandDef {
-            name: "members",
-            aliases: &[],
-            usage: "members",
-            help: "Show repo and lane membership",
-        },
-        CommandDef {
-            name: "member",
-            aliases: &[],
-            usage: "member",
-            help: "Manage repo membership (guided prompt)",
-        },
-        CommandDef {
-            name: "lane-member",
-            aliases: &[],
-            usage: "lane-member",
-            help: "Manage lane membership (guided prompt)",
-        },
-        CommandDef {
-            name: "inbox",
-            aliases: &[],
-            usage: "inbox [edit]",
-            help: "Open inbox browser",
-        },
-        CommandDef {
-            name: "bundles",
-            aliases: &[],
-            usage: "bundles [edit]",
-            help: "Open bundles browser",
-        },
-        CommandDef {
-            name: "bundle",
-            aliases: &[],
-            usage: "bundle",
-            help: "Create a bundle (opens Inbox)",
-        },
-        CommandDef {
-            name: "pins",
-            aliases: &[],
-            usage: "pins",
-            help: "List pinned bundles",
-        },
-        CommandDef {
-            name: "pin",
-            aliases: &[],
-            usage: "pin",
-            help: "Pin/unpin a bundle (guided)",
-        },
-        CommandDef {
-            name: "approve",
-            aliases: &[],
-            usage: "approve",
-            help: "Approve a bundle (guided)",
-        },
-        CommandDef {
-            name: "promote",
-            aliases: &[],
-            usage: "promote",
-            help: "Promote a bundle (guided)",
-        },
-        CommandDef {
-            name: "release",
-            aliases: &[],
-            usage: "release",
-            help: "Create a release (guided)",
-        },
-        CommandDef {
-            name: "superpositions",
-            aliases: &["supers"],
-            usage: "superpositions",
-            help: "Open superpositions (guided)",
-        },
-    ]);
-    out
-}
-
-fn root_command_defs(ctx: RootContext) -> Vec<CommandDef> {
-    match ctx {
-        RootContext::Local => local_root_command_defs(),
-        RootContext::Remote => remote_root_command_defs(),
-    }
-}
-
-// Note: we intentionally avoid a "global" palette. `/` should show only what is available
-// in the current context to keep the UI non-overwhelming.
-
-fn snaps_command_defs() -> Vec<CommandDef> {
-    vec![
-        CommandDef {
-            name: "back",
-            aliases: &[],
-            usage: "back",
-            help: "Return to root",
-        },
-        CommandDef {
-            name: "filter",
-            aliases: &[],
-            usage: "filter <q>",
-            help: "Filter snaps by id/message/time",
-        },
-        CommandDef {
-            name: "clear-filter",
-            aliases: &["unfilter"],
-            usage: "clear-filter",
-            help: "Clear snap filter",
-        },
-        CommandDef {
-            name: "msg",
-            aliases: &[],
-            usage: "msg [message...] | msg clear",
-            help: "Set/clear message on selected snap",
-        },
-        CommandDef {
-            name: "open",
-            aliases: &[],
-            usage: "open <snap_id_prefix>",
-            help: "Select a snap by id",
-        },
-        CommandDef {
-            name: "show",
-            aliases: &[],
-            usage: "show",
-            help: "Show selected snap details",
-        },
-        CommandDef {
-            name: "restore",
-            aliases: &[],
-            usage: "restore [<snap>] [force]",
-            help: "Restore selected snap",
-        },
-    ]
-}
-
-fn inbox_command_defs() -> Vec<CommandDef> {
-    vec![
-        CommandDef {
-            name: "back",
-            aliases: &[],
-            usage: "back",
-            help: "Return to root",
-        },
-        CommandDef {
-            name: "edit",
-            aliases: &[],
-            usage: "edit",
-            help: "Edit scope/gate/filter/limit",
-        },
-        CommandDef {
-            name: "bundle",
-            aliases: &[],
-            usage: "bundle [<publication_id>]",
-            help: "Create bundle from selection",
-        },
-        CommandDef {
-            name: "fetch",
-            aliases: &[],
-            usage: "fetch [<snap_id>]",
-            help: "Fetch selected snap",
-        },
-    ]
-}
-
-fn bundles_command_defs() -> Vec<CommandDef> {
-    vec![
-        CommandDef {
-            name: "back",
-            aliases: &[],
-            usage: "back",
-            help: "Return to root",
-        },
-        CommandDef {
-            name: "edit",
-            aliases: &[],
-            usage: "edit",
-            help: "Edit scope/gate/filter/limit",
-        },
-        CommandDef {
-            name: "approve",
-            aliases: &[],
-            usage: "approve [<bundle_id>]",
-            help: "Approve selected bundle",
-        },
-        CommandDef {
-            name: "pin",
-            aliases: &[],
-            usage: "pin [unpin]",
-            help: "Pin/unpin selected bundle",
-        },
-        CommandDef {
-            name: "promote",
-            aliases: &[],
-            usage: "promote [to <gate>]",
-            help: "Promote selected bundle",
-        },
-        CommandDef {
-            name: "release",
-            aliases: &[],
-            usage: "release",
-            help: "Create a release from selected bundle",
-        },
-        CommandDef {
-            name: "superpositions",
-            aliases: &["supers"],
-            usage: "superpositions",
-            help: "Open superpositions for selected bundle",
-        },
-    ]
-}
-
-fn superpositions_command_defs() -> Vec<CommandDef> {
-    vec![
-        CommandDef {
-            name: "back",
-            aliases: &[],
-            usage: "back",
-            help: "Return to root",
-        },
-        CommandDef {
-            name: "pick",
-            aliases: &[],
-            usage: "pick <n>",
-            help: "Pick variant for selected path",
-        },
-        CommandDef {
-            name: "clear",
-            aliases: &[],
-            usage: "clear",
-            help: "Clear decision for selected path",
-        },
-        CommandDef {
-            name: "next-missing",
-            aliases: &[],
-            usage: "next-missing",
-            help: "Jump to next missing decision",
-        },
-        CommandDef {
-            name: "next-invalid",
-            aliases: &[],
-            usage: "next-invalid",
-            help: "Jump to next invalid decision",
-        },
-        CommandDef {
-            name: "validate",
-            aliases: &[],
-            usage: "validate",
-            help: "Recompute validation",
-        },
-        CommandDef {
-            name: "apply",
-            aliases: &[],
-            usage: "apply [publish]",
-            help: "Apply resolution and optionally publish",
-        },
-    ]
-}
-
-fn lanes_command_defs() -> Vec<CommandDef> {
-    vec![
-        CommandDef {
-            name: "back",
-            aliases: &[],
-            usage: "back",
-            help: "Return to root",
-        },
-        CommandDef {
-            name: "fetch",
-            aliases: &[],
-            usage: "fetch",
-            help: "Fetch selected lane head",
-        },
-    ]
-}
-
-fn releases_command_defs() -> Vec<CommandDef> {
-    vec![
-        CommandDef {
-            name: "back",
-            aliases: &[],
-            usage: "back",
-            help: "Return to root",
-        },
-        CommandDef {
-            name: "fetch",
-            aliases: &[],
-            usage: "fetch [restore] [into <dir>] [force]",
-            help: "Fetch selected release (optional restore)",
-        },
-    ]
 }
 
 fn mode_command_defs(mode: UiMode, root_ctx: RootContext) -> Vec<CommandDef> {
@@ -3927,28 +3217,7 @@ impl App {
         // If a command is visible in the input hints, prioritize it in suggestions.
         // This makes the "type the first letter then Enter" flow match what the UI is already nudging.
         let hint_order = self.primary_hint_commands();
-        let mut hint_pos = std::collections::HashMap::<String, usize>::new();
-        for (i, h) in hint_order.into_iter().enumerate() {
-            hint_pos.insert(h, i);
-        }
-
-        scored.sort_by(|(sa, a), (sb, b)| {
-            let ha = hint_pos
-                .get(a.name)
-                .copied()
-                .or_else(|| a.aliases.iter().find_map(|al| hint_pos.get(*al).copied()));
-            let hb = hint_pos
-                .get(b.name)
-                .copied()
-                .or_else(|| b.aliases.iter().find_map(|al| hint_pos.get(*al).copied()));
-
-            match (ha, hb) {
-                (Some(ia), Some(ib)) => ia.cmp(&ib),
-                (Some(_), None) => std::cmp::Ordering::Less,
-                (None, Some(_)) => std::cmp::Ordering::Greater,
-                (None, None) => sb.cmp(sa).then_with(|| a.name.cmp(b.name)),
-            }
-        });
+        sort_scored_suggestions(&mut scored, &hint_order);
         self.suggestions = scored.into_iter().map(|(_, d)| d).collect();
         self.suggestion_selected = self.suggestion_selected.min(self.suggestions.len());
     }
@@ -9718,49 +8987,6 @@ impl App {
     }
 }
 
-fn score_match(q: &str, candidate: &str) -> i32 {
-    let q = q.to_lowercase();
-    let c = candidate.to_lowercase();
-    if c == q {
-        return 100;
-    }
-    if c.starts_with(&q) {
-        return 50 - (c.len() as i32 - q.len() as i32);
-    }
-    if c.contains(&q) {
-        return 10;
-    }
-    0
-}
-
-#[cfg(test)]
-fn sort_scored_suggestions_for_tests(
-    mut scored: Vec<(i32, CommandDef)>,
-    hints: &[&str],
-) -> Vec<CommandDef> {
-    let mut hint_pos = std::collections::HashMap::<String, usize>::new();
-    for (i, h) in hints.iter().enumerate() {
-        hint_pos.insert((*h).to_string(), i);
-    }
-    scored.sort_by(|(sa, a), (sb, b)| {
-        let ha = hint_pos
-            .get(a.name)
-            .copied()
-            .or_else(|| a.aliases.iter().find_map(|al| hint_pos.get(*al).copied()));
-        let hb = hint_pos
-            .get(b.name)
-            .copied()
-            .or_else(|| b.aliases.iter().find_map(|al| hint_pos.get(*al).copied()));
-        match (ha, hb) {
-            (Some(ia), Some(ib)) => ia.cmp(&ib),
-            (Some(_), None) => std::cmp::Ordering::Less,
-            (None, Some(_)) => std::cmp::Ordering::Greater,
-            (None, None) => sb.cmp(sa).then_with(|| a.name.cmp(b.name)),
-        }
-    });
-    scored.into_iter().map(|(_, d)| d).collect()
-}
-
 fn tokenize(input: &str) -> Result<Vec<String>> {
     let mut out = Vec::new();
     let mut cur = String::new();
@@ -11648,52 +10874,6 @@ mod releases_tests {
         assert_eq!(out[0].bundle_id, "b3");
         assert_eq!(out[1].channel, "stable");
         assert_eq!(out[1].bundle_id, "b2");
-    }
-}
-
-#[cfg(test)]
-mod suggestion_tests {
-    use super::*;
-
-    #[test]
-    fn hinted_commands_outrank_better_score() {
-        let help = CommandDef {
-            name: "help",
-            aliases: &["h"],
-            usage: "",
-            help: "",
-        };
-        let history = CommandDef {
-            name: "history",
-            aliases: &[],
-            usage: "",
-            help: "",
-        };
-
-        let defs = sort_scored_suggestions_for_tests(
-            vec![(100, help), (44, history)],
-            &["save", "history"],
-        );
-        assert_eq!(defs[0].name, "history");
-    }
-
-    #[test]
-    fn non_hinted_suggestions_keep_score_order() {
-        let a = CommandDef {
-            name: "alpha",
-            aliases: &[],
-            usage: "",
-            help: "",
-        };
-        let b = CommandDef {
-            name: "beta",
-            aliases: &[],
-            usage: "",
-            help: "",
-        };
-
-        let defs = sort_scored_suggestions_for_tests(vec![(10, a), (20, b)], &[]);
-        assert_eq!(defs[0].name, "beta");
     }
 }
 
