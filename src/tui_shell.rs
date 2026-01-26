@@ -45,7 +45,7 @@ mod view;
 use view::{RenderCtx, View, render_view_chrome, render_view_chrome_with_header};
 
 mod views;
-use views::SnapsView;
+use views::{BundlesView, InboxView, SnapsView};
 
 mod modal;
 
@@ -1117,17 +1117,6 @@ impl View for SettingsView {
     }
 }
 
-#[derive(Debug)]
-struct InboxView {
-    updated_at: String,
-    scope: String,
-    gate: String,
-    filter: Option<String>,
-    limit: Option<usize>,
-    items: Vec<crate::remote::Publication>,
-    selected: usize,
-}
-
 #[derive(Clone, Debug)]
 struct LaneHeadItem {
     lane_id: String,
@@ -1254,118 +1243,6 @@ impl View for LanesView {
     }
 }
 
-impl View for InboxView {
-    fn as_any(&self) -> &dyn Any {
-        self
-    }
-
-    fn as_any_mut(&mut self) -> &mut dyn Any {
-        self
-    }
-
-    fn mode(&self) -> UiMode {
-        UiMode::Inbox
-    }
-
-    fn title(&self) -> &str {
-        "Inbox"
-    }
-
-    fn updated_at(&self) -> &str {
-        &self.updated_at
-    }
-
-    fn move_up(&mut self) {
-        self.selected = self.selected.saturating_sub(1);
-    }
-
-    fn move_down(&mut self) {
-        if self.items.is_empty() {
-            self.selected = 0;
-            return;
-        }
-        let max = self.items.len().saturating_sub(1);
-        self.selected = (self.selected + 1).min(max);
-    }
-
-    fn render(&self, frame: &mut ratatui::Frame, area: ratatui::layout::Rect, _ctx: &RenderCtx) {
-        let inner = render_view_chrome(frame, self.title(), self.updated_at(), area);
-        let parts = Layout::default()
-            .direction(Direction::Vertical)
-            .constraints([Constraint::Percentage(65), Constraint::Percentage(35)])
-            .split(inner);
-
-        let mut state = ListState::default();
-        if !self.items.is_empty() {
-            state.select(Some(self.selected.min(self.items.len().saturating_sub(1))));
-        }
-
-        let mut rows = Vec::new();
-        for p in &self.items {
-            let rid = p.id.chars().take(8).collect::<String>();
-            let sid = p.snap_id.chars().take(8).collect::<String>();
-            let res = if p.resolution.is_some() {
-                " resolved"
-            } else {
-                ""
-            };
-            rows.push(ListItem::new(format!("{} {}{}", rid, sid, res)));
-        }
-        if rows.is_empty() {
-            rows.push(ListItem::new("(empty)"));
-        }
-
-        let list = List::new(rows)
-            .block(Block::default().borders(Borders::BOTTOM).title(format!(
-                "scope={} gate={}{}{} (Enter: bundle; /: commands)",
-                self.scope,
-                self.gate,
-                self.filter
-                    .as_ref()
-                    .map(|f| format!(" filter={}", f))
-                    .unwrap_or_default(),
-                self.limit
-                    .map(|n| format!(" limit={}", n))
-                    .unwrap_or_default()
-            )))
-            .highlight_style(Style::default().bg(Color::DarkGray));
-        frame.render_stateful_widget(list, parts[0], &mut state);
-
-        let details = if self.items.is_empty() {
-            vec![Line::from("(no selection)")]
-        } else {
-            let idx = self.selected.min(self.items.len().saturating_sub(1));
-            let p = &self.items[idx];
-            let mut out = Vec::new();
-            out.push(Line::from(format!("id: {}", p.id)));
-            out.push(Line::from(format!("snap: {}", p.snap_id)));
-            out.push(Line::from(format!("publisher: {}", p.publisher)));
-            out.push(Line::from(format!(
-                "created_at: {}",
-                fmt_ts_ui(&p.created_at)
-            )));
-            if let Some(r) = &p.resolution {
-                out.push(Line::from(""));
-                out.push(Line::from("resolution:"));
-                out.push(Line::from(format!("  bundle_id: {}", r.bundle_id)));
-            }
-            out
-        };
-        frame.render_widget(Paragraph::new(details).wrap(Wrap { trim: false }), parts[1]);
-    }
-}
-
-#[derive(Debug)]
-struct BundlesView {
-    updated_at: String,
-    scope: String,
-    gate: String,
-    filter: Option<String>,
-    limit: Option<usize>,
-    items: Vec<crate::remote::Bundle>,
-    selected: usize,
-}
-
 #[derive(Debug)]
 struct ReleasesView {
     updated_at: String,
@@ -1460,104 +1337,6 @@ impl View for ReleasesView {
             if let Some(n) = &r.notes {
                 out.push(Line::from(""));
                 out.push(Line::from(format!("notes: {}", n)));
-            }
-            out
-        };
-        frame.render_widget(Paragraph::new(details).wrap(Wrap { trim: false }), parts[1]);
-    }
-}
-
-impl View for BundlesView {
-    fn as_any(&self) -> &dyn Any {
-        self
-    }
-
-    fn as_any_mut(&mut self) -> &mut dyn Any {
-        self
-    }
-
-    fn mode(&self) -> UiMode {
-        UiMode::Bundles
-    }
-
-    fn title(&self) -> &str {
-        "Bundles"
-    }
-
-    fn updated_at(&self) -> &str {
-        &self.updated_at
-    }
-
-    fn move_up(&mut self) {
-        self.selected = self.selected.saturating_sub(1);
-    }
-
-    fn move_down(&mut self) {
-        if self.items.is_empty() {
-            self.selected = 0;
-            return;
-        }
-        let max = self.items.len().saturating_sub(1);
-        self.selected = (self.selected + 1).min(max);
-    }
-
-    fn render(&self, frame: &mut ratatui::Frame, area: ratatui::layout::Rect, _ctx: &RenderCtx) {
-        let inner = render_view_chrome(frame, self.title(), self.updated_at(), area);
-        let parts = Layout::default()
-            .direction(Direction::Vertical)
-            .constraints([Constraint::Percentage(65), Constraint::Percentage(35)])
-            .split(inner);
-
-        let mut state = ListState::default();
-        if !self.items.is_empty() {
-            state.select(Some(self.selected.min(self.items.len().saturating_sub(1))));
-        }
-
-        let mut rows = Vec::new();
-        for b in &self.items {
-            let bid = b.id.chars().take(8).collect::<String>();
-            let tag = if b.promotable {
-                "promotable"
-            } else {
-                "blocked"
-            };
-            rows.push(ListItem::new(format!("{} {}", bid, tag)));
-        }
-        if rows.is_empty() {
-            rows.push(ListItem::new("(empty)"));
-        }
-
-        let list = List::new(rows)
-            .block(Block::default().borders(Borders::BOTTOM).title(format!(
-                "scope={} gate={}{}{} (/ for commands)",
-                self.scope,
-                self.gate,
-                self.filter
-                    .as_ref()
-                    .map(|f| format!(" filter={}", f))
-                    .unwrap_or_default(),
-                self.limit
-                    .map(|n| format!(" limit={}", n))
-                    .unwrap_or_default()
-            )))
-            .highlight_style(Style::default().bg(Color::DarkGray));
-        frame.render_stateful_widget(list, parts[0], &mut state);
-
-        let details = if self.items.is_empty() {
-            vec![Line::from("(no selection)")]
-        } else {
-            let idx = self.selected.min(self.items.len().saturating_sub(1));
-            let b = &self.items[idx];
-            let mut out = Vec::new();
-            out.push(Line::from(format!("id: {}", b.id)));
-            out.push(Line::from(format!(
-                "created_at: {}",
-                fmt_ts_ui(&b.created_at)
-            )));
-            out.push(Line::from(format!("created_by: {}", b.created_by)));
-            out.push(Line::from(format!("promotable: {}", b.promotable)));
-            if !b.reasons.is_empty() {
-                out.push(Line::from(format!("reasons: {}", b.reasons.join(", "))));
             }
             out
         };
