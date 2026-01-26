@@ -15,6 +15,17 @@ pub(super) fn global_command_defs() -> Vec<CommandDef> {
             help: "Open settings",
         },
         CommandDef {
+            name: "quit",
+            aliases: &[],
+            usage: "quit",
+            help: "Exit",
+        },
+    ]
+}
+
+fn auth_command_defs() -> Vec<CommandDef> {
+    vec![
+        CommandDef {
             name: "login",
             aliases: &[],
             usage: "login",
@@ -26,17 +37,12 @@ pub(super) fn global_command_defs() -> Vec<CommandDef> {
             usage: "logout",
             help: "Clear stored remote token",
         },
-        CommandDef {
-            name: "quit",
-            aliases: &[],
-            usage: "quit",
-            help: "Exit",
-        },
     ]
 }
 
 pub(super) fn local_root_command_defs() -> Vec<CommandDef> {
     let mut out = global_command_defs();
+    out.extend(auth_command_defs());
     out.extend(vec![
         CommandDef {
             name: "status",
@@ -116,6 +122,7 @@ pub(super) fn local_root_command_defs() -> Vec<CommandDef> {
 
 pub(super) fn remote_root_command_defs() -> Vec<CommandDef> {
     let mut out = global_command_defs();
+    out.extend(auth_command_defs());
     out.extend(vec![
         CommandDef {
             name: "status",
@@ -267,18 +274,6 @@ pub(super) fn snaps_command_defs() -> Vec<CommandDef> {
             aliases: &[],
             usage: "msg [message...] | msg clear",
             help: "Set/clear message on selected snap",
-        },
-        CommandDef {
-            name: "open",
-            aliases: &[],
-            usage: "open <snap_id_prefix>",
-            help: "Select a snap by id",
-        },
-        CommandDef {
-            name: "show",
-            aliases: &[],
-            usage: "show",
-            help: "Show selected snap details",
         },
         CommandDef {
             name: "restore",

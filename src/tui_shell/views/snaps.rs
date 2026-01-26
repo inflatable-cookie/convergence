@@ -116,7 +116,7 @@ impl View for SnapsView {
 
         let list = List::new(rows)
             .block(Block::default().borders(Borders::BOTTOM).title(format!(
-                "snaps{} (Enter: show; /: commands)",
+                "snaps{} (/: commands)",
                 self.filter
                     .as_ref()
                     .map(|f| format!(" filter={}", f))

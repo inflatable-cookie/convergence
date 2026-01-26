@@ -663,7 +663,7 @@ impl App {
                     }
                 }
             },
-            UiMode::Snaps => vec!["show".to_string(), "restore".to_string()],
+            UiMode::Snaps => Vec::new(),
             UiMode::Inbox => vec!["bundle".to_string(), "fetch".to_string()],
             UiMode::Releases => vec!["fetch".to_string(), "back".to_string()],
             UiMode::Lanes => vec!["fetch".to_string(), "back".to_string()],
@@ -1438,11 +1438,19 @@ impl App {
                 true
             }
             "login" => {
-                self.cmd_login(args);
+                if self.mode() != UiMode::Root {
+                    self.push_error("login is only available at root".to_string());
+                } else {
+                    self.cmd_login(args);
+                }
                 true
             }
             "logout" => {
-                self.cmd_logout(args);
+                if self.mode() != UiMode::Root {
+                    self.push_error("logout is only available at root".to_string());
+                } else {
+                    self.cmd_logout(args);
+                }
                 true
             }
             _ => false,
@@ -1458,9 +1466,7 @@ impl App {
                 }
                 "filter" => self.cmd_snaps_filter(args),
                 "clear-filter" => self.cmd_snaps_clear_filter(args),
-                "open" => self.cmd_snaps_open(args),
                 "msg" => self.cmd_snaps_msg(args),
-                "show" => self.cmd_snaps_show(args),
                 "restore" => self.cmd_snaps_restore(args),
                 _ => {
                     if !self.dispatch_global(cmd, args) {
@@ -1964,51 +1970,6 @@ impl App {
         }
     }
 
-    fn cmd_snaps_open(&mut self, args: &[String]) {
-        if args.len() != 1 {
-            self.push_error("usage: open <snap_id_prefix>".to_string());
-            return;
-        }
-
-        let q = args[0].to_lowercase();
-
-        let selected_id = {
-            let Some(v) = self.current_view_mut::<SnapsView>() else {
-                self.push_error("not in snaps mode".to_string());
-                return;
-            };
-
-            let filter = &mut v.filter;
-            let all_items = &mut v.all_items;
-            let items = &mut v.items;
-            let selected = &mut v.selected;
-            let updated_at = &mut v.updated_at;
-
-            if let Some(i) = items
-                .iter()
-                .position(|s| s.id.to_lowercase().starts_with(&q))
-            {
-                *selected = i;
-                *updated_at = now_ts();
-                items[i].id.clone()
-            } else if let Some(i) = all_items
-                .iter()
-                .position(|s| s.id.to_lowercase().starts_with(&q))
-            {
-                *filter = None;
-                *items = all_items.clone();
-                *selected = i;
-                *updated_at = now_ts();
-                items[i].id.clone()
-            } else {
-                self.push_error(format!("no snap matches {}", args[0]));
-                return;
-            }
-        };
-
-        self.push_output(vec![format!("selected {}", selected_id)]);
-    }
-
     fn cmd_snaps_filter(&mut self, args: &[String]) {
         let q = args.join(" ").trim().to_string();
 
@@ -2082,43 +2043,6 @@ impl App {
             Ok(line) => self.push_output(vec![line]),
             Err(err) => self.push_error(err),
         }
-    }
-
-    fn cmd_snaps_show(&mut self, args: &[String]) {
-        if !args.is_empty() {
-            self.push_error("usage: show".to_string());
-            return;
-        }
-
-        let Some(SnapsView {
-            items, selected, ..
-        }) = self.current_view::<SnapsView>()
-        else {
-            self.push_error("not in snaps mode".to_string());
-            return;
-        };
-
-        if items.is_empty() {
-            self.push_error("(no snaps)".to_string());
-            return;
-        }
-
-        let idx = (*selected).min(items.len().saturating_sub(1));
-        let s = &items[idx];
-        let mut lines = Vec::new();
-        lines.push(format!("id: {}", s.id));
-        lines.push(format!("created_at: {}", s.created_at));
-        if let Some(msg) = &s.message
-            && !msg.is_empty()
-        {
-            lines.push(format!("message: {}", msg));
-        }
-        lines.push(format!("root_manifest: {}", s.root_manifest.as_str()));
-        lines.push(format!(
-            "stats: files={} dirs={} symlinks={} bytes={}",
-            s.stats.files, s.stats.dirs, s.stats.symlinks, s.stats.bytes
-        ));
-        self.push_output(lines);
     }
 
     fn cmd_snaps_restore(&mut self, args: &[String]) {
