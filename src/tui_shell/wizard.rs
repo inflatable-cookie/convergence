@@ -1,5 +1,10 @@
 use crate::model::RemoteConfig;
 
+use std::fs;
+use std::path::Path;
+
+use anyhow::{Context, Result};
+
 use super::TextInputAction;
 use super::views::{BundlesView, InboxView};
 
@@ -96,6 +101,13 @@ pub(super) struct BrowseWizard {
     pub(super) limit: Option<usize>,
 }
 
+#[derive(Clone, Debug)]
+pub(super) struct MoveWizard {
+    pub(super) query: Option<String>,
+    pub(super) candidates: Vec<String>,
+    pub(super) from: Option<String>,
+}
+
 impl super::App {
     pub(super) fn cancel_wizards(&mut self) {
         self.login_wizard = None;
@@ -108,6 +120,39 @@ impl super::App {
         self.member_wizard = None;
         self.lane_member_wizard = None;
         self.browse_wizard = None;
+        self.move_wizard = None;
+    }
+
+    pub(super) fn start_move_wizard(&mut self, initial_query: Option<String>) {
+        let Some(_ws) = self.require_workspace() else {
+            return;
+        };
+
+        self.move_wizard = Some(MoveWizard {
+            query: initial_query.clone(),
+            candidates: Vec::new(),
+            from: None,
+        });
+
+        self.open_text_input_modal(
+            "Move",
+            "from (glob)> ",
+            TextInputAction::MoveFrom,
+            initial_query,
+            vec![
+                "Enter a glob to find the source path.".to_string(),
+                "Tip: a plain token searches as **/*<token>*.".to_string(),
+                "Examples: src/**/*.rs   docs/*.md   README.md".to_string(),
+            ],
+        );
+    }
+
+    pub(super) fn continue_move_wizard(&mut self, action: TextInputAction, value: String) {
+        match action {
+            TextInputAction::MoveFrom => self.move_wizard_from(value),
+            TextInputAction::MoveTo => self.move_wizard_to(value),
+            _ => self.push_error("unexpected move wizard input".to_string()),
+        }
     }
 
     pub(super) fn start_login_wizard(&mut self) {
@@ -1534,4 +1579,232 @@ impl super::App {
             BrowseTarget::Bundles => self.open_bundles_view(w.scope, w.gate, w.filter, w.limit),
         }
     }
+
+    fn move_wizard_from(&mut self, value: String) {
+        let Some(ws) = self.require_workspace() else {
+            return;
+        };
+        let Some(w) = self.move_wizard.as_mut() else {
+            self.push_error("move wizard not active".to_string());
+            return;
+        };
+
+        let raw = value.trim().to_string();
+        if raw.is_empty() {
+            self.push_error("missing from glob".to_string());
+            return;
+        }
+
+        if !w.candidates.is_empty()
+            && raw.chars().all(|c| c.is_ascii_digit())
+            && let Ok(n) = raw.parse::<usize>()
+            && n >= 1
+            && n <= w.candidates.len()
+        {
+            let from = w.candidates[n - 1].clone();
+            w.candidates.clear();
+            w.query = Some(raw);
+            w.from = Some(from.clone());
+            self.open_text_input_modal(
+                "Move",
+                "to> ",
+                TextInputAction::MoveTo,
+                Some(from.clone()),
+                vec![
+                    format!("from: {}", from),
+                    "Edit the destination path (relative to workspace root).".to_string(),
+                ],
+            );
+            return;
+        }
+
+        w.query = Some(raw.clone());
+        let matches = match glob_search(&ws.root, &raw) {
+            Ok(m) => m,
+            Err(err) => {
+                w.candidates.clear();
+                self.open_text_input_modal(
+                    "Move",
+                    "from (glob)> ",
+                    TextInputAction::MoveFrom,
+                    Some(raw),
+                    vec![
+                        format!("error: {:#}", err),
+                        "".to_string(),
+                        "Enter a glob to find the source path.".to_string(),
+                    ],
+                );
+                return;
+            }
+        };
+
+        if matches.is_empty() {
+            w.candidates.clear();
+            self.open_text_input_modal(
+                "Move",
+                "from (glob)> ",
+                TextInputAction::MoveFrom,
+                Some(raw),
+                vec![
+                    "error: no matches".to_string(),
+                    "".to_string(),
+                    "Try a more specific glob.".to_string(),
+                ],
+            );
+            return;
+        }
+
+        if matches.len() == 1 {
+            let from = matches[0].clone();
+            w.candidates.clear();
+            w.from = Some(from.clone());
+            self.open_text_input_modal(
+                "Move",
+                "to> ",
+                TextInputAction::MoveTo,
+                Some(from.clone()),
+                vec![
+                    format!("from: {}", from),
+                    "Edit the destination path (relative to workspace root).".to_string(),
+                ],
+            );
+            return;
+        }
+
+        w.candidates = matches.clone();
+        let mut lines = Vec::new();
+        lines.push(format!("matches: {}", matches.len()));
+        lines.push("Enter a number to pick, or refine the glob.".to_string());
+        lines.push("".to_string());
+
+        let limit = 20usize;
+        for (i, p) in matches.iter().take(limit).enumerate() {
+            lines.push(format!("{:>2}. {}", i + 1, p));
+        }
+        if matches.len() > limit {
+            lines.push(format!("… and {} more", matches.len() - limit));
+        }
+
+        self.open_text_input_modal(
+            "Move",
+            "from (glob or #)> ",
+            TextInputAction::MoveFrom,
+            Some(raw),
+            lines,
+        );
+    }
+
+    fn move_wizard_to(&mut self, value: String) {
+        let Some(ws) = self.require_workspace() else {
+            return;
+        };
+        let Some(w) = self.move_wizard.as_mut() else {
+            self.push_error("move wizard not active".to_string());
+            return;
+        };
+
+        let Some(from) = w.from.clone() else {
+            self.push_error("missing from".to_string());
+            self.move_wizard = None;
+            return;
+        };
+
+        let to = value.trim().trim_start_matches("./").to_string();
+        if to.is_empty() {
+            self.push_error("missing destination".to_string());
+            return;
+        }
+        if to == from {
+            self.push_error("destination must differ from source".to_string());
+            return;
+        }
+
+        match ws.move_path(Path::new(&from), Path::new(&to)) {
+            Ok(()) => {
+                self.move_wizard = None;
+                self.push_output(vec![format!("moved {} -> {}", from, to)]);
+                self.refresh_root_view();
+            }
+            Err(err) => {
+                self.open_text_input_modal(
+                    "Move",
+                    "to> ",
+                    TextInputAction::MoveTo,
+                    Some(to),
+                    vec![
+                        format!("from: {}", from),
+                        format!("error: {:#}", err),
+                        "Edit destination and try again.".to_string(),
+                    ],
+                );
+            }
+        }
+    }
+}
+
+fn is_glob_query(s: &str) -> bool {
+    s.contains('*') || s.contains('?') || s.contains('[')
+}
+
+fn normalize_glob_query(q: &str) -> String {
+    let q = q.trim().trim_start_matches("./");
+    if q.is_empty() {
+        return q.to_string();
+    }
+    if is_glob_query(q) {
+        q.to_string()
+    } else {
+        format!("**/*{}*", q)
+    }
+}
+
+fn collect_paths(root: &Path) -> Result<Vec<String>> {
+    fn walk(root: &Path, dir: &Path, out: &mut Vec<String>) -> Result<()> {
+        for entry in fs::read_dir(dir).with_context(|| format!("read dir {}", dir.display()))? {
+            let entry = entry.context("read dir entry")?;
+            let name = entry.file_name();
+            let name = name.to_string_lossy();
+            if name.as_ref() == ".converge" || name.as_ref() == ".git" {
+                continue;
+            }
+            if name.as_ref().starts_with(".converge_tmp_") {
+                continue;
+            }
+
+            let path = entry.path();
+            let rel = path
+                .strip_prefix(root)
+                .unwrap_or(&path)
+                .to_string_lossy()
+                .replace('\\', "/");
+            out.push(rel);
+
+            let ft = entry.file_type().context("read file type")?;
+            if ft.is_dir() {
+                walk(root, &path, out)?;
+            }
+        }
+        Ok(())
+    }
+
+    let mut out = Vec::new();
+    walk(root, root, &mut out)?;
+    out.sort();
+    Ok(out)
+}
+
+fn glob_search(root: &Path, query: &str) -> Result<Vec<String>> {
+    let query = normalize_glob_query(query);
+    let matcher = globset::Glob::new(&query)
+        .with_context(|| format!("invalid glob: {}", query))?
+        .compile_matcher();
+
+    let all = collect_paths(root)?;
+    let mut out = Vec::new();
+    for p in all {
+        if matcher.is_match(&p) {
+            out.push(p);
+        }
+    }
+    Ok(out)
 }

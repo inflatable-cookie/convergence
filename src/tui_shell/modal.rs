@@ -249,6 +249,8 @@ pub(super) fn handle_modal_key(app: &mut super::App, key: KeyEvent) {
                         | super::TextInputAction::FetchId
                         | super::TextInputAction::FetchUser
                         | super::TextInputAction::FetchOptions
+                        | super::TextInputAction::MoveFrom
+                        | super::TextInputAction::MoveTo
                         | super::TextInputAction::PublishStart
                         | super::TextInputAction::PromoteToGate
                         | super::TextInputAction::PromoteBundleId

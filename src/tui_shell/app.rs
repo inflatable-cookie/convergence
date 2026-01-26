@@ -40,7 +40,7 @@ use super::views::{
 };
 use super::wizard::{
     BrowseTarget, BrowseWizard, FetchWizard, LaneMemberWizard, LoginWizard, MemberAction,
-    MemberWizard, PinWizard, PromoteWizard, PublishWizard, ReleaseWizard, SyncWizard,
+    MemberWizard, MoveWizard, PinWizard, PromoteWizard, PublishWizard, ReleaseWizard, SyncWizard,
 };
 
 pub(super) fn run() -> Result<()> {
@@ -227,6 +227,9 @@ pub(super) enum TextInputAction {
     LaneMemberAction,
     LaneMemberLane,
     LaneMemberHandle,
+
+    MoveFrom,
+    MoveTo,
 
     BrowseScope,
     BrowseGate,
@@ -489,6 +492,7 @@ pub(super) struct App {
     pub(super) member_wizard: Option<MemberWizard>,
     pub(super) lane_member_wizard: Option<LaneMemberWizard>,
     pub(super) browse_wizard: Option<BrowseWizard>,
+    pub(super) move_wizard: Option<MoveWizard>,
 
     input: Input,
 
@@ -532,6 +536,7 @@ impl Default for App {
             member_wizard: None,
             lane_member_wizard: None,
             browse_wizard: None,
+            move_wizard: None,
             input: Input::default(),
             suggestions: Vec::new(),
             suggestion_selected: 0,
@@ -1381,7 +1386,7 @@ impl App {
                 "history" => self.cmd_snaps(args),
                 "show" => self.cmd_show(args),
                 "restore" => self.cmd_restore(args),
-                "mv" => self.cmd_mv(args),
+                "move" => self.cmd_move(args),
                 "purge" => self.cmd_gc(args),
 
                 "clear" => {
@@ -1440,7 +1445,7 @@ impl App {
                     self.quit = true;
                 }
 
-                "init" | "snap" | "publish" | "history" | "show" | "restore" | "mv" => {
+                "init" | "snap" | "publish" | "history" | "show" | "restore" | "move" | "mv" => {
                     self.push_error("local command; press Tab to switch to local".to_string());
                 }
 
@@ -2798,12 +2803,21 @@ impl App {
         }
     }
 
-    fn cmd_mv(&mut self, args: &[String]) {
+    fn cmd_move(&mut self, args: &[String]) {
+        if args.is_empty() {
+            self.start_move_wizard(None);
+            return;
+        }
+        if args.len() == 1 {
+            self.start_move_wizard(Some(args[0].clone()));
+            return;
+        }
+
         let Some(ws) = self.require_workspace() else {
             return;
         };
         if args.len() != 2 {
-            self.push_error("usage: mv <from> <to>".to_string());
+            self.push_error("usage: move [<from>] [<to>]".to_string());
             return;
         }
 
@@ -2814,7 +2828,7 @@ impl App {
                 self.push_output(vec![format!("moved {} -> {}", from, to)]);
                 self.refresh_root_view();
             }
-            Err(err) => self.push_error(format!("mv: {:#}", err)),
+            Err(err) => self.push_error(format!("move: {:#}", err)),
         }
     }
 
@@ -3838,6 +3852,10 @@ impl App {
             | TextInputAction::BrowseFilter
             | TextInputAction::BrowseLimit => {
                 self.continue_browse_wizard(action, value);
+            }
+
+            TextInputAction::MoveFrom | TextInputAction::MoveTo => {
+                self.continue_move_wizard(action, value);
             }
         }
     }

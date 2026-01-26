@@ -9,6 +9,7 @@ axum = "0.7"
 blake3 = "1"
 clap = { version = "4", features = ["derive"] }
 crossterm = "0.28"
+globset = "0.4"
 getrandom = "0.2"
 ratatui = "0.29"
 reqwest = { version = "0.12", features = ["blocking", "json", "rustls-tls"] }

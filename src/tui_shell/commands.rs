@@ -99,10 +99,10 @@ pub(super) fn local_root_command_defs() -> Vec<CommandDef> {
             help: "Restore a snap into the working directory",
         },
         CommandDef {
-            name: "mv",
-            aliases: &["move"],
-            usage: "mv <from> <to>",
-            help: "Move/rename a path (case-safe)",
+            name: "move",
+            aliases: &["mv"],
+            usage: "move [<from>] [<to>]",
+            help: "Move/rename a path (guided; case-safe)",
         },
         CommandDef {
             name: "purge",
