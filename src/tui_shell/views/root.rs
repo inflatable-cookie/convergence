@@ -24,6 +24,10 @@ pub(in crate::tui_shell) struct RootView {
     pub(in crate::tui_shell) change_summary: ChangeSummary,
     baseline_compact: Option<String>,
     change_keys: Vec<String>,
+
+    remote_repo: Option<String>,
+    remote_scope: Option<String>,
+    remote_gate: Option<String>,
 }
 
 impl RootView {
@@ -37,10 +41,27 @@ impl RootView {
             change_summary: ChangeSummary::default(),
             baseline_compact: None,
             change_keys: Vec::new(),
+
+            remote_repo: None,
+            remote_scope: None,
+            remote_gate: None,
         }
     }
 
     pub(in crate::tui_shell) fn refresh(&mut self, ws: Option<&Workspace>, ctx: &RenderCtx) {
+        if self.ctx == RootContext::Remote {
+            let remote_cfg = ws
+                .and_then(|ws| ws.store.read_config().ok())
+                .and_then(|c| c.remote);
+            self.remote_repo = remote_cfg.as_ref().map(|r| r.repo_id.clone());
+            self.remote_scope = remote_cfg.as_ref().map(|r| r.scope.clone());
+            self.remote_gate = remote_cfg.as_ref().map(|r| r.gate.clone());
+        } else {
+            self.remote_repo = None;
+            self.remote_scope = None;
+            self.remote_gate = None;
+        }
+
         let prev_lines_len = self.lines.len();
         let prev_baseline = self.baseline_compact.clone();
         let prev_keys = self.change_keys.clone();
@@ -54,8 +75,8 @@ impl RootView {
                 if let Some(lines) = self.remote_auth_block_lines.clone() {
                     lines
                 } else {
-                    dashboard_lines(ws, ctx, self.ctx)
-                        .unwrap_or_else(|e| vec![format!("dashboard: {:#}", e)])
+                    dashboard_lines(ws, ctx)
+                        .unwrap_or_else(|e| vec![sanitize_dashboard_err(&format!("{:#}", e))])
                 }
             }
         };
@@ -115,6 +136,15 @@ impl RootView {
                 .iter()
                 .any(|l| l.to_lowercase().contains("remote repo not found"))
     }
+}
+
+fn sanitize_dashboard_err(msg: &str) -> String {
+    const REPO_NOT_FOUND_SUFFIX: &str =
+        " (create it with `converge remote create-repo` or POST /repos)";
+
+    let msg = msg.trim();
+    let msg = msg.strip_suffix(REPO_NOT_FOUND_SUFFIX).unwrap_or(msg);
+    format!("dashboard: {}", msg)
 }
 
 impl View for RootView {
@@ -195,10 +225,18 @@ impl View for RootView {
                 render_view_chrome_with_header(frame, header, area)
             }
             RootContext::Remote => {
+                let repo = self.remote_repo.as_deref().unwrap_or("-");
+                let scope = self.remote_scope.as_deref().unwrap_or("-");
+                let gate = self.remote_gate.as_deref().unwrap_or("-");
                 let header = Line::from(vec![
                     Span::styled(
                         self.title().to_string(),
                         Style::default().fg(root_ctx_color(RootContext::Remote)),
+                    ),
+                    Span::raw("  "),
+                    Span::styled(
+                        format!("repo={} scope={} gate={}", repo, scope, gate),
+                        Style::default().fg(Color::Gray),
                     ),
                     Span::raw("  "),
                     Span::styled(

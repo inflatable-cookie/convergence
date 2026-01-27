@@ -2,14 +2,16 @@ use std::any::Any;
 
 use ratatui::layout::{Constraint, Direction, Layout};
 use ratatui::style::{Color, Style};
-use ratatui::text::Line;
+use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, List, ListItem, ListState, Paragraph, Wrap};
 
-use super::super::{RenderCtx, UiMode, View, fmt_ts_ui, render_view_chrome};
+use super::super::view::render_view_chrome_with_header;
+use super::super::{RenderCtx, UiMode, View, fmt_ts_ui};
 
 #[derive(Debug)]
 pub(in crate::tui_shell) struct InboxView {
     pub(in crate::tui_shell) updated_at: String,
+    pub(in crate::tui_shell) repo: String,
     pub(in crate::tui_shell) scope: String,
     pub(in crate::tui_shell) gate: String,
     pub(in crate::tui_shell) filter: Option<String>,
@@ -53,7 +55,20 @@ impl View for InboxView {
     }
 
     fn render(&self, frame: &mut ratatui::Frame, area: ratatui::layout::Rect, _ctx: &RenderCtx) {
-        let inner = render_view_chrome(frame, self.title(), self.updated_at(), area);
+        let header = Line::from(vec![
+            Span::styled(self.title().to_string(), Style::default().fg(Color::Yellow)),
+            Span::raw("  "),
+            Span::styled(
+                format!("repo={} scope={} gate={}", self.repo, self.scope, self.gate),
+                Style::default().fg(Color::Gray),
+            ),
+            Span::raw("  "),
+            Span::styled(
+                fmt_ts_ui(self.updated_at()),
+                Style::default().fg(Color::Gray),
+            ),
+        ]);
+        let inner = render_view_chrome_with_header(frame, header, area);
         let parts = Layout::default()
             .direction(Direction::Vertical)
             .constraints([Constraint::Percentage(65), Constraint::Percentage(35)])
@@ -79,19 +94,26 @@ impl View for InboxView {
             rows.push(ListItem::new("(empty)"));
         }
 
+        let mut subtitle = String::new();
+        if let Some(f) = &self.filter {
+            subtitle.push_str(&format!("filter={}", f));
+        }
+        if let Some(n) = self.limit {
+            if !subtitle.is_empty() {
+                subtitle.push(' ');
+            }
+            subtitle.push_str(&format!("limit={}", n));
+        }
+        if subtitle.is_empty() {
+            subtitle = "(all)".to_string();
+        }
+
         let list = List::new(rows)
-            .block(Block::default().borders(Borders::BOTTOM).title(format!(
-                "scope={} gate={}{}{} (Enter: bundle; /: commands)",
-                self.scope,
-                self.gate,
-                self.filter
-                    .as_ref()
-                    .map(|f| format!(" filter={}", f))
-                    .unwrap_or_default(),
-                self.limit
-                    .map(|n| format!(" limit={}", n))
-                    .unwrap_or_default()
-            )))
+            .block(
+                Block::default()
+                    .borders(Borders::BOTTOM)
+                    .title(format!("{} (Enter: bundle; /: commands)", subtitle)),
+            )
             .highlight_style(Style::default().bg(Color::DarkGray));
         frame.render_stateful_widget(list, parts[0], &mut state);
 

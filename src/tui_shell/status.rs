@@ -5,7 +5,7 @@ use crate::remote::RemoteClient;
 use crate::store::LocalStore;
 use crate::workspace::Workspace;
 
-use super::{RenderCtx, RootContext};
+use super::RenderCtx;
 
 #[derive(Clone, Copy, Debug, Default)]
 pub(super) struct ChangeSummary {
@@ -1006,22 +1006,7 @@ pub(super) fn remote_status_lines(ws: &Workspace, ctx: &RenderCtx) -> Result<Vec
     Ok(lines)
 }
 
-pub(super) fn dashboard_lines(
-    ws: &Workspace,
-    ctx: &RenderCtx,
-    primary: RootContext,
-) -> Result<Vec<String>> {
-    #[derive(Default)]
-    struct LocalSummary {
-        snaps: usize,
-        head: Option<String>,
-        baseline: Option<(String, String)>,
-        changes_total: usize,
-        added: usize,
-        modified: usize,
-        deleted: usize,
-    }
-
+pub(super) fn dashboard_lines(ws: &Workspace, ctx: &RenderCtx) -> Result<Vec<String>> {
     #[derive(Default)]
     struct RemoteSummary {
         configured: bool,
@@ -1041,103 +1026,6 @@ pub(super) fn dashboard_lines(
         releases_channels: usize,
         gates_total: usize,
         terminal_gate: Option<String>,
-    }
-
-    fn local_summary(ws: &Workspace, ctx: &RenderCtx) -> Result<(Vec<String>, LocalSummary)> {
-        let snaps = ws.list_snaps()?;
-        let mut out = Vec::new();
-        let head = ws.store.get_head().ok().flatten();
-        let mut sum = LocalSummary {
-            snaps: snaps.len(),
-            head: head.clone(),
-            ..Default::default()
-        };
-
-        let mut baseline: Option<crate::model::SnapRecord> = None;
-        if let Some(h) = head.clone()
-            && let Ok(s) = ws.show_snap(&h)
-        {
-            baseline = Some(s);
-        }
-        if baseline.is_none() {
-            baseline = snaps.first().cloned();
-        }
-
-        let (cur_root, cur_manifests, _stats) = ws.current_manifest_tree()?;
-        let changes = diff_trees_with_renames(
-            &ws.store,
-            baseline.as_ref().map(|s| &s.root_manifest),
-            &cur_root,
-            &cur_manifests,
-            Some(ws.root.as_path()),
-            chunk_size_bytes_from_workspace(ws),
-        )?;
-
-        sum.changes_total = changes.len();
-        for c in &changes {
-            match c {
-                StatusChange::Added(_) => sum.added += 1,
-                StatusChange::Modified(_) => sum.modified += 1,
-                StatusChange::Deleted(_) => sum.deleted += 1,
-                StatusChange::Renamed { .. } => {
-                    // For the dashboard summary, treat renames as "modified" for now.
-                    sum.modified += 1;
-                }
-            }
-        }
-
-        if let Some(s) = &baseline {
-            let short = s.id.chars().take(8).collect::<String>();
-            sum.baseline = Some((short.clone(), super::fmt_ts_list(&s.created_at, ctx)));
-        }
-
-        out.push("Local".to_string());
-        out.push(format!("workspace: {}", ws.root.display()));
-        out.push(format!(
-            "snaps: {}{}",
-            sum.snaps,
-            sum.head
-                .as_ref()
-                .map(|h| format!(" (head {})", h.chars().take(8).collect::<String>()))
-                .unwrap_or_default()
-        ));
-        if let Some((short, ts)) = &sum.baseline {
-            out.push(format!("baseline: {} {}", short, ts));
-        } else {
-            out.push("baseline: (none yet)".to_string());
-        }
-
-        if sum.changes_total == 0 {
-            out.push("status: Clean".to_string());
-        } else {
-            out.push(format!(
-                "status: {} changes ({}A {}M {}D)",
-                sum.changes_total, sum.added, sum.modified, sum.deleted
-            ));
-        }
-
-        // Config bits that affect “what to do next”.
-        let cfg = ws.store.read_config()?;
-        if let Some(r) = cfg.retention {
-            let mut parts = Vec::new();
-            if let Some(n) = r.keep_last {
-                parts.push(format!("keep_last={}", n));
-            }
-            if let Some(n) = r.keep_days {
-                parts.push(format!("keep_days={}", n));
-            }
-            if !r.pinned.is_empty() {
-                parts.push(format!("pinned={}", r.pinned.len()));
-            }
-            if r.prune_snaps {
-                parts.push("prune_snaps=true".to_string());
-            }
-            if !parts.is_empty() {
-                out.push(format!("retention: {}", parts.join(" ")));
-            }
-        }
-
-        Ok((out, sum))
     }
 
     fn remote_summary(ws: &Workspace, ctx: &RenderCtx) -> Result<(Vec<String>, RemoteSummary)> {
@@ -1284,16 +1172,9 @@ pub(super) fn dashboard_lines(
         Ok((out, sum))
     }
 
-    let (local_lines, local) = local_summary(ws, ctx)?;
     let (remote_lines, remote) = remote_summary(ws, ctx)?;
 
     let mut actions: Vec<String> = Vec::new();
-    if local.changes_total > 0 {
-        actions.push(format!(
-            "Local: {} unsnapped changes (run `snap`)",
-            local.changes_total
-        ));
-    }
     if remote.configured && remote.inbox_pending > 0 {
         actions.push(format!(
             "Remote: {} inbox items pending (open `inbox`)",
@@ -1314,8 +1195,6 @@ pub(super) fn dashboard_lines(
     }
 
     let mut out = Vec::new();
-    out.push(format!("context: {}", primary.label()));
-    out.push("".to_string());
     out.push("Action items".to_string());
     if actions.is_empty() {
         out.push("(none)".to_string());
@@ -1326,18 +1205,8 @@ pub(super) fn dashboard_lines(
     }
 
     out.push("".to_string());
-    match primary {
-        RootContext::Local => {
-            out.extend(local_lines);
-            out.push("".to_string());
-            out.extend(remote_lines);
-        }
-        RootContext::Remote => {
-            out.extend(remote_lines);
-            out.push("".to_string());
-            out.extend(local_lines);
-        }
-    }
+
+    out.extend(remote_lines);
 
     Ok(out)
 }

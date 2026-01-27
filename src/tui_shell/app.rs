@@ -86,13 +86,6 @@ pub(super) enum RootContext {
 }
 
 impl RootContext {
-    pub(super) fn toggle(self) -> Self {
-        match self {
-            RootContext::Local => RootContext::Remote,
-            RootContext::Remote => RootContext::Local,
-        }
-    }
-
     pub(super) fn label(self) -> &'static str {
         match self {
             RootContext::Local => "local",
@@ -562,6 +555,25 @@ impl Default for App {
 }
 
 impl App {
+    fn switch_to_local_root(&mut self) {
+        self.root_ctx = RootContext::Local;
+        self.frames = vec![ViewFrame {
+            view: Box::new(RootView::new(RootContext::Local)),
+        }];
+        self.refresh_root_view();
+    }
+
+    fn switch_to_remote_inbox(&mut self) {
+        self.root_ctx = RootContext::Remote;
+        self.frames = vec![ViewFrame {
+            view: Box::new(RootView::new(RootContext::Remote)),
+        }];
+        self.refresh_root_view();
+
+        // Prefer dropping the user into the inbox in remote context.
+        self.cmd_inbox(&[]);
+    }
+
     fn remote_repo_missing(&self) -> bool {
         if self.mode() != UiMode::Root || self.root_ctx != RootContext::Remote {
             return false;
@@ -1053,27 +1065,16 @@ impl App {
     }
 
     fn prompt(&self) -> &'static str {
+        // When in remote context, keep a stable prompt across views.
+        if self.root_ctx == RootContext::Remote {
+            return "remote>";
+        }
+
         if self.mode() == UiMode::Root {
-            match self.root_ctx {
-                RootContext::Local => "local>",
-                RootContext::Remote => "remote>",
-            }
-        } else {
-            self.mode().prompt()
-        }
-    }
-
-    fn toggle_root_ctx(&mut self) {
-        let next = self.root_ctx.toggle();
-        self.root_ctx = next;
-        if self.mode() == UiMode::Root
-            && let Some(v) = self.current_view_mut::<RootView>()
-        {
-            v.ctx = next;
-            v.updated_at = now_ts();
+            return "local>";
         }
 
-        self.refresh_root_view();
+        self.mode().prompt()
     }
 
     pub(in crate::tui_shell) fn refresh_root_view(&mut self) {
@@ -3965,6 +3966,8 @@ impl App {
             }
         };
 
+        let repo = client.remote().repo_id.clone();
+
         let filter_lc = filter.as_ref().map(|s| s.to_lowercase());
         let pubs = match client.list_publications() {
             Ok(p) => p,
@@ -4004,6 +4007,7 @@ impl App {
         let count = pubs.len();
         self.push_view(InboxView {
             updated_at: now_ts(),
+            repo,
             scope,
             gate,
             filter,
@@ -5985,12 +5989,14 @@ fn handle_key(app: &mut App, key: KeyEvent) {
         }
 
         KeyCode::Tab => {
-            if app.input.buf.is_empty() && app.mode() == UiMode::Root {
-                app.toggle_root_ctx();
-                app.push_output(vec![format!(
-                    "switched to {} context",
-                    app.root_ctx.label()
-                )]);
+            if app.input.buf.is_empty() {
+                if app.root_ctx == RootContext::Local && app.mode() == UiMode::Root {
+                    app.switch_to_remote_inbox();
+                    app.push_output(vec!["switched to remote context".to_string()]);
+                } else if app.root_ctx == RootContext::Remote {
+                    app.switch_to_local_root();
+                    app.push_output(vec!["switched to local context".to_string()]);
+                }
             } else if !app.input.buf.is_empty() && !app.suggestions.is_empty() {
                 app.apply_selected_suggestion();
             }
@@ -6389,12 +6395,20 @@ fn draw(frame: &mut ratatui::Frame, app: &App) {
         .split(area);
 
     // Header
-    let ws = app
-        .workspace
-        .as_ref()
-        .map(|w| w.root.display().to_string())
-        .or_else(|| app.workspace_err.clone())
-        .unwrap_or_else(|| "(no workspace)".to_string());
+    let header_mid = if app.root_ctx == RootContext::Remote {
+        app.workspace
+            .as_ref()
+            .and_then(|ws| ws.store.read_config().ok())
+            .and_then(|c| c.remote)
+            .map(|r| format!("repo={} scope={} gate={}", r.repo_id, r.scope, r.gate))
+            .unwrap_or_else(|| "(no remote configured)".to_string())
+    } else {
+        app.workspace
+            .as_ref()
+            .map(|w| w.root.display().to_string())
+            .or_else(|| app.workspace_err.clone())
+            .unwrap_or_else(|| "(no workspace)".to_string())
+    };
 
     let mut spans = vec![
         Span::styled(
@@ -6407,7 +6421,7 @@ fn draw(frame: &mut ratatui::Frame, app: &App) {
             Style::default().fg(root_ctx_color(app.root_ctx)),
         ),
         Span::raw("  "),
-        Span::raw(ws),
+        Span::raw(header_mid),
     ];
     if let Some(id) = app.remote_identity.as_deref() {
         spans.push(Span::raw("  "));
