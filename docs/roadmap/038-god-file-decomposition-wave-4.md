@@ -61,6 +61,8 @@ Progress notes:
 - Started `views/root.rs` decomposition by extracting remote-dashboard rendering and line styling helpers into:
   - `src/tui_shell/views/root/render_remote.rs`
   - `src/tui_shell/views/root/style_line.rs`
+- Continued `views/root.rs` decomposition by extracting local header/baseline rendering heuristics into:
+  - `src/tui_shell/views/root/local_header.rs`
 
 ### C) TUI App Surface Decomposition
 

@@ -14,9 +14,11 @@ use super::super::status::{
 use super::super::view::render_view_chrome_with_header;
 use super::super::{RenderCtx, RootContext, UiMode, View, fmt_ts_ui};
 
+mod local_header;
 mod render_remote;
 mod style_line;
 
+use self::local_header::local_header_and_baseline_line;
 use self::render_remote::render_remote_dashboard;
 use self::style_line::style_root_line;
 
@@ -184,47 +186,13 @@ impl View for RootView {
     }
 
     fn render(&self, frame: &mut ratatui::Frame, area: ratatui::layout::Rect, _ctx: &RenderCtx) {
-        let inner = match self.ctx {
+        let (inner, include_baseline_line) = match self.ctx {
             RootContext::Local => {
-                let title = self.title();
-
-                let baseline = self.baseline_compact.as_deref().unwrap_or("");
-                let baseline_prefix = if baseline.is_empty() { "" } else { "  " };
-
-                // Header width heuristic: only show baseline if it fits.
-                let a = format!("A:{}", self.change_summary.added);
-                let m = format!("M:{}", self.change_summary.modified);
-                let d = format!("D:{}", self.change_summary.deleted);
-                let r = format!("R:{}", self.change_summary.renamed);
-                let base_len = title.len() + 2 + a.len() + 2 + m.len() + 2 + d.len() + 2 + r.len();
-                let include_baseline = !baseline.is_empty()
-                    && (area.width as usize) >= (base_len + baseline_prefix.len() + baseline.len());
-
-                let header = Line::from(vec![
-                    Span::styled(title.to_string(), Style::default().fg(Color::Yellow)),
-                    Span::raw("  "),
-                    Span::styled(a, Style::default().fg(Color::Green)),
-                    Span::raw(" "),
-                    Span::styled(m, Style::default().fg(Color::Yellow)),
-                    Span::raw(" "),
-                    Span::styled(d, Style::default().fg(Color::Red)),
-                    Span::raw(" "),
-                    Span::styled(r, Style::default().fg(Color::Cyan)),
-                    Span::raw(if include_baseline {
-                        baseline_prefix
-                    } else {
-                        ""
-                    }),
-                    Span::styled(
-                        if include_baseline {
-                            baseline.to_string()
-                        } else {
-                            String::new()
-                        },
-                        Style::default().fg(Color::White),
-                    ),
-                ]);
-                render_view_chrome_with_header(frame, header, area)
+                let (header, keep_baseline_line) = local_header_and_baseline_line(self, area.width);
+                (
+                    render_view_chrome_with_header(frame, header, area),
+                    keep_baseline_line,
+                )
             }
             RootContext::Remote => {
                 let header = Line::from(vec![
@@ -268,23 +236,6 @@ impl View for RootView {
                 return;
             }
         };
-
-        let mut include_baseline_line = true;
-        if self.ctx == RootContext::Local {
-            let title = self.title();
-            let baseline = self.baseline_compact.as_deref().unwrap_or("");
-            if !baseline.is_empty() {
-                let a = format!("A:{}", self.change_summary.added);
-                let m = format!("M:{}", self.change_summary.modified);
-                let d = format!("D:{}", self.change_summary.deleted);
-                let r = format!("R:{}", self.change_summary.renamed);
-                let base_len = title.len() + 2 + a.len() + 2 + m.len() + 2 + d.len() + 2 + r.len();
-                let include_baseline = (area.width as usize) >= (base_len + 2 + baseline.len());
-                if include_baseline {
-                    include_baseline_line = false;
-                }
-            }
-        }
 
         let mut lines = Vec::new();
         for s in &self.lines {
