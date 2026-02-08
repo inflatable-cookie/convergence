@@ -1,6 +1,13 @@
 //! Remote fetch/read paths and recursive manifest/object retrieval helpers.
 
-use super::*;
+use std::collections::HashSet;
+
+use anyhow::{Context, Result};
+
+use crate::model::{ObjectId, SnapRecord};
+use crate::store::LocalStore;
+
+use super::{RemoteClient, with_retries};
 
 impl RemoteClient {
     pub fn fetch_publications(

@@ -1,6 +1,13 @@
 //! Repo/gate/bundle/release/promotion administrative operations.
 
-use super::*;
+use std::collections::HashMap;
+
+use anyhow::{Context, Result};
+
+use super::{
+    Bundle, CreateRepoRequest, GateGraph, GateGraphValidationError, Pins, Promotion, Publication,
+    Release, RemoteClient, Repo,
+};
 
 impl RemoteClient {
     pub fn create_repo(&self, repo_id: &str) -> Result<Repo> {

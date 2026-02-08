@@ -1,9 +1,6 @@
-use std::collections::{HashMap, HashSet};
-
 use anyhow::{Context, Result};
 
-use crate::model::{ObjectId, RemoteConfig, SnapRecord};
-use crate::store::LocalStore;
+use crate::model::RemoteConfig;
 
 mod http_client;
 use self::http_client::with_retries;

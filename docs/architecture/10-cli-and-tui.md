@@ -64,3 +64,9 @@ TUI key bindings (current):
   - `src/remote/types.rs` contains DTO/request types.
   - `src/remote/http_client.rs` contains retry/auth/url/status helpers.
   - `src/remote/identity.rs`, `operations.rs`, `transfer.rs`, `fetch.rs` contain domain operation groups.
+  - Ownership boundary rule: extracted `src/remote/*` modules import dependencies explicitly (no wildcard `super::*`), so cross-module coupling is visible at the import site.
+
+- Server decomposition ownership notes:
+  - `load_bundle_from_disk` is owned by `src/bin/converge_server/persistence.rs` (disk/state loading concern).
+  - GC-only serde default helper (`default_true`) is owned by `src/bin/converge_server/handlers_gc.rs`.
+  - Repo/lane membership request payload naming is normalized in `src/bin/converge_server/handlers_repo.rs` via `MemberHandleRequest`.

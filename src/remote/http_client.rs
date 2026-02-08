@@ -1,6 +1,8 @@
 //! Shared HTTP request/retry/auth helpers for `RemoteClient` operations.
 
-use super::*;
+use anyhow::{Context, Result};
+
+use super::RemoteClient;
 
 pub(super) fn with_retries<T>(label: &str, mut f: impl FnMut() -> Result<T>) -> Result<T> {
     const ATTEMPTS: usize = 3;

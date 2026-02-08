@@ -1,7 +1,17 @@
 //! Remote upload/publish/sync transfer workflows.
 
+use std::collections::HashSet;
+
+use anyhow::{Context, Result};
+
+use crate::model::{ObjectId, SnapRecord};
+use crate::store::LocalStore;
+
 use super::fetch::{collect_objects, manifest_postorder};
-use super::*;
+use super::{
+    CreatePublicationRequest, LaneHead, MissingObjectsRequest, MissingObjectsResponse, Publication,
+    PublicationResolution, RemoteClient, with_retries,
+};
 
 impl RemoteClient {
     pub fn publish_snap(

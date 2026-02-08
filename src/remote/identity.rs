@@ -1,6 +1,11 @@
 //! Identity, user/token, and repo/lane membership remote operations.
 
-use super::*;
+use anyhow::{Context, Result};
+
+use super::{
+    BootstrapResponse, CreateTokenResponse, Lane, LaneHead, LaneMembers, RemoteClient, RemoteUser,
+    Repo, RepoMembers, TokenView, UpdateLaneHeadRequest, WhoAmI,
+};
 
 impl RemoteClient {
     pub fn whoami(&self) -> Result<WhoAmI> {

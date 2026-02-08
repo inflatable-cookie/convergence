@@ -23,11 +23,12 @@ This phase is limited to follow-through improvements after the god-file decompos
 
 - [x] Audit visibility in new modules and tighten to the minimum needed (`pub` -> `pub(super)`/private where possible).
 - [x] Add short module-level comments/doc headers for non-obvious modules in `src/bin/converge_server/*` and `src/remote/*`.
-- [ ] Eliminate any remaining wildcard imports introduced during decomposition if they obscure ownership.
+- [x] Eliminate any remaining wildcard imports introduced during decomposition if they obscure ownership.
 
 Progress notes:
 - Added module headers to non-obvious extracted modules in `src/remote/*` and `src/bin/converge_server/*`.
 - Tightened one extracted helper visibility (`fetch_manifest_tree`) and removed one wildcard import coupling between `remote.rs` and `remote/fetch.rs`.
+- Replaced `use super::*` in `src/remote/{http_client,fetch,identity,operations,transfer}.rs` with explicit imports to make ownership/dependencies visible at each module boundary.
 
 ### B) Regression Coverage
 
@@ -39,18 +40,23 @@ Progress notes:
 
 - [x] Normalize naming conventions across extracted modules (for example handler/request DTO naming consistency).
 - [x] Ensure each extracted module has a clear single responsibility and move stragglers if needed.
-- [ ] Update architecture docs if module ownership changes during this phase.
+- [x] Update architecture docs if module ownership changes during this phase.
 
 Progress notes:
 - Moved `load_bundle_from_disk` from `converge-server.rs` into `persistence.rs`.
 - Localized GC-specific `default_true` helper inside `handlers_gc.rs`.
 - Renamed ambiguous member DTO in `handlers_repo.rs` from `AddMemberRequest` to `MemberHandleRequest` for clearer cross-handler intent.
+- Updated `docs/architecture/10-cli-and-tui.md` with ownership notes for remote explicit-import boundaries plus the `persistence.rs`/`handlers_gc.rs`/`handlers_repo.rs` ownership clarifications.
 
 ### D) Verification
 
-- [ ] Run `cargo fmt`.
-- [ ] Run `cargo clippy --all-targets -- -D warnings`.
+- [x] Run `cargo fmt`.
+- [x] Run `cargo clippy --all-targets -- -D warnings`.
 - [ ] Run `cargo nextest run`.
+
+Progress notes:
+- `cargo fmt` and strict `cargo clippy --all-targets -- -D warnings` pass on the current decomposition-hardening changes.
+- `cargo nextest run` currently hangs in this environment while spawning long-lived `--list --format terse` test-discovery subprocesses; keep this as the remaining verification gate to close.
 
 ## Exit Criteria
 
