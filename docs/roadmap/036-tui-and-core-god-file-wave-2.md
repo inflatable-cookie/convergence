@@ -56,6 +56,7 @@ Progress notes:
 - Started `wizard.rs` decomposition by extracting filesystem glob/path search helpers into `src/tui_shell/wizard/move_glob.rs`; `wizard.rs` now imports `move_glob::glob_search` instead of owning low-level file-walk logic.
 - Continued `wizard.rs` decomposition by extracting wizard DTO/enums into `src/tui_shell/wizard/types.rs`; `wizard.rs` now acts more as behavior/orchestration over typed wizard state.
 - Continued `wizard.rs` decomposition by extracting move-flow state transitions (`move_wizard_from` / `move_wizard_to`) into `src/tui_shell/wizard/move_flow.rs`.
+- Continued `wizard.rs` decomposition by extracting fetch-flow transitions (`start_fetch_wizard` / `continue_fetch_wizard` / `finish_fetch_wizard`) into `src/tui_shell/wizard/fetch_flow.rs`.
 
 ### C) Core Workspace/Store Decomposition
 
