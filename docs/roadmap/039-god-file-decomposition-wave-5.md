@@ -59,7 +59,7 @@ Progress notes:
 
 - [x] Split `src/bin/converge_server/handlers_repo.rs` into focused modules by concern (repo CRUD, membership, lanes/heads).
 - [x] Keep route signatures and response payloads unchanged.
-- [ ] Reduce wildcard import dependence where direct sibling imports are possible.
+- [x] Reduce wildcard import dependence where direct sibling imports are possible.
 
 Progress notes:
 - Replaced monolithic repo handler file with module directory:
@@ -69,6 +69,7 @@ Progress notes:
   - `src/bin/converge_server/handlers_repo/lanes.rs`
   - `src/bin/converge_server/handlers_repo/lane_heads.rs`
 - Kept route wiring behavior-compatible by preserving exported handler names used by `routes.rs`.
+- Replaced wildcard re-exports in `handlers_repo/mod.rs` with explicit exported handler symbols.
 
 ### D) CLI Release Resolve Decomposition
 
@@ -95,13 +96,14 @@ Progress notes:
 - [x] Run `cargo fmt`.
 - [x] Run `cargo clippy --all-targets -- -D warnings`.
 - [x] Run `cargo nextest run`.
-- [ ] Update any impacted architecture/decision notes if boundaries change materially.
+- [x] Update any impacted architecture/decision notes if boundaries change materially.
 
 Progress notes:
 - Current validation status after Wave 5 decomposition slices:
   - `cargo fmt` passed
   - `cargo clippy --all-targets -- -D warnings` passed
-  - `cargo nextest run` passed (`60 passed`, `2 leaky`, `0 skipped`)
+  - `cargo nextest run` passed (`60 passed`, `0 skipped`)
+- Decision-doc impact review: no architecture/decision doc updates required because this wave is decomposition-only with unchanged command/route semantics.
 
 ## Exit Criteria
 

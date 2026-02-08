@@ -1,6 +1,6 @@
 use super::super::*;
 
-use super::MemberHandleRequest;
+use super::members::MemberHandleRequest;
 
 pub(crate) async fn list_lane_members(
     State(state): State<Arc<AppState>>,
