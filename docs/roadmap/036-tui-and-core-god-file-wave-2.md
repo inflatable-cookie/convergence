@@ -83,6 +83,7 @@ Progress notes:
 - Continued `cmd_local.rs` decomposition by extracting local maintenance commands (`show`, `restore`, `move`, `gc`) into `src/tui_shell/app/local_maintenance.rs`.
 - Continued `cmd_local.rs` decomposition by extracting remote config/client helpers into `src/tui_shell/app/remote_access.rs`.
 - Continued `cmd_local.rs` decomposition by extracting informational helpers (`cmd_help`, `cmd_status`) into `src/tui_shell/app/local_info.rs`.
+- Completed `cmd_local.rs` decomposition by extracting bootstrap helpers (`cmd_init`, `cmd_snap`) into `src/tui_shell/app/local_bootstrap.rs` and removing the legacy `cmd_local.rs` file.
 - Started `workspace.rs` decomposition by extracting GC reachability traversal helpers into `src/workspace/gc.rs` and wiring `workspace.rs` through module imports.
 - Continued `workspace.rs` decomposition by extracting restore/materialization filesystem helpers into `src/workspace/materialize_fs.rs`.
 - Continued `workspace.rs` decomposition by extracting chunking policy constants/type/config parsing into `src/workspace/chunking.rs`.

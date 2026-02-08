@@ -41,7 +41,6 @@ use super::wizard::{
 
 mod cmd_dispatch;
 mod cmd_gate_graph;
-mod cmd_local;
 mod cmd_mode_actions;
 mod cmd_remote;
 mod cmd_remote_actions;
@@ -54,6 +53,7 @@ mod default_actions;
 mod event_loop;
 mod input_hints;
 mod lifecycle;
+mod local_bootstrap;
 mod local_info;
 mod local_maintenance;
 mod local_snaps;
