@@ -58,6 +58,8 @@ mod local_snaps;
 mod local_snaps_filter;
 mod local_snaps_message;
 mod local_snaps_open;
+mod local_snaps_restore;
+mod local_snaps_unsnap;
 mod modal_output;
 mod mode_commands;
 mod parse_utils;

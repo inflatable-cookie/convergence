@@ -68,6 +68,8 @@ Progress notes:
 - Started `local_snaps.rs` decomposition by extracting snaps filter and clear-filter handlers into `src/tui_shell/app/local_snaps_filter.rs`.
 - Continued `local_snaps.rs` decomposition by extracting snap message edit/clear handling into `src/tui_shell/app/local_snaps_message.rs`.
 - Continued `local_snaps.rs` decomposition by extracting snaps list/open flow into `src/tui_shell/app/local_snaps_open.rs`.
+- Continued `local_snaps.rs` decomposition by extracting revert/restore flows into `src/tui_shell/app/local_snaps_restore.rs`.
+- Continued `local_snaps.rs` decomposition by extracting unsnap flow into `src/tui_shell/app/local_snaps_unsnap.rs`.
 
 ### C) CLI Surface Decomposition
 
