@@ -131,10 +131,10 @@ Module conventions (applied in `src/tui_shell/app/*`):
 
 ### E) Split `src/remote.rs`
 
-- [ ] Separate DTO/model definitions from transport/client methods.
-- [ ] Extract object-transfer/sync/fetch graph traversal logic into dedicated modules.
-- [ ] Extract retry/auth/request helpers into small utility modules.
-- [ ] Preserve public `RemoteClient` API behavior used by CLI/TUI.
+- [x] Separate DTO/model definitions from transport/client methods.
+- [x] Extract object-transfer/sync/fetch graph traversal logic into dedicated modules.
+- [x] Extract retry/auth/request helpers into small utility modules.
+- [x] Preserve public `RemoteClient` API behavior used by CLI/TUI.
 
 ### F) Verification + Hygiene
 
