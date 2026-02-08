@@ -1,4 +1,11 @@
 #[derive(Debug, Default)]
+pub(super) struct BundleArgs {
+    pub(super) scope: Option<String>,
+    pub(super) gate: Option<String>,
+    pub(super) publications: Vec<String>,
+}
+
+#[derive(Debug, Default)]
 pub(super) struct PinArgs {
     pub(super) bundle_id: Option<String>,
     pub(super) unpin: bool,
@@ -50,6 +57,39 @@ pub(super) fn parse_pin_args(args: &[String]) -> Result<PinArgs, String> {
                     return Err(format!("unknown arg: {}", a));
                 }
             }
+        }
+        i += 1;
+    }
+    Ok(out)
+}
+
+pub(super) fn parse_bundle_args(args: &[String]) -> Result<BundleArgs, String> {
+    let mut out = BundleArgs::default();
+    let mut i = 0;
+    while i < args.len() {
+        match args[i].as_str() {
+            "--scope" => {
+                i += 1;
+                if i >= args.len() {
+                    return Err("missing value for --scope".to_string());
+                }
+                out.scope = Some(args[i].clone());
+            }
+            "--gate" => {
+                i += 1;
+                if i >= args.len() {
+                    return Err("missing value for --gate".to_string());
+                }
+                out.gate = Some(args[i].clone());
+            }
+            "--publication" => {
+                i += 1;
+                if i >= args.len() {
+                    return Err("missing value for --publication".to_string());
+                }
+                out.publications.push(args[i].clone());
+            }
+            a => return Err(format!("unknown arg: {}", a)),
         }
         i += 1;
     }

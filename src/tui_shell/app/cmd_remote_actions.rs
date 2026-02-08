@@ -1,5 +1,5 @@
 use super::remote_action_parse::{
-    parse_approve_args, parse_pin_args, parse_promote_args, parse_release_args,
+    parse_approve_args, parse_bundle_args, parse_pin_args, parse_promote_args, parse_release_args,
     parse_superpositions_args,
 };
 use super::*;
@@ -31,47 +31,16 @@ impl App {
             }
         };
 
-        let mut scope: Option<String> = None;
-        let mut gate: Option<String> = None;
-        let mut pubs: Vec<String> = Vec::new();
-
-        let mut i = 0;
-        while i < args.len() {
-            match args[i].as_str() {
-                "--scope" => {
-                    i += 1;
-                    if i >= args.len() {
-                        self.push_error("missing value for --scope".to_string());
-                        return;
-                    }
-                    scope = Some(args[i].clone());
-                }
-                "--gate" => {
-                    i += 1;
-                    if i >= args.len() {
-                        self.push_error("missing value for --gate".to_string());
-                        return;
-                    }
-                    gate = Some(args[i].clone());
-                }
-                "--publication" => {
-                    i += 1;
-                    if i >= args.len() {
-                        self.push_error("missing value for --publication".to_string());
-                        return;
-                    }
-                    pubs.push(args[i].clone());
-                }
-                a => {
-                    self.push_error(format!("unknown arg: {}", a));
-                    return;
-                }
+        let parsed = match parse_bundle_args(args) {
+            Ok(v) => v,
+            Err(msg) => {
+                self.push_error(msg);
+                return;
             }
-            i += 1;
-        }
-
-        let scope = scope.unwrap_or(cfg.scope);
-        let gate = gate.unwrap_or(cfg.gate);
+        };
+        let scope = parsed.scope.unwrap_or(cfg.scope);
+        let gate = parsed.gate.unwrap_or(cfg.gate);
+        let mut pubs = parsed.publications;
 
         if pubs.is_empty() {
             let all = match client.list_publications() {
