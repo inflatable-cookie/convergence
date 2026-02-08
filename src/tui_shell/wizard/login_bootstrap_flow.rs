@@ -1,6 +1,7 @@
 use crate::model::RemoteConfig;
 
 use super::super::TextInputAction;
+use super::login_bootstrap_validate::{parse_bootstrap_inputs, validate_login_inputs};
 use super::types::{BootstrapWizard, LoginWizard};
 
 impl super::super::App {
@@ -342,18 +343,8 @@ impl super::super::App {
                     }
                 };
 
-                if base_url.trim().is_empty() {
-                    self.push_error("login: missing url".to_string());
-                    self.login_wizard = None;
-                    return;
-                }
-                if token.trim().is_empty() {
-                    self.push_error("login: missing token".to_string());
-                    self.login_wizard = None;
-                    return;
-                }
-                if repo_id.trim().is_empty() {
-                    self.push_error("login: missing repo".to_string());
+                if let Err(err) = validate_login_inputs(&base_url, &token, &repo_id) {
+                    self.push_error(err);
                     self.login_wizard = None;
                     return;
                 }
@@ -418,22 +409,17 @@ impl super::super::App {
         };
         self.bootstrap_wizard = None;
 
-        let Some(base_url) = w.url.clone() else {
-            self.push_error("bootstrap: missing url".to_string());
-            return;
-        };
-        let Some(bootstrap_token) = w.bootstrap_token.clone() else {
-            self.push_error("bootstrap: missing token".to_string());
-            return;
-        };
-        let handle = w.handle.trim().to_string();
-        if handle.is_empty() {
-            self.push_error("bootstrap: missing handle".to_string());
-            return;
-        }
-        let Some(repo_id) = w.repo.clone() else {
-            self.push_error("bootstrap: missing repo".to_string());
-            return;
+        let (base_url, bootstrap_token, handle, repo_id) = match parse_bootstrap_inputs(&w) {
+            Ok(inputs) => (
+                inputs.base_url,
+                inputs.bootstrap_token,
+                inputs.handle,
+                inputs.repo_id,
+            ),
+            Err(err) => {
+                self.push_error(err);
+                return;
+            }
         };
 
         let remote = RemoteConfig {
