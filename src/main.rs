@@ -4,7 +4,7 @@ use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 
 use converge::workspace::Workspace;
-use converge::{model::RemoteConfig, remote::RemoteClient, store::LocalStore};
+use converge::{model::RemoteConfig, store::LocalStore};
 
 mod cli_exec;
 
@@ -768,46 +768,17 @@ fn run() -> Result<()> {
             gate,
         }) => {
             let ws = Workspace::discover(&std::env::current_dir().context("get current dir")?)?;
-            let mut cfg = ws.store.read_config()?;
-            let remote = RemoteConfig {
-                base_url: url,
-                token: None,
-                repo_id: repo,
-                scope,
-                gate,
-            };
-            ws.store
-                .set_remote_token(&remote, &token)
-                .context("store remote token in state.json")?;
-            cfg.remote = Some(remote);
-            ws.store.write_config(&cfg)?;
-            println!("Logged in");
+            cli_exec::handle_login_command(&ws, url, token, repo, scope, gate)?;
         }
 
         Some(Commands::Logout) => {
             let ws = Workspace::discover(&std::env::current_dir().context("get current dir")?)?;
-            let remote = require_remote(&ws.store)?;
-            ws.store
-                .clear_remote_token(&remote)
-                .context("clear remote token")?;
-            println!("Logged out");
+            cli_exec::handle_logout_command(&ws)?;
         }
 
         Some(Commands::Whoami { json }) => {
             let ws = Workspace::discover(&std::env::current_dir().context("get current dir")?)?;
-            let (remote, token) = require_remote_and_token(&ws.store)?;
-            let client = RemoteClient::new(remote, token)?;
-            let who = client.whoami()?;
-            if json {
-                println!(
-                    "{}",
-                    serde_json::to_string_pretty(&who).context("serialize whoami json")?
-                );
-            } else {
-                println!("user: {}", who.user);
-                println!("user_id: {}", who.user_id);
-                println!("admin: {}", who.admin);
-            }
+            cli_exec::handle_whoami_command(&ws, json)?;
         }
 
         Some(Commands::Token { command }) => {
