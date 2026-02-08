@@ -98,21 +98,31 @@ Progress notes:
 
 ### D) Server/CLI Entry Decomposition
 
-- [ ] Split `src/bin/converge-server.rs` into entry/runtime wiring modules while preserving route and state composition.
-- [ ] Reduce root-file wildcard imports where decomposition allows narrower imports.
-- [ ] Minimize cross-module visibility (`pub` -> `pub(crate)`/private where possible) after extraction.
+- [x] Split `src/bin/converge-server.rs` into entry/runtime wiring modules while preserving route and state composition.
+- [x] Reduce root-file wildcard imports where decomposition allows narrower imports.
+- [x] Minimize cross-module visibility (`pub` -> `pub(crate)`/private where possible) after extraction.
 
 Progress notes:
 - Started `converge-server.rs` decomposition by extracting server state/domain type declarations into:
   - `src/bin/converge_server/types.rs`
   with `src/bin/converge-server.rs` now focused more on bootstrap/runtime wiring.
+- Continued `converge-server.rs` decomposition by extracting runtime bootstrap and shutdown flow into:
+  - `src/bin/converge_server/runtime.rs`
+  leaving `src/bin/converge-server.rs` as module composition + top-level `main`.
+- Reduced root entry wildcard imports by removing wildcard re-exports for runtime-only modules:
+  - `handlers_system`
+  - `routes`
+- Tightened cross-module imports after extraction:
+  - `runtime.rs` now imports identity functions directly from `identity_store` instead of relying on transitive re-exports.
+  - `routes.rs` now imports `require_bearer` directly from `handlers_system`.
+  - Server modules continue to use `pub(super)`/private visibility; no root-level `pub` exports are required.
 
 ### E) Regression and Verification
 
 - [ ] Add focused tests for newly extracted boundaries where current coverage is indirect.
-- [ ] Run `cargo fmt`.
-- [ ] Run `cargo clippy --all-targets -- -D warnings`.
-- [ ] Run `cargo nextest run` (or document fallback if environment instability recurs).
+- [x] Run `cargo fmt`.
+- [x] Run `cargo clippy --all-targets -- -D warnings`.
+- [x] Run `cargo nextest run` (or document fallback if environment instability recurs).
 
 ## Exit Criteria
 

@@ -1,5 +1,6 @@
 //! Authenticated HTTP route registration for the converge server.
 
+use super::handlers_system::require_bearer;
 use super::*;
 
 pub(super) fn authed_router(state: Arc<AppState>) -> Router<Arc<AppState>> {
