@@ -64,6 +64,7 @@ Progress notes:
 - Continued `wizard.rs` decomposition by extracting login/bootstrap flow handlers into `src/tui_shell/wizard/login_bootstrap_flow.rs`.
 - Started `status.rs` decomposition by extracting summary/parsing helpers (`ChangeSummary`, baseline/change-key parsing, Jaccard + blank-line normalization) into `src/tui_shell/status/summary_utils.rs` and re-exporting from `status.rs`.
 - Continued `status.rs` decomposition by extracting rename/diff helper types and blob-rename scoring/default chunk-size helpers into `src/tui_shell/status/rename_helpers.rs`.
+- Continued `status.rs` decomposition by extracting manifest identity traversal helpers into `src/tui_shell/status/identity_collect.rs`.
 
 ### C) Core Workspace/Store Decomposition
 

@@ -12,7 +12,9 @@ pub(super) use self::summary_utils::{
     ChangeSummary, collapse_blank_lines, extract_baseline_compact, extract_change_keys,
     extract_change_summary, jaccard_similarity,
 };
+mod identity_collect;
 mod rename_helpers;
+use self::identity_collect::{collect_identities_base, collect_identities_current};
 use self::rename_helpers::{
     IdentityKey, StatusChange, blob_prefix_suffix_score, default_chunk_size_bytes,
     min_blob_rename_matched_bytes, min_blob_rename_score,
@@ -79,72 +81,6 @@ fn min_recipe_rename_matched_chunks(max_chunks: usize) -> usize {
     } else {
         0
     }
-}
-
-fn collect_identities_current(
-    prefix: &str,
-    manifest_id: &ObjectId,
-    cur_manifests: &std::collections::HashMap<ObjectId, Manifest>,
-    out: &mut std::collections::HashMap<String, IdentityKey>,
-) -> Result<()> {
-    let m = cur_manifests
-        .get(manifest_id)
-        .ok_or_else(|| anyhow::anyhow!("missing current manifest {}", manifest_id.as_str()))?;
-    for e in &m.entries {
-        let path = if prefix.is_empty() {
-            e.name.clone()
-        } else {
-            format!("{}/{}", prefix, e.name)
-        };
-        match &e.kind {
-            ManifestEntryKind::Dir { manifest } => {
-                collect_identities_current(&path, manifest, cur_manifests, out)?;
-            }
-            ManifestEntryKind::File { blob, .. } => {
-                out.insert(path, IdentityKey::Blob(blob.as_str().to_string()));
-            }
-            ManifestEntryKind::FileChunks { recipe, .. } => {
-                out.insert(path, IdentityKey::Recipe(recipe.as_str().to_string()));
-            }
-            ManifestEntryKind::Symlink { target } => {
-                out.insert(path, IdentityKey::Symlink(target.clone()));
-            }
-            _ => {}
-        }
-    }
-    Ok(())
-}
-
-fn collect_identities_base(
-    prefix: &str,
-    store: &LocalStore,
-    manifest_id: &ObjectId,
-    out: &mut std::collections::HashMap<String, IdentityKey>,
-) -> Result<()> {
-    let m = store.get_manifest(manifest_id)?;
-    for e in &m.entries {
-        let path = if prefix.is_empty() {
-            e.name.clone()
-        } else {
-            format!("{}/{}", prefix, e.name)
-        };
-        match &e.kind {
-            ManifestEntryKind::Dir { manifest } => {
-                collect_identities_base(&path, store, manifest, out)?;
-            }
-            ManifestEntryKind::File { blob, .. } => {
-                out.insert(path, IdentityKey::Blob(blob.as_str().to_string()));
-            }
-            ManifestEntryKind::FileChunks { recipe, .. } => {
-                out.insert(path, IdentityKey::Recipe(recipe.as_str().to_string()));
-            }
-            ManifestEntryKind::Symlink { target } => {
-                out.insert(path, IdentityKey::Symlink(target.clone()));
-            }
-            _ => {}
-        }
-    }
-    Ok(())
 }
 
 fn diff_trees_with_renames(
