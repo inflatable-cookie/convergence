@@ -80,6 +80,7 @@ Progress notes:
 - Continued `cmd_remote_views.rs` decomposition by extracting member and lane-member command handlers into `src/tui_shell/app/remote_members.rs`.
 - Continued `cmd_remote_views.rs` decomposition by extracting shared scope/gate/filter/limit parsing for inbox/bundles into `src/tui_shell/app/remote_scope_query_parse.rs`.
 - Started `cmd_local.rs` decomposition by extracting snaps-mode command handlers into `src/tui_shell/app/local_snaps.rs`.
+- Continued `cmd_local.rs` decomposition by extracting local maintenance commands (`show`, `restore`, `move`, `gc`) into `src/tui_shell/app/local_maintenance.rs`.
 - Started `workspace.rs` decomposition by extracting GC reachability traversal helpers into `src/workspace/gc.rs` and wiring `workspace.rs` through module imports.
 - Continued `workspace.rs` decomposition by extracting restore/materialization filesystem helpers into `src/workspace/materialize_fs.rs`.
 - Continued `workspace.rs` decomposition by extracting chunking policy constants/type/config parsing into `src/workspace/chunking.rs`.

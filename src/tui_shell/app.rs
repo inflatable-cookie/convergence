@@ -54,6 +54,7 @@ mod default_actions;
 mod event_loop;
 mod input_hints;
 mod lifecycle;
+mod local_maintenance;
 mod local_snaps;
 mod modal_output;
 mod mode_commands;
