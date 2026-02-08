@@ -1,6 +1,5 @@
 use std::any::Any;
 
-use ratatui::layout::{Constraint, Direction, Layout, Rect};
 use ratatui::style::{Color, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Paragraph, Wrap};
@@ -14,6 +13,12 @@ use super::super::status::{
 };
 use super::super::view::render_view_chrome_with_header;
 use super::super::{RenderCtx, RootContext, UiMode, View, fmt_ts_ui};
+
+mod render_remote;
+mod style_line;
+
+use self::render_remote::render_remote_dashboard;
+use self::style_line::style_root_line;
 
 #[derive(Debug)]
 pub(in crate::tui_shell) struct RootView {
@@ -300,193 +305,4 @@ impl View for RootView {
             inner,
         );
     }
-}
-
-fn render_remote_dashboard(frame: &mut ratatui::Frame, area: Rect, d: &DashboardData) {
-    let rows = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([Constraint::Length(5), Constraint::Min(0)])
-        .split(area);
-
-    // Next actions (top row).
-    let mut action_lines: Vec<Line<'static>> = Vec::new();
-    if d.next_actions.is_empty() {
-        action_lines.push(Line::from("(none)"));
-    } else {
-        for a in &d.next_actions {
-            action_lines.push(Line::from(format!("- {}", a)));
-        }
-    }
-    frame.render_widget(
-        Paragraph::new(action_lines)
-            .wrap(Wrap { trim: false })
-            .block(Block::default().borders(Borders::ALL).title("Next")),
-        rows[0],
-    );
-
-    let cols = Layout::default()
-        .direction(Direction::Horizontal)
-        .constraints([Constraint::Percentage(50), Constraint::Percentage(50)])
-        .split(rows[1]);
-
-    let left = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([Constraint::Length(7), Constraint::Min(0)])
-        .split(cols[0]);
-    let right = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([Constraint::Length(7), Constraint::Min(0)])
-        .split(cols[1]);
-
-    // Inbox.
-    let mut inbox_lines: Vec<Line<'static>> = Vec::new();
-    inbox_lines.push(Line::from(format!(
-        "{} total  {} pending  {} resolved",
-        d.inbox_total, d.inbox_pending, d.inbox_resolved
-    )));
-    if d.inbox_missing_local > 0 {
-        inbox_lines.push(Line::from(format!(
-            "{} snaps missing locally",
-            d.inbox_missing_local
-        )));
-    }
-    if let Some((sid, ts)) = &d.latest_publication {
-        inbox_lines.push(Line::from(format!("latest: {} {}", sid, ts)));
-    }
-    frame.render_widget(
-        Paragraph::new(inbox_lines)
-            .wrap(Wrap { trim: false })
-            .block(Block::default().borders(Borders::ALL).title("Inbox")),
-        left[0],
-    );
-
-    // Bundles.
-    let mut bundle_lines: Vec<Line<'static>> = Vec::new();
-    bundle_lines.push(Line::from(format!(
-        "{} total  {} promotable  {} blocked",
-        d.bundles_total, d.bundles_promotable, d.bundles_blocked
-    )));
-    if d.blocked_superpositions > 0 {
-        bundle_lines.push(Line::from(format!(
-            "blocked by superpositions: {}",
-            d.blocked_superpositions
-        )));
-    }
-    if d.blocked_approvals > 0 {
-        bundle_lines.push(Line::from(format!(
-            "blocked by approvals: {}",
-            d.blocked_approvals
-        )));
-    }
-    if d.pinned_bundles > 0 {
-        bundle_lines.push(Line::from(format!("pinned: {}", d.pinned_bundles)));
-    }
-    frame.render_widget(
-        Paragraph::new(bundle_lines)
-            .wrap(Wrap { trim: false })
-            .block(Block::default().borders(Borders::ALL).title("Bundles")),
-        left[1],
-    );
-
-    // Gates / scope.
-    let mut gate_lines: Vec<Line<'static>> = Vec::new();
-    if let Some(h) = &d.healthz {
-        gate_lines.push(Line::from(format!("healthz: {}", h)));
-    }
-    if d.gates_total > 0 {
-        gate_lines.push(Line::from(format!("gates: {}", d.gates_total)));
-    }
-    if !d.promotion_state.is_empty() {
-        gate_lines.push(Line::from("promotion_state:"));
-        for (gate, bid) in d.promotion_state.iter().take(4) {
-            gate_lines.push(Line::from(format!("{} {}", gate, bid)));
-        }
-    }
-    frame.render_widget(
-        Paragraph::new(gate_lines)
-            .wrap(Wrap { trim: false })
-            .block(Block::default().borders(Borders::ALL).title("Gates")),
-        right[0],
-    );
-
-    // Releases.
-    let mut rel_lines: Vec<Line<'static>> = Vec::new();
-    if d.releases_total == 0 {
-        rel_lines.push(Line::from("(none)"));
-    } else {
-        rel_lines.push(Line::from(format!(
-            "{} total ({} channels)",
-            d.releases_total, d.releases_channels
-        )));
-        for (ch, bid, ts) in d.latest_releases.iter() {
-            rel_lines.push(Line::from(format!("{} {} {}", ch, bid, ts)));
-        }
-    }
-    frame.render_widget(
-        Paragraph::new(rel_lines)
-            .wrap(Wrap { trim: false })
-            .block(Block::default().borders(Borders::ALL).title("Releases")),
-        right[1],
-    );
-}
-
-fn style_root_line(s: &str) -> Line<'static> {
-    // Style change lines like: "A path (+3 -1)", "R* old -> new (+1 -2)".
-    let (main, delta) = if let Some((left, right)) = s.rsplit_once(" (")
-        && right.ends_with(')')
-    {
-        (left, Some(&right[..right.len() - 1]))
-    } else {
-        (s, None)
-    };
-
-    let mut spans: Vec<Span<'static>> = Vec::new();
-    let (prefix, rest) = if let Some(r) = main.strip_prefix("R* ") {
-        ("R*", r)
-    } else if let Some(r) = main.strip_prefix("R ") {
-        ("R", r)
-    } else if let Some(r) = main.strip_prefix("A ") {
-        ("A", r)
-    } else if let Some(r) = main.strip_prefix("M ") {
-        ("M", r)
-    } else if let Some(r) = main.strip_prefix("D ") {
-        ("D", r)
-    } else {
-        ("", main)
-    };
-
-    if !prefix.is_empty() {
-        let style = match prefix {
-            "A" => Style::default().fg(Color::Green),
-            "D" => Style::default().fg(Color::Red),
-            "M" => Style::default().fg(Color::Yellow),
-            "R" | "R*" => Style::default().fg(Color::Cyan),
-            _ => Style::default(),
-        };
-        spans.push(Span::styled(prefix.to_string(), style));
-        spans.push(Span::raw(" "));
-    }
-    spans.push(Span::raw(rest.to_string()));
-
-    if let Some(delta) = delta {
-        spans.push(Span::raw(" ("));
-        let mut first = true;
-        for tok in delta.split_whitespace() {
-            if !first {
-                spans.push(Span::raw(" "));
-            }
-            first = false;
-            let style = if tok.starts_with('+') {
-                Style::default().fg(Color::Green)
-            } else if tok.starts_with('-') {
-                Style::default().fg(Color::Red)
-            } else {
-                Style::default().fg(Color::Gray)
-            };
-            spans.push(Span::styled(tok.to_string(), style));
-        }
-        spans.push(Span::raw(")"));
-    }
-
-    Line::from(spans)
 }

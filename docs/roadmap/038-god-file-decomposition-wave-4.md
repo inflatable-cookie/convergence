@@ -58,6 +58,9 @@ Progress notes:
   - orchestration starts in `src/tui_shell/wizard/login_bootstrap_flow.rs`
   - transition handlers in `src/tui_shell/wizard/login_bootstrap_transitions.rs`
   - side-effect execution in `src/tui_shell/wizard/login_bootstrap_effects.rs`
+- Started `views/root.rs` decomposition by extracting remote-dashboard rendering and line styling helpers into:
+  - `src/tui_shell/views/root/render_remote.rs`
+  - `src/tui_shell/views/root/style_line.rs`
 
 ### C) TUI App Surface Decomposition
 
