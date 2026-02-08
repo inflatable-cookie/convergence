@@ -95,6 +95,7 @@ Progress notes:
 - Continued `src/bin/converge-server.rs` split with `src/bin/converge_server/handlers_system.rs` for bearer auth middleware, health endpoint, and bootstrap handlers.
 - Started `src/remote.rs` split with `src/remote/http_client.rs` for retry/backoff helper plus shared auth/url/response-status helpers used across client operations.
 - Continued `src/remote.rs` split with `src/remote/types.rs` for remote DTOs and request/validation payload types, reducing top-level type density in `remote.rs`.
+- Continued `src/remote.rs` split with `src/remote/fetch.rs` for remote fetch/publication-sync flows and manifest/blob/recipe traversal helpers.
 
 Module conventions (applied in `src/tui_shell/app/*`):
 - `cmd_*`: command handlers grouped by domain or interaction surface.
