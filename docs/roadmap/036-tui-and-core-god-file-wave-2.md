@@ -61,6 +61,7 @@ Progress notes:
 - Continued `wizard.rs` decomposition by extracting member and lane-member flows into `src/tui_shell/wizard/member_flow.rs`.
 - Continued `wizard.rs` decomposition by extracting release/pin/promote flow handlers into `src/tui_shell/wizard/release_ops_flow.rs`.
 - Continued `wizard.rs` decomposition by extracting publish/sync flow handlers into `src/tui_shell/wizard/publish_sync_flow.rs`.
+- Continued `wizard.rs` decomposition by extracting login/bootstrap flow handlers into `src/tui_shell/wizard/login_bootstrap_flow.rs`.
 
 ### C) Core Workspace/Store Decomposition
 
