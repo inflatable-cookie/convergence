@@ -70,6 +70,7 @@ Progress notes:
 - Continued `src/main.rs` decomposition by moving local command execution branches (`init`, `snap`, `snaps`, `show`, `restore`, `diff`, `mv`) into `src/cli_exec.rs`.
 - Collapsed `src/main.rs::run()` routing to `Some(command) => cli_exec::handle_command(command)` so command matching/delegation now lives in `src/cli_exec.rs`.
 - Started splitting `src/cli_exec.rs` into submodules with `src/cli_exec/local.rs` for local command runners.
+- Continued splitting `src/cli_exec.rs` with `src/cli_exec/identity.rs` for auth/user/member/lane command runners.
 
 Module conventions (applied in `src/tui_shell/app/*`):
 - `cmd_*`: command handlers grouped by domain or interaction surface.
