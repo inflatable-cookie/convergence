@@ -16,6 +16,7 @@ mod rename_io;
 mod rename_match;
 mod text_delta;
 mod tree_diff;
+mod tree_walk;
 #[cfg(test)]
 use self::rename_helpers::StatusChange;
 use self::rename_helpers::default_chunk_size_bytes;
