@@ -38,8 +38,12 @@ Progress notes:
 ### C) Consistency Cleanup
 
 - [ ] Normalize naming conventions across extracted modules (for example handler/request DTO naming consistency).
-- [ ] Ensure each extracted module has a clear single responsibility and move stragglers if needed.
+- [x] Ensure each extracted module has a clear single responsibility and move stragglers if needed.
 - [ ] Update architecture docs if module ownership changes during this phase.
+
+Progress notes:
+- Moved `load_bundle_from_disk` from `converge-server.rs` into `persistence.rs`.
+- Localized GC-specific `default_true` helper inside `handlers_gc.rs`.
 
 ### D) Verification
 

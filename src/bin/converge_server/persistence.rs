@@ -258,6 +258,25 @@ pub(super) fn load_bundles_from_disk(state: &AppState, repo_id: &str) -> Result<
     Ok(out)
 }
 
+pub(super) fn load_bundle_from_disk(
+    state: &AppState,
+    repo_id: &str,
+    bundle_id: &str,
+) -> Result<Bundle, Response> {
+    let path = repo_data_dir(state, repo_id)
+        .join("bundles")
+        .join(format!("{}.json", bundle_id));
+    if !path.exists() {
+        return Err(not_found());
+    }
+    let bytes = std::fs::read(&path)
+        .with_context(|| format!("read {}", path.display()))
+        .map_err(|e| internal_error(anyhow::anyhow!(e)))?;
+    let bundle: Bundle =
+        serde_json::from_slice(&bytes).map_err(|e| internal_error(anyhow::anyhow!(e)))?;
+    Ok(bundle)
+}
+
 pub(super) fn load_promotions_from_disk(state: &AppState, repo_id: &str) -> Result<Vec<Promotion>> {
     let dir = repo_data_dir(state, repo_id).join("promotions");
     if !dir.is_dir() {

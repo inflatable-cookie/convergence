@@ -16,6 +16,10 @@ pub(super) struct GcQuery {
     prune_releases_keep_last: Option<usize>,
 }
 
+fn default_true() -> bool {
+    true
+}
+
 pub(super) async fn gc_repo(
     State(state): State<Arc<AppState>>,
     Extension(subject): Extension<Subject>,

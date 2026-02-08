@@ -305,6 +305,10 @@ struct LaneHead {
 
 const LANE_HEAD_HISTORY_KEEP_LAST: usize = 5;
 
+fn default_true() -> bool {
+    true
+}
+
 #[derive(Parser)]
 #[command(name = "converge-server")]
 #[command(about = "Convergence central authority (development)", long_about = None)]
@@ -442,27 +446,4 @@ async fn run() -> Result<()> {
 
 async fn shutdown_signal() {
     let _ = tokio::signal::ctrl_c().await;
-}
-
-fn default_true() -> bool {
-    true
-}
-
-fn load_bundle_from_disk(
-    state: &AppState,
-    repo_id: &str,
-    bundle_id: &str,
-) -> Result<Bundle, Response> {
-    let path = repo_data_dir(state, repo_id)
-        .join("bundles")
-        .join(format!("{}.json", bundle_id));
-    if !path.exists() {
-        return Err(not_found());
-    }
-    let bytes = std::fs::read(&path)
-        .with_context(|| format!("read {}", path.display()))
-        .map_err(|e| internal_error(anyhow::anyhow!(e)))?;
-    let bundle: Bundle =
-        serde_json::from_slice(&bytes).map_err(|e| internal_error(anyhow::anyhow!(e)))?;
-    Ok(bundle)
 }
