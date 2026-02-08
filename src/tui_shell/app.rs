@@ -49,6 +49,7 @@ mod cmd_remote_views;
 mod cmd_settings;
 mod cmd_text_input;
 mod cmd_transfer;
+mod command_availability;
 mod default_actions;
 mod event_loop;
 mod input_hints;
@@ -64,7 +65,6 @@ mod time_utils;
 mod view_nav;
 
 use self::input_hints::{input_hint_left, input_hint_right};
-use self::mode_commands::mode_command_defs;
 use self::parse_utils::{parse_id_list, tokenize, validate_gate_id_local};
 pub(in crate::tui_shell) use self::time_utils::now_ts;
 pub(super) use self::time_utils::{fmt_ts_list, fmt_ts_ui};
@@ -419,65 +419,6 @@ impl Default for App {
             }],
             quit: false,
         }
-    }
-}
-
-impl App {
-    fn available_command_defs(&self) -> Vec<CommandDef> {
-        let mode = self.mode();
-        let root_ctx = self.root_ctx;
-        let mut defs = mode_command_defs(mode, root_ctx);
-
-        // If the workspace isn't initialized, only offer init + global navigation.
-        if mode == UiMode::Root && root_ctx == RootContext::Local {
-            if self.workspace.is_none() {
-                let can_init = self
-                    .workspace_err
-                    .as_deref()
-                    .is_some_and(|e| e.contains("No .converge directory found"));
-
-                defs.retain(|d| {
-                    d.name == "help"
-                        || d.name == "quit"
-                        || d.name == "clear"
-                        || (can_init && d.name == "init")
-                });
-            } else {
-                // Already initialized; hide init from the command surface.
-                defs.retain(|d| d.name != "init");
-            }
-        }
-
-        // If remote isn't ready, only offer login + global navigation.
-        if mode == UiMode::Root
-            && root_ctx == RootContext::Remote
-            && (!self.remote_configured || self.remote_identity.is_none())
-        {
-            defs.retain(|d| {
-                d.name == "login"
-                    || d.name == "bootstrap"
-                    || d.name == "help"
-                    || d.name == "quit"
-                    || d.name == "clear"
-            });
-        }
-
-        // If the remote repo doesn't exist yet, only offer repo setup + safe navigation.
-        if mode == UiMode::Root && root_ctx == RootContext::Remote && self.remote_repo_missing() {
-            defs.retain(|d| {
-                d.name == "create-repo"
-                    || d.name == "remote"
-                    || d.name == "ping"
-                    || d.name == "login"
-                    || d.name == "bootstrap"
-                    || d.name == "help"
-                    || d.name == "quit"
-                    || d.name == "clear"
-                    || d.name == "refresh"
-            });
-        }
-
-        defs
     }
 }
 
