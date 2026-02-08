@@ -88,6 +88,10 @@ Progress notes:
 - Continued `src/bin/converge-server.rs` split with `src/bin/converge_server/routes.rs` to isolate authenticated route registration from bootstrap/runtime setup.
 - Continued `src/bin/converge-server.rs` split with `src/bin/converge_server/handlers_gc.rs` for GC query/request handling and retention sweep execution.
 - Continued `src/bin/converge-server.rs` split with `src/bin/converge_server/object_graph.rs` for manifest/snap graph traversal, integrity checks, and merge/promotability helpers used by multiple handler modules.
+- Continued `src/bin/converge-server.rs` split with:
+- `src/bin/converge_server/access.rs` for shared repo read/publish authorization checks.
+- `src/bin/converge_server/http_error.rs` for shared HTTP error/JSON response helpers.
+- `src/bin/converge_server/gate_graph_validation.rs` for gate graph validation and cycle detection helpers.
 
 Module conventions (applied in `src/tui_shell/app/*`):
 - `cmd_*`: command handlers grouped by domain or interaction surface.
