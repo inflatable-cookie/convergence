@@ -77,7 +77,7 @@ Progress notes:
 
 ### C) CLI Surface Decomposition
 
-- [ ] Split `src/main.rs` into command registration/composition modules and execution wiring.
+- [x] Split `src/main.rs` into command registration/composition modules and execution wiring.
 - [x] Split `src/tui_shell/commands.rs` into grouped command catalogs by mode/domain.
 - [x] Split `src/cli_exec/delivery.rs` into publish/promote/release-specific execution modules.
 
@@ -86,6 +86,7 @@ Progress notes:
 - Completed `commands.rs` decomposition by extracting root/global/auth command catalogs into `src/tui_shell/commands/root_defs.rs`, leaving `commands.rs` as thin module composition/re-export.
 - Started `main.rs` decomposition by extracting subordinate CLI subcommand enums into `src/cli_subcommands.rs`, keeping top-level `Commands` and runtime entry flow in `main.rs`.
 - Continued `main.rs` decomposition by extracting the top-level `Commands` enum into `src/cli_commands.rs` and re-exporting command types from `main.rs`.
+- Completed `main.rs` decomposition by extracting runtime parsing/dispatch and remote token helpers into `src/cli_runtime.rs`, leaving `main.rs` as thin module composition + process entry.
 - Completed `cli_exec/delivery.rs` decomposition by splitting handlers into focused modules:
   - `src/cli_exec/delivery/publish_sync.rs`
   - `src/cli_exec/delivery/transfer.rs`
