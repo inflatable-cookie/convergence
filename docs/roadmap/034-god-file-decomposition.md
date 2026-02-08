@@ -98,6 +98,7 @@ Progress notes:
 - Continued `src/remote.rs` split with `src/remote/fetch.rs` for remote fetch/publication-sync flows and manifest/blob/recipe traversal helpers.
 - Continued `src/remote.rs` split with `src/remote/transfer.rs` for publish/upload/sync transfer workflows and publication-creation paths.
 - Continued `src/remote.rs` split with `src/remote/identity.rs` for identity/user/token and repo-member/lane-member client operations.
+- Continued `src/remote.rs` split with `src/remote/operations.rs` for repo/gate/bundle/release/promotion and GC operations.
 
 Module conventions (applied in `src/tui_shell/app/*`):
 - `cmd_*`: command handlers grouped by domain or interaction surface.
