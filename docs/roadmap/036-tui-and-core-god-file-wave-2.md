@@ -69,6 +69,7 @@ Progress notes:
 - Continued `status.rs` decomposition by moving recipe-rename scoring thresholds/comparison helpers into `src/tui_shell/status/rename_helpers.rs`.
 - Continued `status.rs` decomposition by moving core diff/rename orchestration and dashboard/remote-status assembly into `src/tui_shell/status/tree_diff.rs`, keeping `status.rs` as module composition and shared exports.
 - Started `workspace.rs` decomposition by extracting GC reachability traversal helpers into `src/workspace/gc.rs` and wiring `workspace.rs` through module imports.
+- Continued `workspace.rs` decomposition by extracting restore/materialization filesystem helpers into `src/workspace/materialize_fs.rs`.
 
 ### C) Core Workspace/Store Decomposition
 
