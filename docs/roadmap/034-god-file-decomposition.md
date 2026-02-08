@@ -67,6 +67,7 @@ Progress notes:
 - Continued `src/main.rs` decomposition by moving `publish`, `sync`, and `lanes` command execution branches into `src/cli_exec.rs`.
 - Continued `src/main.rs` decomposition by moving `fetch`, `bundle`, and `promote` command execution branches into `src/cli_exec.rs`.
 - Continued `src/main.rs` decomposition by moving `login`, `logout`, and `whoami` command execution branches into `src/cli_exec.rs`.
+- Continued `src/main.rs` decomposition by moving local command execution branches (`init`, `snap`, `snaps`, `show`, `restore`, `diff`, `mv`) into `src/cli_exec.rs`.
 
 Module conventions (applied in `src/tui_shell/app/*`):
 - `cmd_*`: command handlers grouped by domain or interaction surface.
