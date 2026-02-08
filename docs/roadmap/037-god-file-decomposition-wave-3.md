@@ -64,6 +64,10 @@ Progress notes:
 
 Progress notes:
 - Started `tree_diff.rs` decomposition by extracting blob/recipe IO helpers into `src/tui_shell/status/rename_io.rs` and wiring `tree_diff.rs` to consume these helpers.
+- Continued `tree_diff.rs` decomposition by extracting rename detection and consumed-path tracking into `src/tui_shell/status/rename_match.rs`.
+- Started `local_snaps.rs` decomposition by extracting snaps filter and clear-filter handlers into `src/tui_shell/app/local_snaps_filter.rs`.
+- Continued `local_snaps.rs` decomposition by extracting snap message edit/clear handling into `src/tui_shell/app/local_snaps_message.rs`.
+- Continued `local_snaps.rs` decomposition by extracting snaps list/open flow into `src/tui_shell/app/local_snaps_open.rs`.
 
 ### C) CLI Surface Decomposition
 

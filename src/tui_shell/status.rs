@@ -13,6 +13,7 @@ pub(super) use self::summary_utils::{
 mod identity_collect;
 mod rename_helpers;
 mod rename_io;
+mod rename_match;
 mod text_delta;
 mod tree_diff;
 #[cfg(test)]
