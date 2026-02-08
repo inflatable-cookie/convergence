@@ -52,11 +52,11 @@ Progress notes:
 
 - [x] Run `cargo fmt`.
 - [x] Run `cargo clippy --all-targets -- -D warnings`.
-- [ ] Run `cargo nextest run`.
+- [x] Run `cargo nextest run`.
 
 Progress notes:
 - `cargo fmt` and strict `cargo clippy --all-targets -- -D warnings` pass on the current decomposition-hardening changes.
-- `cargo nextest run` currently hangs in this environment while spawning long-lived `--list --format terse` test-discovery subprocesses; keep this as the remaining verification gate to close.
+- `cargo nextest run` passes end-to-end on the current tree: 46 tests run, 46 passed, 0 skipped.
 
 ## Exit Criteria
 
