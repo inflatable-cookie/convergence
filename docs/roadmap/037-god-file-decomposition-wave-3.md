@@ -59,7 +59,7 @@ Progress notes:
 ### B) TUI Status and Local Command Decomposition
 
 - [ ] Split `src/tui_shell/status/tree_diff.rs` into focused modules (leaf collection, identity mapping, rename heuristics, rendering payload assembly).
-- [ ] Split `src/tui_shell/app/local_snaps.rs` into focused mode handlers (filtering, message edits, restore/revert actions, view refresh).
+- [x] Split `src/tui_shell/app/local_snaps.rs` into focused mode handlers (filtering, message edits, restore/revert actions, view refresh).
 - [ ] Keep top-level status/local command modules as orchestration-only entry points.
 
 Progress notes:
@@ -71,6 +71,7 @@ Progress notes:
 - Continued `local_snaps.rs` decomposition by extracting snaps list/open flow into `src/tui_shell/app/local_snaps_open.rs`.
 - Continued `local_snaps.rs` decomposition by extracting revert/restore flows into `src/tui_shell/app/local_snaps_restore.rs`.
 - Continued `local_snaps.rs` decomposition by extracting unsnap flow into `src/tui_shell/app/local_snaps_unsnap.rs`.
+- Completed `local_snaps.rs` decomposition by extracting the remaining snap handler into `src/tui_shell/app/local_snaps_snap.rs` and removing the legacy `local_snaps.rs` module file.
 
 ### C) CLI Surface Decomposition
 
@@ -87,9 +88,14 @@ Progress notes:
 ### E) Regression and Verification
 
 - [ ] Add focused tests for newly extracted boundaries where current coverage is indirect.
-- [ ] Run `cargo fmt`.
-- [ ] Run `cargo clippy --all-targets -- -D warnings`.
-- [ ] Run `cargo nextest run`.
+- [x] Run `cargo fmt`.
+- [x] Run `cargo clippy --all-targets -- -D warnings`.
+- [x] Run `cargo nextest run`.
+
+Progress notes:
+- Ran `cargo fmt` after the latest status/local-snaps extraction slices.
+- Ran `cargo clippy --all-targets -- -D warnings` with no warnings/errors.
+- Ran `cargo nextest run` and passed all tests (51 passed, 0 skipped).
 
 ## Exit Criteria
 
