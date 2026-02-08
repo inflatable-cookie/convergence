@@ -76,10 +76,11 @@ Progress notes:
 ### C) Core Workspace/Store Decomposition
 
 - [ ] Split `src/workspace.rs` into modules for workspace lifecycle, snap creation, restore/diff orchestration, and metadata helpers.
-- [ ] Split `src/store.rs` into modules for object CRUD, integrity checks, and traversal/query helpers.
+- [x] Split `src/store.rs` into modules for object CRUD, integrity checks, and traversal/query helpers.
 - [ ] Minimize cross-module visibility (`pub` -> `pub(super)`/private where possible).
 
 Progress notes:
+- Continued `workspace.rs` decomposition by extracting manifest scan/build and filesystem ordering helpers into `src/workspace/manifest_scan.rs`.
 - Started `store.rs` decomposition by extracting object traversal/query helpers (`list_blob_ids`, `list_manifest_ids`, `list_recipe_ids`, `delete_blob`, `delete_manifest`, `delete_recipe`) into `src/store/traversal.rs`.
 - Continued `store.rs` decomposition by extracting workspace-state metadata helpers (lane sync, remote token, last published scope/gate metadata) into `src/store/state_meta.rs`.
 - Continued `store.rs` decomposition by extracting blob/manifest/recipe object CRUD + integrity checks into `src/store/object_crud.rs`.
