@@ -93,6 +93,7 @@ Progress notes:
 - `src/bin/converge_server/http_error.rs` for shared HTTP error/JSON response helpers.
 - `src/bin/converge_server/gate_graph_validation.rs` for gate graph validation and cycle detection helpers.
 - Continued `src/bin/converge-server.rs` split with `src/bin/converge_server/handlers_system.rs` for bearer auth middleware, health endpoint, and bootstrap handlers.
+- Started `src/remote.rs` split with `src/remote/http_client.rs` for retry/backoff helper plus shared auth/url/response-status helpers used across client operations.
 
 Module conventions (applied in `src/tui_shell/app/*`):
 - `cmd_*`: command handlers grouped by domain or interaction surface.
