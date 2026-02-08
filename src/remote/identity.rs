@@ -1,3 +1,5 @@
+//! Identity, user/token, and repo/lane membership remote operations.
+
 use super::*;
 
 impl RemoteClient {

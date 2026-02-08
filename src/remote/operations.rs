@@ -1,3 +1,5 @@
+//! Repo/gate/bundle/release/promotion administrative operations.
+
 use super::*;
 
 impl RemoteClient {

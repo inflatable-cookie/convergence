@@ -1,3 +1,6 @@
+//! Remote upload/publish/sync transfer workflows.
+
+use super::fetch::{collect_objects, manifest_postorder};
 use super::*;
 
 impl RemoteClient {

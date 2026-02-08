@@ -1,3 +1,5 @@
+//! Garbage-collection endpoint logic for retained and prunable repo objects.
+
 use super::*;
 
 #[derive(Debug, serde::Deserialize)]

@@ -21,9 +21,13 @@ This phase is limited to follow-through improvements after the god-file decompos
 
 ### A) Boundary Hardening
 
-- [ ] Audit visibility in new modules and tighten to the minimum needed (`pub` -> `pub(super)`/private where possible).
-- [ ] Add short module-level comments/doc headers for non-obvious modules in `src/bin/converge_server/*` and `src/remote/*`.
+- [x] Audit visibility in new modules and tighten to the minimum needed (`pub` -> `pub(super)`/private where possible).
+- [x] Add short module-level comments/doc headers for non-obvious modules in `src/bin/converge_server/*` and `src/remote/*`.
 - [ ] Eliminate any remaining wildcard imports introduced during decomposition if they obscure ownership.
+
+Progress notes:
+- Added module headers to non-obvious extracted modules in `src/remote/*` and `src/bin/converge_server/*`.
+- Tightened one extracted helper visibility (`fetch_manifest_tree`) and removed one wildcard import coupling between `remote.rs` and `remote/fetch.rs`.
 
 ### B) Regression Coverage
 

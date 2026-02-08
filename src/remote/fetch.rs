@@ -1,3 +1,5 @@
+//! Remote fetch/read paths and recursive manifest/object retrieval helpers.
+
 use super::*;
 
 impl RemoteClient {
@@ -160,7 +162,7 @@ pub(super) fn manifest_postorder(store: &LocalStore, root: &ObjectId) -> Result<
     Ok(out)
 }
 
-pub(super) fn fetch_manifest_tree(
+fn fetch_manifest_tree(
     store: &LocalStore,
     remote: &RemoteClient,
     repo: &str,

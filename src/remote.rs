@@ -12,7 +12,6 @@ mod types;
 pub use self::types::*;
 mod fetch;
 mod identity;
-use self::fetch::*;
 mod operations;
 mod transfer;
 

@@ -1,3 +1,5 @@
+//! DTOs and payload types for remote API requests/responses.
+
 use std::collections::{HashMap, HashSet};
 
 fn is_false(v: &bool) -> bool {

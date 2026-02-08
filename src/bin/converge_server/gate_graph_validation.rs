@@ -1,3 +1,5 @@
+//! Gate graph structural validation (ID checks, cycles, and reachability).
+
 use super::*;
 
 #[derive(Clone, Debug, serde::Serialize)]

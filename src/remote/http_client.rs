@@ -1,3 +1,5 @@
+//! Shared HTTP request/retry/auth helpers for `RemoteClient` operations.
+
 use super::*;
 
 pub(super) fn with_retries<T>(label: &str, mut f: impl FnMut() -> Result<T>) -> Result<T> {

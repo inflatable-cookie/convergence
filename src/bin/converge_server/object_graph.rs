@@ -1,3 +1,5 @@
+//! Manifest/snap object graph traversal, validation, and merge helpers.
+
 use super::*;
 
 pub(super) fn validate_manifest_entry_refs(
