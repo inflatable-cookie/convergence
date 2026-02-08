@@ -45,7 +45,10 @@ fn server_route_registration_smoke() -> Result<()> {
     // Unknown routes should still 404 through the composed router.
     let missing = client
         .get(format!("{}/definitely-not-a-route", guard.base_url))
-        .header(reqwest::header::AUTHORIZATION, common::auth_header(&guard.token))
+        .header(
+            reqwest::header::AUTHORIZATION,
+            common::auth_header(&guard.token),
+        )
         .send()
         .context("GET unknown route")?;
     assert_eq!(missing.status(), reqwest::StatusCode::NOT_FOUND);
