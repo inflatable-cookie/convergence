@@ -62,6 +62,7 @@ mod remote_access;
 mod remote_action_parse;
 mod remote_bundle_ops;
 mod remote_fetch_parse;
+mod remote_lane_release_views;
 mod remote_list_views;
 mod remote_members;
 mod remote_mutations;
