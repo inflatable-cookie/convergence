@@ -6,119 +6,13 @@ use super::TextInputAction;
 use super::views::{BundlesView, InboxView};
 
 mod move_glob;
+mod types;
 use self::move_glob::glob_search;
-
-#[derive(Clone, Debug)]
-pub(super) struct LoginWizard {
-    pub(super) url: Option<String>,
-    pub(super) token: Option<String>,
-    pub(super) repo: Option<String>,
-    pub(super) scope: String,
-    pub(super) gate: String,
-}
-
-#[derive(Clone, Debug)]
-pub(super) struct BootstrapWizard {
-    pub(super) url: Option<String>,
-    pub(super) bootstrap_token: Option<String>,
-    pub(super) handle: String,
-    pub(super) display_name: Option<String>,
-
-    pub(super) repo: Option<String>,
-    pub(super) scope: String,
-    pub(super) gate: String,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(super) enum FetchKind {
-    Snap,
-    Bundle,
-    Release,
-    Lane,
-}
-
-#[derive(Clone, Debug)]
-pub(super) struct FetchWizard {
-    pub(super) kind: Option<FetchKind>,
-    pub(super) id: Option<String>,
-    pub(super) user: Option<String>,
-    pub(super) options: Option<String>,
-}
-
-#[derive(Clone, Debug)]
-pub(super) struct PublishWizard {
-    pub(super) snap: Option<String>,
-    pub(super) scope: Option<String>,
-    pub(super) gate: Option<String>,
-    pub(super) meta: bool,
-}
-
-#[derive(Clone, Debug)]
-pub(super) struct SyncWizard {
-    pub(super) snap: Option<String>,
-    pub(super) lane: String,
-    pub(super) client: Option<String>,
-}
-
-#[derive(Clone, Debug)]
-pub(super) struct ReleaseWizard {
-    pub(super) bundle_id: String,
-    pub(super) channel: String,
-    pub(super) notes: Option<String>,
-}
-
-#[derive(Clone, Debug)]
-pub(super) struct PinWizard {
-    pub(super) bundle_id: Option<String>,
-}
-
-#[derive(Clone, Debug)]
-pub(super) struct PromoteWizard {
-    pub(super) bundle_id: String,
-    pub(super) candidates: Vec<String>,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(super) enum MemberAction {
-    Add,
-    Remove,
-}
-
-#[derive(Clone, Debug)]
-pub(super) struct MemberWizard {
-    pub(super) action: Option<MemberAction>,
-    pub(super) handle: Option<String>,
-    pub(super) role: String,
-}
-
-#[derive(Clone, Debug)]
-pub(super) struct LaneMemberWizard {
-    pub(super) action: Option<MemberAction>,
-    pub(super) lane: Option<String>,
-    pub(super) handle: Option<String>,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(super) enum BrowseTarget {
-    Inbox,
-    Bundles,
-}
-
-#[derive(Clone, Debug)]
-pub(super) struct BrowseWizard {
-    pub(super) target: BrowseTarget,
-    pub(super) scope: String,
-    pub(super) gate: String,
-    pub(super) filter: Option<String>,
-    pub(super) limit: Option<usize>,
-}
-
-#[derive(Clone, Debug)]
-pub(super) struct MoveWizard {
-    pub(super) query: Option<String>,
-    pub(super) candidates: Vec<String>,
-    pub(super) from: Option<String>,
-}
+pub(in crate::tui_shell) use self::types::{
+    BootstrapWizard, BrowseTarget, BrowseWizard, FetchKind, FetchWizard, LaneMemberWizard,
+    LoginWizard, MemberAction, MemberWizard, MoveWizard, PinWizard, PromoteWizard, PublishWizard,
+    ReleaseWizard, SyncWizard,
+};
 
 impl super::App {
     pub(super) fn cancel_wizards(&mut self) {
