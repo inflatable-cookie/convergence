@@ -59,6 +59,7 @@ mod local_snaps;
 mod modal_output;
 mod mode_commands;
 mod parse_utils;
+mod remote_access;
 mod remote_fetch_parse;
 mod remote_list_views;
 mod remote_members;
