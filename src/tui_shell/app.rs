@@ -25,11 +25,6 @@ use time::OffsetDateTime;
 use time::format_description::FormatItem;
 use time::format_description::well_known::Rfc3339;
 
-use super::commands::{
-    bundles_command_defs, gate_graph_command_defs, global_command_defs, inbox_command_defs,
-    lanes_command_defs, releases_command_defs, root_command_defs, snaps_command_defs,
-    superpositions_command_defs,
-};
 use super::input::Input;
 use super::modal;
 use super::status::{extract_change_summary, local_status_lines, remote_status_lines};
@@ -58,12 +53,14 @@ mod cmd_transfer;
 mod default_actions;
 mod event_loop;
 mod input_hints;
+mod mode_commands;
 mod parse_utils;
 mod render;
 mod superpositions_nav;
 mod time_utils;
 
 use self::input_hints::{input_hint_left, input_hint_right};
+use self::mode_commands::mode_command_defs;
 use self::parse_utils::{parse_id_list, server_label, tokenize, validate_gate_id_local};
 pub(in crate::tui_shell) use self::time_utils::now_ts;
 pub(super) use self::time_utils::{fmt_ts_list, fmt_ts_ui};
@@ -294,61 +291,6 @@ pub(super) struct CommandDef {
     pub(super) aliases: &'static [&'static str],
     pub(super) usage: &'static str,
     pub(super) help: &'static str,
-}
-
-fn mode_command_defs(mode: UiMode, root_ctx: RootContext) -> Vec<CommandDef> {
-    match mode {
-        UiMode::Root => root_command_defs(root_ctx),
-        UiMode::Snaps => {
-            let mut out = snaps_command_defs();
-            out.extend(global_command_defs());
-            out
-        }
-        UiMode::Inbox => {
-            let mut out = inbox_command_defs();
-            out.extend(global_command_defs());
-            out
-        }
-        UiMode::Bundles => {
-            let mut out = bundles_command_defs();
-            out.extend(global_command_defs());
-            out
-        }
-        UiMode::Releases => {
-            let mut out = releases_command_defs();
-            out.extend(global_command_defs());
-            out
-        }
-        UiMode::Lanes => {
-            let mut out = lanes_command_defs();
-            out.extend(global_command_defs());
-            out
-        }
-        UiMode::Superpositions => {
-            let mut out = superpositions_command_defs();
-            out.extend(global_command_defs());
-            out
-        }
-
-        UiMode::GateGraph => {
-            let mut out = gate_graph_command_defs();
-            out.extend(global_command_defs());
-            out
-        }
-
-        UiMode::Settings => {
-            let mut out = vec![CommandDef {
-                name: "back",
-                aliases: &[],
-                usage: "back",
-                help: "Return to root",
-            }];
-            let mut globals = global_command_defs();
-            globals.retain(|d| d.name != "settings");
-            out.extend(globals);
-            out
-        }
-    }
 }
 
 pub(super) fn latest_releases_by_channel(
