@@ -115,12 +115,13 @@ Progress notes:
 
 ### E) Regression and Verification
 
-- [ ] Add focused tests for newly extracted boundaries where current coverage is indirect.
+- [x] Add focused tests for newly extracted boundaries where current coverage is indirect.
 - [x] Run `cargo fmt`.
 - [x] Run `cargo clippy --all-targets -- -D warnings`.
 - [x] Run `cargo nextest run`.
 
 Progress notes:
+- Added focused unit tests in `src/bin/converge_server/object_graph/merge.rs` for `compute_promotability`, covering success, superposition rejection, and combined-reason rejection paths.
 - Ran `cargo fmt` after the latest status/local-snaps extraction slices.
 - Ran `cargo clippy --all-targets -- -D warnings` with no warnings/errors.
 - Ran `cargo nextest run` and passed all tests (51 passed, 0 skipped).
