@@ -16,7 +16,7 @@ pub(in super::super) struct MissingObjectsResponse {
     missing_snaps: Vec<String>,
 }
 
-pub(in super::super) async fn find_missing_objects(
+pub(super) async fn find_missing_objects(
     State(state): State<Arc<AppState>>,
     Extension(subject): Extension<Subject>,
     Path(repo_id): Path<String>,

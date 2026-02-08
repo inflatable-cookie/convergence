@@ -97,7 +97,7 @@ Progress notes:
 
 - [x] Split `src/bin/converge_server/object_graph.rs` into graph traversal, retention policy, and prune execution helpers.
 - [x] Split `src/bin/converge_server/handlers_publications.rs` into request parsing, validation, and handler core modules.
-- [ ] Minimize cross-module visibility (`pub` -> `pub(crate)`/private where possible) after extraction.
+- [x] Minimize cross-module visibility (`pub` -> `pub(crate)`/private where possible) after extraction.
 
 Progress notes:
 - Completed `object_graph.rs` decomposition by splitting storage/validation, traversal checks, and merge/coalesce logic into:
@@ -111,6 +111,7 @@ Progress notes:
   - `src/bin/converge_server/handlers_publications/bundles.rs`
   - `src/bin/converge_server/handlers_publications/pins.rs`
   with `src/bin/converge_server/handlers_publications/mod.rs` as a thin composition/re-export layer.
+- Tightened server decomposition visibility by replacing submodule re-exports with wrapper entrypoints in `handlers_publications/mod.rs` and narrowing child module items to `pub(super)`.
 
 ### E) Regression and Verification
 

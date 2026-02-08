@@ -1,6 +1,6 @@
 use super::super::*;
 
-pub(in super::super) async fn list_pins(
+pub(super) async fn list_pins(
     State(state): State<Arc<AppState>>,
     Extension(subject): Extension<Subject>,
     Path(repo_id): Path<String>,
@@ -16,7 +16,7 @@ pub(in super::super) async fn list_pins(
     Ok(Json(serde_json::json!({"bundles": bundles})))
 }
 
-pub(in super::super) async fn pin_bundle(
+pub(super) async fn pin_bundle(
     State(state): State<Arc<AppState>>,
     Extension(subject): Extension<Subject>,
     Path((repo_id, bundle_id)): Path<(String, String)>,
@@ -44,7 +44,7 @@ pub(in super::super) async fn pin_bundle(
     ))
 }
 
-pub(in super::super) async fn unpin_bundle(
+pub(super) async fn unpin_bundle(
     State(state): State<Arc<AppState>>,
     Extension(subject): Extension<Subject>,
     Path((repo_id, bundle_id)): Path<(String, String)>,

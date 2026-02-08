@@ -13,7 +13,7 @@ pub(in super::super) struct CreatePublicationRequest {
     resolution: Option<PublicationResolution>,
 }
 
-pub(in super::super) async fn create_publication(
+pub(super) async fn create_publication(
     State(state): State<Arc<AppState>>,
     Extension(subject): Extension<Subject>,
     Path(repo_id): Path<String>,
@@ -110,7 +110,7 @@ pub(in super::super) async fn create_publication(
     Ok(Json(pubrec))
 }
 
-pub(in super::super) async fn list_publications(
+pub(super) async fn list_publications(
     State(state): State<Arc<AppState>>,
     Extension(subject): Extension<Subject>,
     Path(repo_id): Path<String>,

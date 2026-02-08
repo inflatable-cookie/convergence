@@ -7,7 +7,7 @@ pub(in super::super) struct CreateBundleRequest {
     input_publications: Vec<String>,
 }
 
-pub(in super::super) async fn create_bundle(
+pub(super) async fn create_bundle(
     State(state): State<Arc<AppState>>,
     Extension(subject): Extension<Subject>,
     Path(repo_id): Path<String>,
@@ -135,7 +135,7 @@ pub(in super::super) struct ListBundlesQuery {
     gate: Option<String>,
 }
 
-pub(in super::super) async fn list_bundles(
+pub(super) async fn list_bundles(
     State(state): State<Arc<AppState>>,
     Extension(subject): Extension<Subject>,
     Path(repo_id): Path<String>,
@@ -164,7 +164,7 @@ pub(in super::super) async fn list_bundles(
     Ok(Json(out))
 }
 
-pub(in super::super) async fn get_bundle(
+pub(super) async fn get_bundle(
     State(state): State<Arc<AppState>>,
     Extension(subject): Extension<Subject>,
     Path((repo_id, bundle_id)): Path<(String, String)>,
@@ -196,7 +196,7 @@ pub(in super::super) async fn get_bundle(
     Ok(Json(bundle))
 }
 
-pub(in super::super) async fn approve_bundle(
+pub(super) async fn approve_bundle(
     State(state): State<Arc<AppState>>,
     Extension(subject): Extension<Subject>,
     Path((repo_id, bundle_id)): Path<(String, String)>,
