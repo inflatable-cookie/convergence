@@ -81,6 +81,7 @@ Progress notes:
 - Continued `src/bin/converge-server.rs` split with `src/bin/converge_server/validators.rs` for shared id/channel/object validation helpers.
 - Continued `src/bin/converge-server.rs` split with `src/bin/converge_server/handlers_identity.rs` for identity/user/token HTTP handlers and related request/response DTOs.
 - Continued `src/bin/converge-server.rs` split with `src/bin/converge_server/handlers_repo.rs` for repo creation/listing/permissions, repo member management, lane member management, lane listing, and lane head handlers.
+- Continued `src/bin/converge-server.rs` split with `src/bin/converge_server/handlers_gates.rs` for gate listing/graph updates and scope creation/listing handlers.
 
 Module conventions (applied in `src/tui_shell/app/*`):
 - `cmd_*`: command handlers grouped by domain or interaction surface.
