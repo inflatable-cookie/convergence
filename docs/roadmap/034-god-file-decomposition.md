@@ -72,6 +72,10 @@ Progress notes:
 - Started splitting `src/cli_exec.rs` into submodules with `src/cli_exec/local.rs` for local command runners.
 - Continued splitting `src/cli_exec.rs` with `src/cli_exec/identity.rs` for auth/user/member/lane command runners.
 - Continued splitting `src/cli_exec.rs` with `src/cli_exec/release_resolve.rs` for release and resolution workflows.
+- Continued splitting `src/cli_exec.rs` with:
+- `src/cli_exec/remote_admin.rs` for remote config/repo/gate graph handlers.
+- `src/cli_exec/delivery.rs` for publish/sync/fetch/bundle/promote/pin/status workflows.
+- `src/cli_exec.rs` now acts as thin command router (~190 LOC).
 
 Module conventions (applied in `src/tui_shell/app/*`):
 - `cmd_*`: command handlers grouped by domain or interaction surface.
@@ -97,7 +101,7 @@ Module conventions (applied in `src/tui_shell/app/*`):
 
 ### D) Split `src/main.rs` (CLI)
 
-- [ ] Extract command execution logic into domain modules (local, remote, gates, auth, release/promotion, resolution).
+- [x] Extract command execution logic into domain modules (local, remote, gates, auth, release/promotion, resolution).
 - [ ] Keep CLI argument definitions readable and grouped.
 - [x] Reduce `run()` match complexity by delegating to module-level executors.
 - [ ] Preserve CLI UX and output compatibility.
