@@ -87,6 +87,7 @@ Progress notes:
 - Continued `src/bin/converge-server.rs` split with `src/bin/converge_server/handlers_release.rs` for release creation/listing/channel handlers and promotion state-transition handlers.
 - Continued `src/bin/converge-server.rs` split with `src/bin/converge_server/routes.rs` to isolate authenticated route registration from bootstrap/runtime setup.
 - Continued `src/bin/converge-server.rs` split with `src/bin/converge_server/handlers_gc.rs` for GC query/request handling and retention sweep execution.
+- Continued `src/bin/converge-server.rs` split with `src/bin/converge_server/object_graph.rs` for manifest/snap graph traversal, integrity checks, and merge/promotability helpers used by multiple handler modules.
 
 Module conventions (applied in `src/tui_shell/app/*`):
 - `cmd_*`: command handlers grouped by domain or interaction surface.
