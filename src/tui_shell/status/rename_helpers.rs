@@ -82,3 +82,56 @@ pub(super) fn default_chunk_size_bytes() -> usize {
     // Keep in sync with workspace defaults.
     4 * 1024 * 1024
 }
+
+pub(super) fn recipe_prefix_suffix_score(
+    a: &crate::model::FileRecipe,
+    b: &crate::model::FileRecipe,
+) -> (usize, usize, usize, f64) {
+    let a_ids: Vec<&str> = a.chunks.iter().map(|c| c.blob.as_str()).collect();
+    let b_ids: Vec<&str> = b.chunks.iter().map(|c| c.blob.as_str()).collect();
+
+    if a_ids.is_empty() && b_ids.is_empty() {
+        return (0, 0, 0, 1.0);
+    }
+
+    let min = a_ids.len().min(b_ids.len());
+    let max = a_ids.len().max(b_ids.len());
+    if max == 0 {
+        return (0, 0, 0, 1.0);
+    }
+
+    let mut prefix = 0usize;
+    while prefix < min && a_ids[prefix] == b_ids[prefix] {
+        prefix += 1;
+    }
+
+    let mut suffix = 0usize;
+    while suffix < (min - prefix)
+        && a_ids[a_ids.len() - 1 - suffix] == b_ids[b_ids.len() - 1 - suffix]
+    {
+        suffix += 1;
+    }
+
+    let score = ((prefix + suffix) as f64) / (max as f64);
+    (prefix, suffix, max, score)
+}
+
+pub(super) fn min_recipe_rename_score(max_chunks: usize) -> f64 {
+    if max_chunks <= 8 {
+        0.60
+    } else if max_chunks <= 32 {
+        0.75
+    } else {
+        0.90
+    }
+}
+
+pub(super) fn min_recipe_rename_matched_chunks(max_chunks: usize) -> usize {
+    if max_chunks <= 8 {
+        2
+    } else if max_chunks <= 32 {
+        4
+    } else {
+        0
+    }
+}

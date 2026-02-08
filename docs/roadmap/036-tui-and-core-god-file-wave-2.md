@@ -66,6 +66,7 @@ Progress notes:
 - Continued `status.rs` decomposition by extracting rename/diff helper types and blob-rename scoring/default chunk-size helpers into `src/tui_shell/status/rename_helpers.rs`.
 - Continued `status.rs` decomposition by extracting manifest identity traversal helpers into `src/tui_shell/status/identity_collect.rs`.
 - Continued `status.rs` decomposition by extracting line-delta formatting and Myers/UTF-8 text delta helpers into `src/tui_shell/status/text_delta.rs`.
+- Continued `status.rs` decomposition by moving recipe-rename scoring thresholds/comparison helpers into `src/tui_shell/status/rename_helpers.rs`.
 
 ### C) Core Workspace/Store Decomposition
 
