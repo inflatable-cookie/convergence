@@ -18,6 +18,9 @@ use tokio::sync::RwLock;
 #[path = "converge_server/persistence.rs"]
 mod persistence;
 use self::persistence::*;
+#[path = "converge_server/identity_store.rs"]
+mod identity_store;
+use self::identity_store::*;
 
 #[derive(Clone, Debug)]
 struct Subject {
@@ -3603,121 +3606,6 @@ fn validate_object_id(id: &str) -> Result<()> {
         return Err(anyhow::anyhow!("object id must be lowercase hex"));
     }
     Ok(())
-}
-
-fn now_ts() -> String {
-    time::OffsetDateTime::now_utc()
-        .format(&time::format_description::well_known::Rfc3339)
-        .unwrap_or_else(|_| "<time>".to_string())
-}
-
-fn hash_token(secret: &str) -> String {
-    blake3::hash(secret.as_bytes()).to_hex().to_string()
-}
-
-fn identity_users_path(data_dir: &std::path::Path) -> std::path::PathBuf {
-    data_dir.join("users.json")
-}
-
-fn identity_tokens_path(data_dir: &std::path::Path) -> std::path::PathBuf {
-    data_dir.join("tokens.json")
-}
-
-fn load_identity_from_disk(
-    data_dir: &std::path::Path,
-) -> Result<(HashMap<String, User>, HashMap<String, AccessToken>)> {
-    let mut users: HashMap<String, User> = HashMap::new();
-    let mut tokens: HashMap<String, AccessToken> = HashMap::new();
-
-    let users_path = identity_users_path(data_dir);
-    if users_path.exists() {
-        let bytes = std::fs::read(&users_path).context("read users.json")?;
-        let list: Vec<User> = serde_json::from_slice(&bytes).context("parse users.json")?;
-        for u in list {
-            users.insert(u.id.clone(), u);
-        }
-    }
-
-    let tokens_path = identity_tokens_path(data_dir);
-    if tokens_path.exists() {
-        let bytes = std::fs::read(&tokens_path).context("read tokens.json")?;
-        let list: Vec<AccessToken> = serde_json::from_slice(&bytes).context("parse tokens.json")?;
-        for t in list {
-            tokens.insert(t.id.clone(), t);
-        }
-    }
-
-    Ok((users, tokens))
-}
-
-fn persist_identity_to_disk(
-    data_dir: &std::path::Path,
-    users: &HashMap<String, User>,
-    tokens: &HashMap<String, AccessToken>,
-) -> Result<()> {
-    let mut user_list: Vec<User> = users.values().cloned().collect();
-    user_list.sort_by(|a, b| a.handle.cmp(&b.handle));
-    let users_bytes = serde_json::to_vec_pretty(&user_list).context("serialize users")?;
-    write_atomic_overwrite(&identity_users_path(data_dir), &users_bytes)
-        .context("write users.json")?;
-
-    let mut token_list: Vec<AccessToken> = tokens.values().cloned().collect();
-    token_list.sort_by(|a, b| a.created_at.cmp(&b.created_at));
-    let tokens_bytes = serde_json::to_vec_pretty(&token_list).context("serialize tokens")?;
-    write_atomic_overwrite(&identity_tokens_path(data_dir), &tokens_bytes)
-        .context("write tokens.json")?;
-
-    Ok(())
-}
-
-fn bootstrap_identity(handle: &str, token_secret: &str) -> (User, AccessToken) {
-    let created_at = now_ts();
-    let user_id = {
-        let mut h = blake3::Hasher::new();
-        h.update(handle.as_bytes());
-        h.update(b"\n");
-        h.update(created_at.as_bytes());
-        h.finalize().to_hex().to_string()
-    };
-    let user = User {
-        id: user_id.clone(),
-        handle: handle.to_string(),
-        display_name: None,
-        admin: true,
-        created_at: created_at.clone(),
-    };
-
-    let token_hash = hash_token(token_secret);
-    let token_id = {
-        let mut h = blake3::Hasher::new();
-        h.update(user_id.as_bytes());
-        h.update(b"\n");
-        h.update(token_hash.as_bytes());
-        h.finalize().to_hex().to_string()
-    };
-    let token = AccessToken {
-        id: token_id,
-        user_id,
-        token_hash,
-        label: Some("bootstrap".to_string()),
-        created_at,
-        last_used_at: None,
-        revoked_at: None,
-        expires_at: None,
-    };
-
-    (user, token)
-}
-
-fn generate_token_secret() -> Result<String> {
-    // 32 bytes of entropy, hex-encoded.
-    let mut bytes = [0u8; 32];
-    getrandom::getrandom(&mut bytes).map_err(|e| anyhow::anyhow!("getrandom: {:?}", e))?;
-    let mut out = String::with_capacity(64);
-    for b in &bytes {
-        out.push_str(&format!("{:02x}", b));
-    }
-    Ok(out)
 }
 
 fn internal_error(err: anyhow::Error) -> Response {

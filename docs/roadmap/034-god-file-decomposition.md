@@ -77,6 +77,7 @@ Progress notes:
 - `src/cli_exec/delivery.rs` for publish/sync/fetch/bundle/promote/pin/status workflows.
 - `src/cli_exec.rs` now acts as thin command router (~190 LOC).
 - Started `src/bin/converge-server.rs` split with `src/bin/converge_server/persistence.rs` for repo/state load + persist helpers (no route behavior changes).
+- Continued `src/bin/converge-server.rs` split with `src/bin/converge_server/identity_store.rs` for identity timestamp/token/hash/load/persist helpers.
 
 Module conventions (applied in `src/tui_shell/app/*`):
 - `cmd_*`: command handlers grouped by domain or interaction surface.
