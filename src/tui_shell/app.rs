@@ -65,6 +65,7 @@ mod modal_output;
 mod modal_types;
 mod mode_commands;
 mod parse_utils;
+mod release_summary;
 mod remote_access;
 mod remote_action_parse;
 mod remote_bundle_ops;
@@ -79,6 +80,7 @@ mod remote_superpositions;
 mod render;
 mod root_context;
 mod root_refresh;
+mod root_style;
 mod settings_chunking;
 mod settings_do_mode;
 mod settings_overview;
@@ -93,6 +95,8 @@ pub(super) use self::log_types::CommandDef;
 use self::log_types::{EntryKind, ScrollEntry};
 pub(super) use self::modal_types::{Modal, ModalKind, PendingAction, TextInputAction};
 use self::parse_utils::{parse_id_list, tokenize, validate_gate_id_local};
+pub(super) use self::release_summary::latest_releases_by_channel;
+pub(in crate::tui_shell) use self::root_style::root_ctx_color;
 pub(in crate::tui_shell) use self::time_utils::now_ts;
 pub(super) use self::time_utils::{fmt_ts_list, fmt_ts_ui};
 pub(super) use self::types::{RootContext, TimestampMode, UiMode};
@@ -125,36 +129,6 @@ struct ViewFrame {
 }
 
 // RenderCtx and View live in src/tui_shell/view.rs
-
-pub(in crate::tui_shell) fn root_ctx_color(ctx: RootContext) -> Color {
-    match ctx {
-        RootContext::Local => Color::Yellow,
-        RootContext::Remote => Color::Blue,
-    }
-}
-
-pub(super) fn latest_releases_by_channel(
-    releases: Vec<crate::remote::Release>,
-) -> Vec<crate::remote::Release> {
-    let mut latest: std::collections::HashMap<String, crate::remote::Release> =
-        std::collections::HashMap::new();
-    for r in releases {
-        match latest.get(&r.channel) {
-            None => {
-                latest.insert(r.channel.clone(), r);
-            }
-            Some(prev) => {
-                if r.released_at > prev.released_at {
-                    latest.insert(r.channel.clone(), r);
-                }
-            }
-        }
-    }
-
-    let mut out = latest.into_values().collect::<Vec<_>>();
-    out.sort_by(|a, b| a.channel.cmp(&b.channel));
-    out
-}
 
 pub(super) struct App {
     workspace: Option<Workspace>,
