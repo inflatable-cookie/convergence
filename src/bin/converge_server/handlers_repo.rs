@@ -151,7 +151,7 @@ pub(super) async fn get_repo_permissions(
 }
 
 #[derive(Debug, serde::Deserialize)]
-pub(super) struct AddMemberRequest {
+pub(super) struct MemberHandleRequest {
     handle: String,
 
     #[serde(default)]
@@ -182,7 +182,7 @@ pub(super) async fn add_repo_member(
     State(state): State<Arc<AppState>>,
     Extension(subject): Extension<Subject>,
     Path(repo_id): Path<String>,
-    Json(payload): Json<AddMemberRequest>,
+    Json(payload): Json<MemberHandleRequest>,
 ) -> Result<Json<serde_json::Value>, Response> {
     validate_user_handle(&payload.handle).map_err(bad_request)?;
 
@@ -273,7 +273,7 @@ pub(super) async fn add_lane_member(
     State(state): State<Arc<AppState>>,
     Extension(subject): Extension<Subject>,
     Path((repo_id, lane_id)): Path<(String, String)>,
-    Json(payload): Json<AddMemberRequest>,
+    Json(payload): Json<MemberHandleRequest>,
 ) -> Result<Json<serde_json::Value>, Response> {
     validate_lane_id(&lane_id).map_err(bad_request)?;
     validate_user_handle(&payload.handle).map_err(bad_request)?;
