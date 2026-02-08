@@ -1,3 +1,7 @@
+use super::remote_action_parse::{
+    parse_approve_args, parse_pin_args, parse_promote_args, parse_release_args,
+    parse_superpositions_args,
+};
 use super::*;
 
 impl App {
@@ -131,49 +135,26 @@ impl App {
             }
         };
 
-        let mut bundle_id: Option<String> = None;
-        let mut unpin = false;
-
-        let mut i = 0;
-        while i < args.len() {
-            match args[i].as_str() {
-                "--bundle-id" | "bundle" => {
-                    i += 1;
-                    if i >= args.len() {
-                        self.push_error("missing value for --bundle-id".to_string());
-                        return;
-                    }
-                    bundle_id = Some(args[i].clone());
-                }
-                "--unpin" | "unpin" => {
-                    unpin = true;
-                }
-                a => {
-                    // Positional shorthand: `pin <bundle_id>` or `pin <bundle_id> unpin`.
-                    if !a.starts_with("--") && bundle_id.is_none() {
-                        bundle_id = Some(a.to_string());
-                    } else {
-                        self.push_error(format!("unknown arg: {}", a));
-                        return;
-                    }
-                }
+        let parsed = match parse_pin_args(args) {
+            Ok(p) => p,
+            Err(msg) => {
+                self.push_error(msg);
+                return;
             }
-            i += 1;
-        }
-
-        let Some(bundle_id) = bundle_id else {
+        };
+        let Some(bundle_id) = parsed.bundle_id else {
             self.push_error("usage: pin <bundle_id> [unpin]".to_string());
             return;
         };
 
-        let res = if unpin {
+        let res = if parsed.unpin {
             client.unpin_bundle(&bundle_id)
         } else {
             client.pin_bundle(&bundle_id)
         };
         match res {
             Ok(()) => {
-                if unpin {
+                if parsed.unpin {
                     self.push_output(vec![format!("unpinned {}", bundle_id)]);
                 } else {
                     self.push_output(vec![format!("pinned {}", bundle_id)]);
@@ -205,33 +186,14 @@ impl App {
                 return;
             }
         };
-        let mut bundle_id: Option<String> = None;
-
-        let mut i = 0;
-        while i < args.len() {
-            match args[i].as_str() {
-                "--bundle-id" | "bundle" => {
-                    i += 1;
-                    if i >= args.len() {
-                        self.push_error("missing value for --bundle-id".to_string());
-                        return;
-                    }
-                    bundle_id = Some(args[i].clone());
-                }
-                a => {
-                    // Positional shorthand: `approve <bundle_id>`.
-                    if !a.starts_with("--") && bundle_id.is_none() {
-                        bundle_id = Some(a.to_string());
-                    } else {
-                        self.push_error(format!("unknown arg: {}", a));
-                        return;
-                    }
-                }
+        let parsed = match parse_approve_args(args) {
+            Ok(p) => p,
+            Err(msg) => {
+                self.push_error(msg);
+                return;
             }
-            i += 1;
-        }
-
-        let Some(bundle_id) = bundle_id else {
+        };
+        let Some(bundle_id) = parsed.bundle_id else {
             self.push_error("usage: approve <bundle_id>".to_string());
             return;
         };
@@ -262,49 +224,14 @@ impl App {
             }
         };
 
-        let mut bundle_id: Option<String> = None;
-        let mut to_gate: Option<String> = None;
-
-        let mut i = 0;
-        while i < args.len() {
-            match args[i].as_str() {
-                "--bundle-id" | "bundle" => {
-                    i += 1;
-                    if i >= args.len() {
-                        self.push_error("missing value for --bundle-id".to_string());
-                        return;
-                    }
-                    bundle_id = Some(args[i].clone());
-                }
-                "--to-gate" | "to" => {
-                    i += 1;
-                    if i >= args.len() {
-                        self.push_error("missing value for --to-gate".to_string());
-                        return;
-                    }
-                    to_gate = Some(args[i].clone());
-                }
-                a => {
-                    // Positional shorthand: `promote <bundle_id> [to <gate>]`.
-                    if !a.starts_with("--") {
-                        if bundle_id.is_none() {
-                            bundle_id = Some(a.to_string());
-                        } else if to_gate.is_none() {
-                            to_gate = Some(a.to_string());
-                        } else {
-                            self.push_error(format!("unknown arg: {}", a));
-                            return;
-                        }
-                    } else {
-                        self.push_error(format!("unknown arg: {}", a));
-                        return;
-                    }
-                }
+        let parsed = match parse_promote_args(args) {
+            Ok(p) => p,
+            Err(msg) => {
+                self.push_error(msg);
+                return;
             }
-            i += 1;
-        }
-
-        let Some(bundle_id) = bundle_id else {
+        };
+        let Some(bundle_id) = parsed.bundle_id else {
             self.open_text_input_modal(
                 "Promote",
                 "bundle id> ",
@@ -315,7 +242,7 @@ impl App {
             return;
         };
 
-        let to_gate = match to_gate {
+        let to_gate = match parsed.to_gate {
             Some(g) => g,
             None => {
                 // Convenience: if exactly one downstream gate, use it.
@@ -380,62 +307,19 @@ impl App {
             }
         };
 
-        let mut channel: Option<String> = None;
-        let mut bundle_id: Option<String> = None;
-        let mut notes: Option<String> = None;
-
-        // Positional shorthand: `release <channel> <bundle_id> [notes...]`.
-        if !args.iter().any(|a| a.starts_with("--")) && args.len() >= 2 {
-            channel = Some(args[0].clone());
-            bundle_id = Some(args[1].clone());
-            if args.len() > 2 {
-                notes = Some(args[2..].join(" "));
+        let parsed = match parse_release_args(args) {
+            Ok(p) => p,
+            Err(msg) => {
+                self.push_error(msg);
+                return;
             }
-        }
-
-        let mut i = 0;
-        while i < args.len() {
-            match args[i].as_str() {
-                "--channel" | "channel" => {
-                    i += 1;
-                    if i >= args.len() {
-                        self.push_error("missing value for --channel".to_string());
-                        return;
-                    }
-                    channel = Some(args[i].clone());
-                }
-                "--bundle-id" | "bundle" => {
-                    i += 1;
-                    if i >= args.len() {
-                        self.push_error("missing value for --bundle-id".to_string());
-                        return;
-                    }
-                    bundle_id = Some(args[i].clone());
-                }
-                "--notes" | "notes" => {
-                    i += 1;
-                    if i >= args.len() {
-                        self.push_error("missing value for --notes".to_string());
-                        return;
-                    }
-                    notes = Some(args[i].clone());
-                }
-                a => {
-                    if a.starts_with("--") {
-                        self.push_error(format!("unknown arg: {}", a));
-                        return;
-                    }
-                }
-            }
-            i += 1;
-        }
-
-        let (Some(channel), Some(bundle_id)) = (channel, bundle_id) else {
+        };
+        let (Some(channel), Some(bundle_id)) = (parsed.channel, parsed.bundle_id) else {
             self.push_error("usage: release <channel> <bundle_id> [notes...]".to_string());
             return;
         };
 
-        match client.create_release(&channel, &bundle_id, notes) {
+        match client.create_release(&channel, &bundle_id, parsed.notes) {
             Ok(r) => {
                 self.push_output(vec![format!("released {} -> {}", r.channel, r.bundle_id)]);
                 self.refresh_root_view();
@@ -469,41 +353,14 @@ impl App {
             return;
         }
 
-        let mut bundle_id: Option<String> = None;
-        let mut filter: Option<String> = None;
-        let mut i = 0;
-        while i < args.len() {
-            match args[i].as_str() {
-                "--bundle-id" | "bundle" => {
-                    i += 1;
-                    if i >= args.len() {
-                        self.push_error("missing value for --bundle-id".to_string());
-                        return;
-                    }
-                    bundle_id = Some(args[i].clone());
-                }
-                "--filter" | "filter" => {
-                    i += 1;
-                    if i >= args.len() {
-                        self.push_error("missing value for --filter".to_string());
-                        return;
-                    }
-                    filter = Some(args[i].clone());
-                }
-                a => {
-                    // Positional shorthand: `superpositions <bundle_id>`.
-                    if !a.starts_with("--") && bundle_id.is_none() {
-                        bundle_id = Some(a.to_string());
-                    } else {
-                        self.push_error(format!("unknown arg: {}", a));
-                        return;
-                    }
-                }
+        let parsed = match parse_superpositions_args(args) {
+            Ok(p) => p,
+            Err(msg) => {
+                self.push_error(msg);
+                return;
             }
-            i += 1;
-        }
-
-        let Some(bundle_id) = bundle_id else {
+        };
+        let Some(bundle_id) = parsed.bundle_id else {
             self.push_error("usage: superpositions <bundle_id>".to_string());
             return;
         };
@@ -540,7 +397,7 @@ impl App {
 
         let validation = validate_resolution(&ws.store, &root, &decisions).ok();
 
-        let filter_lc = filter.as_ref().map(|s| s.to_lowercase());
+        let filter_lc = parsed.filter.as_ref().map(|s| s.to_lowercase());
         let mut items = variants
             .iter()
             .map(|(p, vs)| (p.clone(), vs.len()))
@@ -554,7 +411,7 @@ impl App {
         self.push_view(SuperpositionsView {
             updated_at: now_ts(),
             bundle_id,
-            filter,
+            filter: parsed.filter,
             root_manifest: root,
             variants,
             decisions,
