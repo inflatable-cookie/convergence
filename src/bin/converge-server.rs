@@ -57,7 +57,7 @@ use self::handlers_release::*;
 #[path = "converge_server/handlers_gc.rs"]
 mod handlers_gc;
 use self::handlers_gc::*;
-#[path = "converge_server/object_graph.rs"]
+#[path = "converge_server/object_graph/mod.rs"]
 mod object_graph;
 use self::object_graph::*;
 #[path = "converge_server/routes.rs"]
