@@ -140,8 +140,8 @@ Module conventions (applied in `src/tui_shell/app/*`):
 
 - [ ] Keep docs aligned with final structure (`docs/architecture/10-cli-and-tui.md` and relevant READMEs/decision docs as needed).
 - [x] Run `cargo fmt`.
-- [ ] Run `cargo clippy --all-targets -- -D warnings`.
-- [ ] Run `cargo nextest run`.
+- [x] Run `cargo clippy --all-targets -- -D warnings`.
+- [x] Run `cargo nextest run`.
 
 ## Exit Criteria
 
