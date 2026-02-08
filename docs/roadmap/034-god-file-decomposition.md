@@ -26,7 +26,7 @@ No intended product/UX changes beyond tiny fixes needed to preserve existing beh
 ### A) Decomposition Plan + Guardrails
 
 - [x] Capture file-level decomposition maps (what moves where) for each target file.
-- [ ] Define module naming conventions and visibility boundaries (`pub`, `pub(crate)`, private helpers).
+- [x] Define module naming conventions and visibility boundaries (`pub`, `pub(crate)`, private helpers).
 - [ ] Add/update short module READMEs where needed so entry points are obvious.
 
 Initial decomposition maps:
@@ -46,14 +46,35 @@ Progress notes:
 - Extracted remote bundle/promotion/release/superpositions handlers to `src/tui_shell/app/cmd_remote_actions.rs`.
 - Extracted gate graph handlers/helpers to `src/tui_shell/app/cmd_gate_graph.rs`.
 - Extracted settings handlers/helpers to `src/tui_shell/app/cmd_settings.rs`.
+- Extracted publish/sync/fetch-mode transfer handlers to `src/tui_shell/app/cmd_transfer.rs`.
+- Extracted remaining mode wrapper handlers to `src/tui_shell/app/cmd_mode_actions.rs`.
+- Extracted event loop/key handling to `src/tui_shell/app/event_loop.rs`.
+- Extracted rendering helpers to `src/tui_shell/app/render.rs`.
+- Extracted superposition navigation helpers to `src/tui_shell/app/superpositions_nav.rs`.
+- Extracted timestamp/clock helpers to `src/tui_shell/app/time_utils.rs`.
+- Extracted input hint helpers to `src/tui_shell/app/input_hints.rs`.
+- Extracted parsing/validation helpers to `src/tui_shell/app/parse_utils.rs`.
+- Extracted command dispatch/input pipeline to `src/tui_shell/app/cmd_dispatch.rs`.
+- Extracted local maintenance handlers (`show`/`restore`/`move`/`purge`) into `src/tui_shell/app/cmd_local.rs`.
+- Extracted settings mutation handlers (`chunking`/`retention`) into `src/tui_shell/app/cmd_settings.rs`.
+- Extracted text-input submission/mutation handlers into `src/tui_shell/app/cmd_text_input.rs`.
+- Moved inbox/bundles view openers into `src/tui_shell/app/cmd_remote_views.rs`.
+- Extracted default action/hint/confirm flow into `src/tui_shell/app/default_actions.rs`.
+- Reduced `src/tui_shell/app.rs` to focused orchestration/state (currently ~970 LOC).
+
+Module conventions (applied in `src/tui_shell/app/*`):
+- `cmd_*`: command handlers grouped by domain or interaction surface.
+- `event_loop`/`render`: runtime loop and drawing concerns.
+- `<topic>_utils` / `<topic>` modules: focused helpers with no command dispatch.
+- Visibility defaults to private; use `pub(super)` for cross-submodule `App` methods; reserve `pub(in crate::tui_shell)` only for methods called from sibling modules outside `app/*` (for example `modal.rs`, `wizard.rs`).
 
 ### B) Split `src/tui_shell/app.rs`
 
-- [ ] Extract command handler groups from `app.rs` into focused modules (for example: `cmd_local`, `cmd_remote`, `cmd_gates`, `cmd_release`, `cmd_resolution`).
-- [ ] Extract event-loop/key-handling helpers into dedicated modules.
-- [ ] Extract superposition-specific command and navigation logic into dedicated modules.
-- [ ] Keep `app.rs` as orchestration/state + high-level dispatch.
-- [ ] Preserve command names, aliases, and behavior.
+- [x] Extract command handler groups from `app.rs` into focused modules (for example: `cmd_local`, `cmd_remote`, `cmd_gates`, `cmd_release`, `cmd_resolution`).
+- [x] Extract event-loop/key-handling helpers into dedicated modules.
+- [x] Extract superposition-specific command and navigation logic into dedicated modules.
+- [x] Keep `app.rs` as orchestration/state + high-level dispatch.
+- [x] Preserve command names, aliases, and behavior.
 
 ### C) Split `src/bin/converge-server.rs`
 
@@ -80,7 +101,7 @@ Progress notes:
 ### F) Verification + Hygiene
 
 - [ ] Keep docs aligned with final structure (`docs/architecture/10-cli-and-tui.md` and relevant READMEs/decision docs as needed).
-- [ ] Run `cargo fmt`.
+- [x] Run `cargo fmt`.
 - [ ] Run `cargo clippy --all-targets -- -D warnings`.
 - [ ] Run `cargo nextest run`.
 
