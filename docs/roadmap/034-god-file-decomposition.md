@@ -84,6 +84,7 @@ Progress notes:
 - Continued `src/bin/converge-server.rs` split with `src/bin/converge_server/handlers_gates.rs` for gate listing/graph updates and scope creation/listing handlers.
 - Continued `src/bin/converge-server.rs` split with `src/bin/converge_server/handlers_objects.rs` for object/snap upload and read handlers (`blob`/`manifest`/`recipe`/`snap`) and related request query DTOs.
 - Continued `src/bin/converge-server.rs` split with `src/bin/converge_server/handlers_publications.rs` for missing-object checks, publication/bundle lifecycle handlers, and bundle pinning handlers.
+- Continued `src/bin/converge-server.rs` split with `src/bin/converge_server/handlers_release.rs` for release creation/listing/channel handlers and promotion state-transition handlers.
 
 Module conventions (applied in `src/tui_shell/app/*`):
 - `cmd_*`: command handlers grouped by domain or interaction surface.
