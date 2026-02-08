@@ -70,6 +70,7 @@ Progress notes:
 - Continued `status.rs` decomposition by moving core diff/rename orchestration and dashboard/remote-status assembly into `src/tui_shell/status/tree_diff.rs`, keeping `status.rs` as module composition and shared exports.
 - Started `app.rs` decomposition by extracting mode-scoped command catalog composition into `src/tui_shell/app/mode_commands.rs`.
 - Continued `app.rs` decomposition by extracting root-context switching and remote-identity refresh helpers into `src/tui_shell/app/root_context.rs`.
+- Continued `app.rs` decomposition by extracting modal and output/log helper methods into `src/tui_shell/app/modal_output.rs`.
 - Started `workspace.rs` decomposition by extracting GC reachability traversal helpers into `src/workspace/gc.rs` and wiring `workspace.rs` through module imports.
 - Continued `workspace.rs` decomposition by extracting restore/materialization filesystem helpers into `src/workspace/materialize_fs.rs`.
 - Continued `workspace.rs` decomposition by extracting chunking policy constants/type/config parsing into `src/workspace/chunking.rs`.
