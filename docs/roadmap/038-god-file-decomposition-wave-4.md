@@ -70,7 +70,14 @@ Progress notes:
 
 - [ ] Split `src/tui_shell/app.rs` into app state construction, mode switching, and event-loop dispatch helpers.
 - [ ] Split `src/tui_shell/app/cmd_dispatch.rs` into grouped command routing modules by domain.
-- [ ] Split `src/tui_shell/modal.rs` into modal state transitions and rendering helpers.
+- [x] Split `src/tui_shell/modal.rs` into modal state transitions and rendering helpers.
+
+Progress notes:
+- Completed `modal.rs` decomposition into focused modules:
+  - `src/tui_shell/modal/draw.rs` (rendering/layout/cursor)
+  - `src/tui_shell/modal/keymap.rs` (key-to-action mapping and modal input edits)
+  - `src/tui_shell/modal/text_input_validate.rs` (text-input validation/allow-empty rules)
+  with `src/tui_shell/modal/mod.rs` as orchestration for applying modal actions into app side-effects.
 
 ### D) Server/CLI Entry Decomposition
 
