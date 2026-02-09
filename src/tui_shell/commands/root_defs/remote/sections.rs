@@ -1,9 +1,7 @@
 use super::*;
 
-pub(in crate::tui_shell) fn remote_root_command_defs() -> Vec<CommandDef> {
-    let mut out = global_command_defs();
-    out.extend(auth_command_defs());
-    out.extend(vec![
+pub(super) fn admin_command_defs() -> Vec<CommandDef> {
+    vec![
         CommandDef {
             name: "bootstrap",
             aliases: &[],
@@ -46,6 +44,11 @@ pub(in crate::tui_shell) fn remote_root_command_defs() -> Vec<CommandDef> {
             usage: "ping",
             help: "Ping remote /healthz",
         },
+    ]
+}
+
+pub(super) fn browse_command_defs() -> Vec<CommandDef> {
+    vec![
         CommandDef {
             name: "fetch",
             aliases: &[],
@@ -100,6 +103,11 @@ pub(in crate::tui_shell) fn remote_root_command_defs() -> Vec<CommandDef> {
             usage: "bundle",
             help: "Create a bundle (opens Inbox)",
         },
+    ]
+}
+
+pub(super) fn delivery_command_defs() -> Vec<CommandDef> {
+    vec![
         CommandDef {
             name: "pins",
             aliases: &[],
@@ -136,6 +144,5 @@ pub(in crate::tui_shell) fn remote_root_command_defs() -> Vec<CommandDef> {
             usage: "superpositions",
             help: "Open superpositions (guided)",
         },
-    ]);
-    out
+    ]
 }
