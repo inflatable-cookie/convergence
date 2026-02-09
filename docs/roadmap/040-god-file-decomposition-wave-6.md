@@ -58,7 +58,7 @@ Progress notes:
 
 - [x] Split `src/remote/operations.rs` by operation families and shared request/execution utilities.
 - [x] Keep public client-facing behavior and error text stable.
-- [ ] Add focused unit coverage for newly extracted pure helpers.
+- [x] Add focused unit coverage for newly extracted pure helpers.
 
 Progress notes:
 - Replaced `src/remote/operations.rs` with module directory:
@@ -67,6 +67,9 @@ Progress notes:
   - `src/remote/operations/bundle_ops.rs`
   - `src/remote/operations/release_promotion_gc.rs`
 - Preserved existing `RemoteClient` method names and endpoint/error semantics across repo/gate/bundle/release/promotion/gc operations.
+- Added focused unit tests for extracted validation formatting helper in `repo_gate`:
+  - empty-issue formatting fallback
+  - issue list truncation and summary line behavior
 
 ### D) TUI Gate Graph Command Decomposition
 
