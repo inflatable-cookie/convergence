@@ -1,6 +1,13 @@
-use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+use crossterm::event::{KeyCode, KeyEvent};
 
+use self::errors::append_modal_error;
+use self::input::apply_input_edit_key;
+use self::viewer::handle_viewer_like_key;
 use super::text_input_validate::{allow_empty_text_input, validate_text_input};
+
+mod errors;
+mod input;
+mod viewer;
 
 pub(super) enum ModalAction {
     None,
@@ -64,51 +71,4 @@ pub(super) fn map_modal_key(modal: &mut super::super::Modal, key: KeyEvent) -> M
             _ => handle_viewer_like_key(modal, key),
         },
     }
-}
-
-fn handle_viewer_like_key(modal: &mut super::super::Modal, key: KeyEvent) -> ModalAction {
-    match key.code {
-        KeyCode::Esc | KeyCode::Enter => ModalAction::Close,
-        KeyCode::Up => {
-            modal.scroll = modal.scroll.saturating_sub(1);
-            ModalAction::None
-        }
-        KeyCode::Down => {
-            if modal.scroll < modal.lines.len().saturating_sub(1) {
-                modal.scroll += 1;
-            }
-            ModalAction::None
-        }
-        KeyCode::PageUp => {
-            modal.scroll = modal.scroll.saturating_sub(10);
-            ModalAction::None
-        }
-        KeyCode::PageDown => {
-            modal.scroll = (modal.scroll + 10).min(modal.lines.len().saturating_sub(1));
-            ModalAction::None
-        }
-        _ => ModalAction::None,
-    }
-}
-
-fn apply_input_edit_key(modal: &mut super::super::Modal, key: KeyEvent) {
-    match key.code {
-        KeyCode::Backspace => modal.input.backspace(),
-        KeyCode::Delete => modal.input.delete(),
-        KeyCode::Left => modal.input.move_left(),
-        KeyCode::Right => modal.input.move_right(),
-        KeyCode::Char(c) => {
-            if !key.modifiers.contains(KeyModifiers::CONTROL)
-                && !key.modifiers.contains(KeyModifiers::ALT)
-            {
-                modal.input.insert_char(c);
-            }
-        }
-        _ => {}
-    }
-}
-
-fn append_modal_error(modal: &mut super::super::Modal, msg: String) {
-    modal.lines.retain(|l| !l.starts_with("error:"));
-    modal.lines.push(format!("error: {}", msg));
 }
