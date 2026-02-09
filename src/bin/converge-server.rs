@@ -13,7 +13,7 @@ use axum::routing::get;
 use axum::{Json, Router, extract::Path};
 use tokio::sync::RwLock;
 
-#[path = "converge_server/persistence.rs"]
+#[path = "converge_server/persistence/mod.rs"]
 mod persistence;
 use self::persistence::*;
 #[path = "converge_server/identity_store.rs"]
