@@ -36,8 +36,17 @@ Progress notes:
 - Removed monolith `src/cli_subcommands.rs`.
 
 ### C) CLI Command Root Decomposition
-- [ ] Split `src/cli_commands.rs` into `commands/` modules grouped by domain.
-- [ ] Preserve clap metadata, aliases, and argument defaults exactly.
+- [x] Split `src/cli_commands.rs` into `commands/` modules grouped by domain.
+- [x] Preserve clap metadata, aliases, and argument defaults exactly.
+
+Progress notes:
+- Replaced `src/cli_commands.rs` with module directory:
+  - `src/cli_commands/mod.rs`
+  - `src/cli_commands/local.rs`
+  - `src/cli_commands/identity.rs`
+  - `src/cli_commands/delivery.rs`
+- Kept top-level command names/aliases (`mv`, `gates` / `gate-graph`) and option defaults by moving argument definitions into `clap::Args` structs consumed by the same command variants.
+- Updated `src/cli_exec.rs` match arms to consume typed argument structs without changing downstream handler signatures.
 
 ### D) CLI Identity Exec Decomposition
 - [x] Split `src/cli_exec/identity.rs` into focused helpers by concern.
@@ -59,6 +68,10 @@ Progress notes:
 
 Progress notes:
 - Validation after `cli_subcommands` and `cli_exec/identity` decomposition:
+  - `cargo fmt` passed
+  - `cargo clippy --all-targets -- -D warnings` passed
+  - `cargo nextest run` passed (`64 passed`, `0 failed`)
+- Validation after `cli_commands` decomposition rerun:
   - `cargo fmt` passed
   - `cargo clippy --all-targets -- -D warnings` passed
   - `cargo nextest run` passed (`64 passed`, `0 failed`)

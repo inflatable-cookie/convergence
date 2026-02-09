@@ -33,26 +33,26 @@ use self::remote_admin::{handle_gates_command, handle_remote_command};
 
 pub(super) fn handle_command(command: Commands) -> Result<()> {
     match command {
-        Commands::Init { force, path } => {
-            handle_init_command(force, path)?;
+        Commands::Init(args) => {
+            handle_init_command(args.force, args.path)?;
         }
-        Commands::Snap { message, json } => {
-            handle_snap_command(message, json)?;
+        Commands::Snap(args) => {
+            handle_snap_command(args.message, args.json)?;
         }
-        Commands::Snaps { json } => {
-            handle_snaps_command(json)?;
+        Commands::Snaps(args) => {
+            handle_snaps_command(args.json)?;
         }
-        Commands::Show { snap_id, json } => {
-            handle_show_command(snap_id, json)?;
+        Commands::Show(args) => {
+            handle_show_command(args.snap_id, args.json)?;
         }
-        Commands::Restore { snap_id, force } => {
-            handle_restore_command(snap_id, force)?;
+        Commands::Restore(args) => {
+            handle_restore_command(args.snap_id, args.force)?;
         }
-        Commands::Diff { from, to, json } => {
-            handle_diff_command(from, to, json)?;
+        Commands::Diff(args) => {
+            handle_diff_command(args.from, args.to, args.json)?;
         }
-        Commands::Mv { from, to } => {
-            handle_mv_command(from, to)?;
+        Commands::Mv(args) => {
+            handle_mv_command(args.from, args.to)?;
         }
         Commands::Remote { command } => {
             let ws = Workspace::discover(&std::env::current_dir().context("get current dir")?)?;
@@ -62,23 +62,17 @@ pub(super) fn handle_command(command: Commands) -> Result<()> {
             let ws = Workspace::discover(&std::env::current_dir().context("get current dir")?)?;
             handle_gates_command(&ws, command)?;
         }
-        Commands::Login {
-            url,
-            token,
-            repo,
-            scope,
-            gate,
-        } => {
+        Commands::Login(args) => {
             let ws = Workspace::discover(&std::env::current_dir().context("get current dir")?)?;
-            handle_login_command(&ws, url, token, repo, scope, gate)?;
+            handle_login_command(&ws, args.url, args.token, args.repo, args.scope, args.gate)?;
         }
         Commands::Logout => {
             let ws = Workspace::discover(&std::env::current_dir().context("get current dir")?)?;
             handle_logout_command(&ws)?;
         }
-        Commands::Whoami { json } => {
+        Commands::Whoami(args) => {
             let ws = Workspace::discover(&std::env::current_dir().context("get current dir")?)?;
-            handle_whoami_command(&ws, json)?;
+            handle_whoami_command(&ws, args.json)?;
         }
         Commands::Token { command } => {
             let ws = Workspace::discover(&std::env::current_dir().context("get current dir")?)?;
@@ -88,28 +82,24 @@ pub(super) fn handle_command(command: Commands) -> Result<()> {
             let ws = Workspace::discover(&std::env::current_dir().context("get current dir")?)?;
             handle_user_command(&ws, command)?;
         }
-        Commands::Publish {
-            snap_id,
-            scope,
-            gate,
-            metadata_only,
-            json,
-        } => {
+        Commands::Publish(args) => {
             let ws = Workspace::discover(&std::env::current_dir().context("get current dir")?)?;
-            handle_publish_command(&ws, snap_id, scope, gate, metadata_only, json)?;
+            handle_publish_command(
+                &ws,
+                args.snap_id,
+                args.scope,
+                args.gate,
+                args.metadata_only,
+                args.json,
+            )?;
         }
-        Commands::Sync {
-            snap_id,
-            lane,
-            client_id,
-            json,
-        } => {
+        Commands::Sync(args) => {
             let ws = Workspace::discover(&std::env::current_dir().context("get current dir")?)?;
-            handle_sync_command(&ws, snap_id, lane, client_id, json)?;
+            handle_sync_command(&ws, args.snap_id, args.lane, args.client_id, args.json)?;
         }
-        Commands::Lanes { json } => {
+        Commands::Lanes(args) => {
             let ws = Workspace::discover(&std::env::current_dir().context("get current dir")?)?;
-            handle_lanes_command(&ws, json)?;
+            handle_lanes_command(&ws, args.json)?;
         }
         Commands::Members { command } => {
             let ws = Workspace::discover(&std::env::current_dir().context("get current dir")?)?;
@@ -119,62 +109,48 @@ pub(super) fn handle_command(command: Commands) -> Result<()> {
             let ws = Workspace::discover(&std::env::current_dir().context("get current dir")?)?;
             handle_lane_command(&ws, command)?;
         }
-        Commands::Fetch {
-            snap_id,
-            bundle_id,
-            release,
-            lane,
-            user,
-            restore,
-            into,
-            force,
-            json,
-        } => {
+        Commands::Fetch(args) => {
             let ws = Workspace::discover(&std::env::current_dir().context("get current dir")?)?;
             handle_fetch_command(
-                &ws, snap_id, bundle_id, release, lane, user, restore, into, force, json,
+                &ws,
+                args.snap_id,
+                args.bundle_id,
+                args.release,
+                args.lane,
+                args.user,
+                args.restore,
+                args.into,
+                args.force,
+                args.json,
             )?;
         }
-        Commands::Bundle {
-            scope,
-            gate,
-            publications,
-            json,
-        } => {
+        Commands::Bundle(args) => {
             let ws = Workspace::discover(&std::env::current_dir().context("get current dir")?)?;
-            handle_bundle_command(&ws, scope, gate, publications, json)?;
+            handle_bundle_command(&ws, args.scope, args.gate, args.publications, args.json)?;
         }
-        Commands::Promote {
-            bundle_id,
-            to_gate,
-            json,
-        } => {
+        Commands::Promote(args) => {
             let ws = Workspace::discover(&std::env::current_dir().context("get current dir")?)?;
-            handle_promote_command(&ws, bundle_id, to_gate, json)?;
+            handle_promote_command(&ws, args.bundle_id, args.to_gate, args.json)?;
         }
         Commands::Release { command } => {
             let ws = Workspace::discover(&std::env::current_dir().context("get current dir")?)?;
             handle_release_command(&ws, command)?;
         }
-        Commands::Approve { bundle_id, json } => {
+        Commands::Approve(args) => {
             let ws = Workspace::discover(&std::env::current_dir().context("get current dir")?)?;
-            handle_approve_command(&ws, bundle_id, json)?;
+            handle_approve_command(&ws, args.bundle_id, args.json)?;
         }
-        Commands::Pins { json } => {
+        Commands::Pins(args) => {
             let ws = Workspace::discover(&std::env::current_dir().context("get current dir")?)?;
-            handle_pins_command(&ws, json)?;
+            handle_pins_command(&ws, args.json)?;
         }
-        Commands::Pin {
-            bundle_id,
-            unpin,
-            json,
-        } => {
+        Commands::Pin(args) => {
             let ws = Workspace::discover(&std::env::current_dir().context("get current dir")?)?;
-            handle_pin_command(&ws, bundle_id, unpin, json)?;
+            handle_pin_command(&ws, args.bundle_id, args.unpin, args.json)?;
         }
-        Commands::Status { json, limit } => {
+        Commands::Status(args) => {
             let ws = Workspace::discover(&std::env::current_dir().context("get current dir")?)?;
-            handle_status_command(&ws, json, limit)?;
+            handle_status_command(&ws, args.json, args.limit)?;
         }
         Commands::Resolve { command } => {
             let ws = Workspace::discover(&std::env::current_dir().context("get current dir")?)?;
