@@ -59,7 +59,7 @@ mod object_graph;
 use self::object_graph::*;
 #[path = "converge_server/routes.rs"]
 mod routes;
-#[path = "converge_server/types.rs"]
+#[path = "converge_server/types/mod.rs"]
 mod types;
 use self::types::*;
 #[path = "converge_server/runtime.rs"]
