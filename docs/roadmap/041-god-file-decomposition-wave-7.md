@@ -61,9 +61,17 @@ Progress notes:
 
 ### D) TUI Remote Command Decomposition
 
-- [ ] Split `src/tui_shell/app/cmd_remote.rs` into grouped command handlers and parse/apply helpers.
-- [ ] Keep command UX and output behavior-compatible.
-- [ ] Reduce wildcard imports/exports where decomposition allows.
+- [x] Split `src/tui_shell/app/cmd_remote.rs` into grouped command handlers and parse/apply helpers.
+- [x] Keep command UX and output behavior-compatible.
+- [x] Reduce wildcard imports/exports where decomposition allows.
+
+Progress notes:
+- Replaced `src/tui_shell/app/cmd_remote.rs` with module directory:
+  - `src/tui_shell/app/cmd_remote/mod.rs`
+  - `src/tui_shell/app/cmd_remote/config_cmds.rs`
+  - `src/tui_shell/app/cmd_remote/auth_cmds.rs`
+  - `src/tui_shell/app/cmd_remote/repo_health.rs`
+- Preserved existing command names and usage/error text for `remote`, `remote set/unset`, `login/logout`, `bootstrap`, `create-repo`, and `ping`.
 
 ### E) Verification and Hygiene
 
@@ -77,6 +85,10 @@ Progress notes:
   - `cargo fmt` passed
   - `cargo clippy --all-targets -- -D warnings` passed
   - `cargo nextest run` passed (`62 passed`, `0 skipped`)
+- For subsequent Wave 7 slices in this environment:
+  - `cargo fmt` and `cargo clippy --all-targets -- -D warnings` passed
+  - `cargo test --tests` surfaced an intermittent integration startup timeout in `approvals_required`
+  - targeted `cargo nextest run approvals_make_bundle_promotable` passed (`1 passed`, `61 skipped`)
 
 ## Exit Criteria
 
