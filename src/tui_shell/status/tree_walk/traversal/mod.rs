@@ -1,11 +1,11 @@
 use anyhow::Result;
 
-use crate::model::{Manifest, ManifestEntryKind, ObjectId};
+use crate::model::{Manifest, ObjectId};
 use crate::store::LocalStore;
 
-use super::super::StatusDelta;
+use self::handlers::{handle_added, handle_changed, handle_deleted};
+use super::StatusDelta;
 use super::entries::{entries_by_name, join_path, merged_entry_names};
-use super::handlers::{handle_added, handle_changed, handle_deleted};
 
 mod handlers;
 

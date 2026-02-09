@@ -3,7 +3,7 @@ use anyhow::Result;
 use crate::model::{Manifest, ManifestEntryKind, ObjectId};
 use crate::store::LocalStore;
 
-use super::super::super::StatusDelta;
+use super::super::StatusDelta;
 use super::super::leaves::{collect_leaves_base, collect_leaves_current};
 use super::diff_dir;
 
