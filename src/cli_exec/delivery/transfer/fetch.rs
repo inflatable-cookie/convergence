@@ -1,7 +1,7 @@
-use super::*;
+use super::super::*;
 
 #[allow(clippy::too_many_arguments)]
-pub(in crate::cli_exec) fn handle_fetch_command(
+pub(super) fn handle_fetch_command(
     ws: &Workspace,
     snap_id: Option<String>,
     bundle_id: Option<String>,
@@ -26,12 +26,7 @@ pub(in crate::cli_exec) fn handle_fetch_command(
             let dest = if let Some(p) = into.as_deref() {
                 std::path::PathBuf::from(p)
             } else {
-                let short = bundle_id.chars().take(8).collect::<String>();
-                let nanos = std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .unwrap_or_default()
-                    .as_nanos();
-                std::env::temp_dir().join(format!("converge-grab-bundle-{}-{}", short, nanos))
+                default_temp_destination("converge-grab-bundle", bundle_id)
             };
 
             ws.materialize_manifest_to(&root, &dest, force)
@@ -70,12 +65,7 @@ pub(in crate::cli_exec) fn handle_fetch_command(
             let dest = if let Some(p) = into.as_deref() {
                 std::path::PathBuf::from(p)
             } else {
-                let short = rel.bundle_id.chars().take(8).collect::<String>();
-                let nanos = std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .unwrap_or_default()
-                    .as_nanos();
-                std::env::temp_dir().join(format!("converge-grab-release-{}-{}", short, nanos))
+                default_temp_destination("converge-grab-release", &rel.bundle_id)
             };
 
             ws.materialize_manifest_to(&root, &dest, force)
@@ -129,12 +119,7 @@ pub(in crate::cli_exec) fn handle_fetch_command(
         let dest = if let Some(p) = into.as_deref() {
             std::path::PathBuf::from(p)
         } else {
-            let short = snap_to_restore.chars().take(8).collect::<String>();
-            let nanos = std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap_or_default()
-                .as_nanos();
-            std::env::temp_dir().join(format!("converge-grab-{}-{}", short, nanos))
+            default_temp_destination("converge-grab", &snap_to_restore)
         };
 
         ws.materialize_snap_to(&snap_to_restore, &dest, force)
@@ -158,66 +143,11 @@ pub(in crate::cli_exec) fn handle_fetch_command(
     Ok(())
 }
 
-pub(in crate::cli_exec) fn handle_bundle_command(
-    ws: &Workspace,
-    scope: Option<String>,
-    gate: Option<String>,
-    publications: Vec<String>,
-    json: bool,
-) -> Result<()> {
-    let (remote, token) = require_remote_and_token(&ws.store)?;
-    let client = RemoteClient::new(remote.clone(), token)?;
-    let scope = scope.unwrap_or_else(|| remote.scope.clone());
-    let gate = gate.unwrap_or_else(|| remote.gate.clone());
-
-    let pubs = if publications.is_empty() {
-        let all = client.list_publications()?;
-        all.into_iter()
-            .filter(|p| p.scope == scope && p.gate == gate)
-            .map(|p| p.id)
-            .collect::<Vec<_>>()
-    } else {
-        publications
-    };
-
-    if pubs.is_empty() {
-        anyhow::bail!(
-            "no publications found for scope={} gate={} (publish first)",
-            scope,
-            gate
-        );
-    }
-
-    let bundle = client.create_bundle(&scope, &gate, &pubs)?;
-    if json {
-        println!(
-            "{}",
-            serde_json::to_string_pretty(&bundle).context("serialize bundle json")?
-        );
-    } else {
-        println!("{}", bundle.id);
-    }
-
-    Ok(())
-}
-
-pub(in crate::cli_exec) fn handle_promote_command(
-    ws: &Workspace,
-    bundle_id: String,
-    to_gate: String,
-    json: bool,
-) -> Result<()> {
-    let (remote, token) = require_remote_and_token(&ws.store)?;
-    let client = RemoteClient::new(remote, token)?;
-    let promotion = client.promote_bundle(&bundle_id, &to_gate)?;
-    if json {
-        println!(
-            "{}",
-            serde_json::to_string_pretty(&promotion).context("serialize promotion json")?
-        );
-    } else {
-        println!("Promoted {} -> {}", promotion.from_gate, promotion.to_gate);
-    }
-
-    Ok(())
+fn default_temp_destination(prefix: &str, id: &str) -> std::path::PathBuf {
+    let short = id.chars().take(8).collect::<String>();
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_nanos();
+    std::env::temp_dir().join(format!("{}-{}-{}", prefix, short, nanos))
 }
