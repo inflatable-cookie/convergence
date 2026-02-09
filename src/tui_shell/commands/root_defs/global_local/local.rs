@@ -1,45 +1,5 @@
 use super::*;
 
-pub(in crate::tui_shell) fn global_command_defs() -> Vec<CommandDef> {
-    vec![
-        CommandDef {
-            name: "help",
-            aliases: &["h", "?"],
-            usage: "help [command]",
-            help: "Show help",
-        },
-        CommandDef {
-            name: "settings",
-            aliases: &[],
-            usage: "settings",
-            help: "Open settings",
-        },
-        CommandDef {
-            name: "quit",
-            aliases: &[],
-            usage: "quit",
-            help: "Exit",
-        },
-    ]
-}
-
-pub(super) fn auth_command_defs() -> Vec<CommandDef> {
-    vec![
-        CommandDef {
-            name: "login",
-            aliases: &[],
-            usage: "login",
-            help: "Login (guided prompt)",
-        },
-        CommandDef {
-            name: "logout",
-            aliases: &[],
-            usage: "logout",
-            help: "Clear stored remote token",
-        },
-    ]
-}
-
 pub(in crate::tui_shell) fn local_root_command_defs() -> Vec<CommandDef> {
     let mut out = global_command_defs();
     out.extend(auth_command_defs());
