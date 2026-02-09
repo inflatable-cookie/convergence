@@ -1,6 +1,6 @@
 use anyhow::Result;
 
-use crate::model::SnapRecord;
+use crate::model::{ObjectId, SnapRecord};
 use crate::store::LocalStore;
 
 use super::super::fetch::{collect_objects, manifest_postorder};

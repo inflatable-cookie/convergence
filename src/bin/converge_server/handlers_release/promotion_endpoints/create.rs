@@ -1,9 +1,11 @@
 use super::*;
 
+use super::create_helpers::{build_promotion_id, now_rfc3339, validate_create_promotion_request};
+
 #[derive(Debug, serde::Deserialize)]
 pub(crate) struct CreatePromotionRequest {
-    bundle_id: String,
-    to_gate: String,
+    pub(super) bundle_id: String,
+    pub(super) to_gate: String,
 }
 
 pub(crate) async fn create_promotion(
@@ -12,12 +14,8 @@ pub(crate) async fn create_promotion(
     Path(repo_id): Path<String>,
     Json(payload): Json<CreatePromotionRequest>,
 ) -> Result<Json<Promotion>, Response> {
-    validate_object_id(&payload.bundle_id).map_err(bad_request)?;
-    validate_gate_id(&payload.to_gate).map_err(bad_request)?;
-
-    let promoted_at = time::OffsetDateTime::now_utc()
-        .format(&time::format_description::well_known::Rfc3339)
-        .map_err(|e| internal_error(anyhow::anyhow!(e)))?;
+    validate_create_promotion_request(&payload)?;
+    let promoted_at = now_rfc3339()?;
 
     let mut repos = state.repos.write().await;
     let repo = repos.get_mut(&repo_id).ok_or_else(not_found)?;
@@ -59,23 +57,13 @@ pub(crate) async fn create_promotion(
         )));
     }
 
-    let id = {
-        let mut hasher = blake3::Hasher::new();
-        hasher.update(repo_id.as_bytes());
-        hasher.update(b"\n");
-        hasher.update(bundle.id.as_bytes());
-        hasher.update(b"\n");
-        hasher.update(bundle.scope.as_bytes());
-        hasher.update(b"\n");
-        hasher.update(bundle.gate.as_bytes());
-        hasher.update(b"\n");
-        hasher.update(payload.to_gate.as_bytes());
-        hasher.update(b"\n");
-        hasher.update(subject.user.as_bytes());
-        hasher.update(b"\n");
-        hasher.update(promoted_at.as_bytes());
-        hasher.finalize().to_hex().to_string()
-    };
+    let id = build_promotion_id(
+        &repo_id,
+        &bundle,
+        &payload.to_gate,
+        &subject.user,
+        &promoted_at,
+    );
 
     let promotion = Promotion {
         id: id.clone(),
