@@ -31,7 +31,7 @@ use self::http_error::*;
 #[path = "converge_server/gate_graph_validation.rs"]
 mod gate_graph_validation;
 use self::gate_graph_validation::*;
-#[path = "converge_server/handlers_identity.rs"]
+#[path = "converge_server/handlers_identity/mod.rs"]
 mod handlers_identity;
 use self::handlers_identity::*;
 #[path = "converge_server/handlers_repo/mod.rs"]

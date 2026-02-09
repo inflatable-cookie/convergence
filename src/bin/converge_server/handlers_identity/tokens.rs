@@ -1,78 +1,7 @@
 use super::*;
 
-pub(super) async fn whoami(Extension(subject): Extension<Subject>) -> Json<serde_json::Value> {
-    Json(serde_json::json!({
-        "user": subject.user,
-        "user_id": subject.user_id,
-        "admin": subject.admin,
-    }))
-}
-
-pub(super) async fn list_users(
-    State(state): State<Arc<AppState>>,
-    Extension(subject): Extension<Subject>,
-) -> Result<Json<Vec<User>>, Response> {
-    if !subject.admin {
-        return Err(forbidden());
-    }
-    let users = state.users.read().await;
-    let mut out: Vec<User> = users.values().cloned().collect();
-    out.sort_by(|a, b| a.handle.cmp(&b.handle));
-    Ok(Json(out))
-}
-
-#[derive(Debug, serde::Deserialize)]
-pub(super) struct CreateUserRequest {
-    handle: String,
-
-    #[serde(default)]
-    display_name: Option<String>,
-
-    #[serde(default)]
-    admin: bool,
-}
-
-pub(super) async fn create_user(
-    State(state): State<Arc<AppState>>,
-    Extension(subject): Extension<Subject>,
-    Json(payload): Json<CreateUserRequest>,
-) -> Result<Json<User>, Response> {
-    if !subject.admin {
-        return Err(forbidden());
-    }
-    validate_user_handle(&payload.handle).map_err(bad_request)?;
-
-    let created_at = now_ts();
-    let user_id = generate_token_secret().map_err(internal_error)?;
-    let user = User {
-        id: user_id.clone(),
-        handle: payload.handle.clone(),
-        display_name: payload.display_name,
-        admin: payload.admin,
-        created_at,
-    };
-
-    {
-        let mut users = state.users.write().await;
-        if users.values().any(|u| u.handle == payload.handle) {
-            return Err(conflict("user handle already exists"));
-        }
-        users.insert(user_id, user.clone());
-    }
-
-    {
-        let users = state.users.read().await;
-        let tokens = state.tokens.read().await;
-        if let Err(err) = persist_identity_to_disk(&state.data_dir, &users, &tokens) {
-            return Err(internal_error(err));
-        }
-    }
-
-    Ok(Json(user))
-}
-
 #[derive(Debug, serde::Serialize)]
-pub(super) struct TokenView {
+pub(crate) struct TokenView {
     id: String,
     label: Option<String>,
     created_at: String,
@@ -81,23 +10,23 @@ pub(super) struct TokenView {
     expires_at: Option<String>,
 }
 
-pub(super) async fn list_tokens(
+pub(crate) async fn list_tokens(
     State(state): State<Arc<AppState>>,
     Extension(subject): Extension<Subject>,
 ) -> Result<Json<Vec<TokenView>>, Response> {
     let tokens = state.tokens.read().await;
     let mut out = Vec::new();
-    for t in tokens.values() {
-        if t.user_id != subject.user_id {
+    for token in tokens.values() {
+        if token.user_id != subject.user_id {
             continue;
         }
         out.push(TokenView {
-            id: t.id.clone(),
-            label: t.label.clone(),
-            created_at: t.created_at.clone(),
-            last_used_at: t.last_used_at.clone(),
-            revoked_at: t.revoked_at.clone(),
-            expires_at: t.expires_at.clone(),
+            id: token.id.clone(),
+            label: token.label.clone(),
+            created_at: token.created_at.clone(),
+            last_used_at: token.last_used_at.clone(),
+            revoked_at: token.revoked_at.clone(),
+            expires_at: token.expires_at.clone(),
         });
     }
     out.sort_by(|a, b| b.created_at.cmp(&a.created_at));
@@ -105,19 +34,19 @@ pub(super) async fn list_tokens(
 }
 
 #[derive(Debug, serde::Deserialize)]
-pub(super) struct CreateTokenRequest {
+pub(crate) struct CreateTokenRequest {
     #[serde(default)]
     label: Option<String>,
 }
 
 #[derive(Debug, serde::Serialize)]
-pub(super) struct CreateTokenResponse {
-    pub(super) id: String,
-    pub(super) token: String,
-    pub(super) created_at: String,
+pub(crate) struct CreateTokenResponse {
+    pub(crate) id: String,
+    pub(crate) token: String,
+    pub(crate) created_at: String,
 }
 
-pub(super) async fn mint_token(
+async fn mint_token(
     state: &Arc<AppState>,
     user_id: &str,
     label: Option<String>,
@@ -127,13 +56,13 @@ pub(super) async fn mint_token(
     let token = generate_token_secret().map_err(internal_error)?;
     let token_hash = hash_token(&token);
     let token_id = {
-        let mut h = blake3::Hasher::new();
-        h.update(user_id.as_bytes());
-        h.update(b"\n");
-        h.update(token_hash.as_bytes());
-        h.update(b"\n");
-        h.update(created_at.as_bytes());
-        h.finalize().to_hex().to_string()
+        let mut hasher = blake3::Hasher::new();
+        hasher.update(user_id.as_bytes());
+        hasher.update(b"\n");
+        hasher.update(token_hash.as_bytes());
+        hasher.update(b"\n");
+        hasher.update(created_at.as_bytes());
+        hasher.finalize().to_hex().to_string()
     };
 
     {
@@ -172,7 +101,7 @@ pub(super) async fn mint_token(
     })
 }
 
-pub(super) async fn create_token(
+pub(crate) async fn create_token(
     State(state): State<Arc<AppState>>,
     Extension(subject): Extension<Subject>,
     Json(payload): Json<CreateTokenRequest>,
@@ -181,7 +110,7 @@ pub(super) async fn create_token(
     Ok(Json(out))
 }
 
-pub(super) async fn create_token_for_user(
+pub(crate) async fn create_token_for_user(
     State(state): State<Arc<AppState>>,
     Extension(subject): Extension<Subject>,
     Path(user_id): Path<String>,
@@ -200,7 +129,7 @@ pub(super) async fn create_token_for_user(
     Ok(Json(out))
 }
 
-pub(super) async fn revoke_token(
+pub(crate) async fn revoke_token(
     State(state): State<Arc<AppState>>,
     Extension(subject): Extension<Subject>,
     Path(token_id): Path<String>,
@@ -209,13 +138,13 @@ pub(super) async fn revoke_token(
 
     {
         let mut tokens = state.tokens.write().await;
-        let Some(t) = tokens.get_mut(&token_id) else {
+        let Some(token) = tokens.get_mut(&token_id) else {
             return Err(not_found());
         };
-        if t.user_id != subject.user_id && !subject.admin {
+        if token.user_id != subject.user_id && !subject.admin {
             return Err(forbidden());
         }
-        t.revoked_at = Some(revoked_at.clone());
+        token.revoked_at = Some(revoked_at.clone());
     }
 
     {
