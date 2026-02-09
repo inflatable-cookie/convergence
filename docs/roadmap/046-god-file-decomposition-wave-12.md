@@ -32,8 +32,16 @@ Progress notes:
 - Updated `src/bin/converge-server.rs` handler module path to `handlers_gc/mod.rs`.
 
 ### C) Object Graph Traversal Decomposition
-- [ ] Split `src/bin/converge_server/object_graph/traversal.rs` by traversal and helper concerns.
-- [ ] Preserve traversal results and error behavior.
+- [x] Split `src/bin/converge_server/object_graph/traversal.rs` by traversal and helper concerns.
+- [x] Preserve traversal results and error behavior.
+
+Progress notes:
+- Replaced `src/bin/converge_server/object_graph/traversal.rs` with module directory:
+  - `src/bin/converge_server/object_graph/traversal/mod.rs`
+  - `src/bin/converge_server/object_graph/traversal/collect.rs`
+  - `src/bin/converge_server/object_graph/traversal/validate.rs`
+  - `src/bin/converge_server/object_graph/traversal/superpositions.rs`
+- Preserved public traversal API re-exports used by object graph call sites.
 
 ### D) TUI Default Actions Decomposition
 - [ ] Split `src/tui_shell/app/default_actions.rs` by mode/intent concerns.
@@ -52,3 +60,8 @@ Progress notes:
   - Targeted fallback tests passed:
     - `cargo test server_gc_retention -- --nocapture`
     - `cargo test server_gc_release_retention -- --nocapture`
+- Validation for `object_graph/traversal` decomposition:
+  - `cargo fmt` passed
+  - `cargo clippy --all-targets -- -D warnings` passed
+  - Targeted server contract test passed:
+    - `cargo test server_api_contract -- --nocapture`
