@@ -43,8 +43,16 @@ Progress notes:
 - Kept `RemoteClient` public transfer APIs unchanged (`publish_*`, `upload_snap_objects`, `sync_snap`) with behavior-preserving method moves.
 
 ### D) Server Release Handler Decomposition
-- [ ] Split `src/bin/converge_server/handlers_release.rs` by endpoint concern.
-- [ ] Preserve route signatures and response payloads.
+- [x] Split `src/bin/converge_server/handlers_release.rs` by endpoint concern.
+- [x] Preserve route signatures and response payloads.
+
+Progress notes:
+- Replaced `src/bin/converge_server/handlers_release.rs` with module directory:
+  - `src/bin/converge_server/handlers_release/mod.rs`
+  - `src/bin/converge_server/handlers_release/release_endpoints.rs`
+  - `src/bin/converge_server/handlers_release/promotion_endpoints.rs`
+  - `src/bin/converge_server/handlers_release/promotion_state.rs`
+- Updated server entrypoint module path in `src/bin/converge-server.rs` to `handlers_release/mod.rs`.
 
 ### E) Verification and Hygiene
 - [x] Run `cargo fmt`.
@@ -65,3 +73,10 @@ Progress notes:
   - Fallback targeted validation passed:
     - `cargo test remote_client_modules_compose_across_core_flows -- --nocapture`
     - `cargo test upload_integrity -- --nocapture`
+- Validation for handlers_release slice:
+  - `cargo fmt` passed
+  - `cargo clippy --all-targets -- -D warnings` passed
+  - Targeted release/promotion filters passed:
+    - `cargo test server_releases -- --nocapture`
+    - `cargo test release_permissions -- --nocapture`
+    - `cargo test promotion_mechanics -- --nocapture`

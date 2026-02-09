@@ -48,7 +48,7 @@ use self::handlers_objects::*;
 #[path = "converge_server/handlers_publications/mod.rs"]
 mod handlers_publications;
 use self::handlers_publications::*;
-#[path = "converge_server/handlers_release.rs"]
+#[path = "converge_server/handlers_release/mod.rs"]
 mod handlers_release;
 use self::handlers_release::*;
 #[path = "converge_server/handlers_gc.rs"]
