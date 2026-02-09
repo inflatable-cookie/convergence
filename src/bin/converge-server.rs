@@ -16,7 +16,7 @@ use tokio::sync::RwLock;
 #[path = "converge_server/persistence/mod.rs"]
 mod persistence;
 use self::persistence::*;
-#[path = "converge_server/identity_store.rs"]
+#[path = "converge_server/identity_store/mod.rs"]
 mod identity_store;
 use self::identity_store::*;
 #[path = "converge_server/access.rs"]
