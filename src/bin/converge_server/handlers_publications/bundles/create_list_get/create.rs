@@ -1,5 +1,8 @@
 use super::super::super::super::*;
 
+use super::create_helpers::{
+    build_bundle_id, normalize_input_publications, now_rfc3339, validate_bundle_create_input,
+};
 use super::types::CreateBundleRequest;
 
 pub(super) async fn create_bundle(
@@ -8,24 +11,9 @@ pub(super) async fn create_bundle(
     Path(repo_id): Path<String>,
     Json(payload): Json<CreateBundleRequest>,
 ) -> Result<Json<Bundle>, Response> {
-    validate_scope_id(&payload.scope).map_err(bad_request)?;
-    validate_gate_id(&payload.gate).map_err(bad_request)?;
-    if payload.input_publications.is_empty() {
-        return Err(bad_request(anyhow::anyhow!(
-            "bundle must include at least one input publication"
-        )));
-    }
-    for pid in &payload.input_publications {
-        validate_object_id(pid).map_err(bad_request)?;
-    }
-
-    let created_at = time::OffsetDateTime::now_utc()
-        .format(&time::format_description::well_known::Rfc3339)
-        .map_err(|e| internal_error(anyhow::anyhow!(e)))?;
-
-    let mut input_publications = payload.input_publications;
-    input_publications.sort();
-    input_publications.dedup();
+    validate_bundle_create_input(&payload)?;
+    let created_at = now_rfc3339()?;
+    let input_publications = normalize_input_publications(payload.input_publications);
 
     let mut repos = state.repos.write().await;
     let repo = repos.get_mut(&repo_id).ok_or_else(not_found)?;
@@ -75,25 +63,15 @@ pub(super) async fn create_bundle(
     let has_superpositions = manifest_has_superpositions(&state, &repo_id, &root_manifest)?;
     let (promotable, reasons) = compute_promotability(gate_def, has_superpositions, 0);
 
-    let id = {
-        let mut hasher = blake3::Hasher::new();
-        hasher.update(repo_id.as_bytes());
-        hasher.update(b"\n");
-        hasher.update(payload.scope.as_bytes());
-        hasher.update(b"\n");
-        hasher.update(payload.gate.as_bytes());
-        hasher.update(b"\n");
-        hasher.update(root_manifest.as_bytes());
-        hasher.update(b"\n");
-        for pid in &input_publications {
-            hasher.update(pid.as_bytes());
-            hasher.update(b"\n");
-        }
-        hasher.update(subject.user.as_bytes());
-        hasher.update(b"\n");
-        hasher.update(created_at.as_bytes());
-        hasher.finalize().to_hex().to_string()
-    };
+    let id = build_bundle_id(
+        &repo_id,
+        &payload.scope,
+        &payload.gate,
+        &root_manifest,
+        &input_publications,
+        &subject.user,
+        &created_at,
+    );
 
     let bundle = Bundle {
         id: id.clone(),

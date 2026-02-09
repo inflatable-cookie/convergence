@@ -39,7 +39,7 @@ mod handlers_repo;
 #[path = "converge_server/handlers_system/mod.rs"]
 mod handlers_system;
 use self::handlers_repo::*;
-#[path = "converge_server/handlers_gates.rs"]
+#[path = "converge_server/handlers_gates/mod.rs"]
 mod handlers_gates;
 use self::handlers_gates::*;
 #[path = "converge_server/handlers_objects/mod.rs"]
