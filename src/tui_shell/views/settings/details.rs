@@ -1,6 +1,8 @@
 use ratatui::text::Line;
 
-use super::{RenderCtx, SettingsItemKind, SettingsView};
+use crate::tui_shell::view::RenderCtx;
+
+use super::{SettingsItemKind, SettingsView};
 
 pub(super) fn detail_lines(view: &SettingsView, ctx: &RenderCtx) -> Vec<Line<'static>> {
     match view.selected_kind() {

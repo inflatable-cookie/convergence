@@ -1,6 +1,8 @@
 use ratatui::widgets::ListItem;
 
-use super::{RenderCtx, SettingsItemKind, SettingsView};
+use crate::tui_shell::view::RenderCtx;
+
+use super::{SettingsItemKind, SettingsView};
 
 pub(super) fn list_rows(view: &SettingsView, ctx: &RenderCtx) -> Vec<ListItem<'static>> {
     let mut rows = Vec::new();
