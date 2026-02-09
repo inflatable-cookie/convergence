@@ -56,9 +56,17 @@ Progress notes:
 
 ### C) Remote Operations Decomposition
 
-- [ ] Split `src/remote/operations.rs` by operation families and shared request/execution utilities.
-- [ ] Keep public client-facing behavior and error text stable.
+- [x] Split `src/remote/operations.rs` by operation families and shared request/execution utilities.
+- [x] Keep public client-facing behavior and error text stable.
 - [ ] Add focused unit coverage for newly extracted pure helpers.
+
+Progress notes:
+- Replaced `src/remote/operations.rs` with module directory:
+  - `src/remote/operations/mod.rs`
+  - `src/remote/operations/repo_gate.rs`
+  - `src/remote/operations/bundle_ops.rs`
+  - `src/remote/operations/release_promotion_gc.rs`
+- Preserved existing `RemoteClient` method names and endpoint/error semantics across repo/gate/bundle/release/promotion/gc operations.
 
 ### D) TUI Gate Graph Command Decomposition
 
