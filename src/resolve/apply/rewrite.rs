@@ -3,93 +3,14 @@ use std::collections::HashMap;
 use anyhow::{Context, Result};
 
 use crate::model::{
-    Manifest, ManifestEntry, ManifestEntryKind, ObjectId, ResolutionDecision, SuperpositionVariant,
-    SuperpositionVariantKind, VariantKey,
+    Manifest, ManifestEntry, ManifestEntryKind, ObjectId, ResolutionDecision,
+    SuperpositionVariantKind,
 };
 use crate::store::LocalStore;
 
-use super::validate::validate_resolution;
+use super::decisions::decision_to_index;
 
-pub fn apply_resolution(
-    store: &LocalStore,
-    root: &ObjectId,
-    decisions: &std::collections::BTreeMap<String, ResolutionDecision>,
-) -> Result<ObjectId> {
-    // Validate up front so users get a single actionable error.
-    let report = validate_resolution(store, root, decisions)?;
-    if !report.ok {
-        fn head(xs: &[String]) -> String {
-            const LIMIT: usize = 10;
-            if xs.len() <= LIMIT {
-                xs.join(", ")
-            } else {
-                format!("{} ... (+{})", xs[..LIMIT].join(", "), xs.len() - LIMIT)
-            }
-        }
-
-        let mut parts = Vec::new();
-        if !report.missing.is_empty() {
-            parts.push(format!("missing=[{}]", head(&report.missing)));
-        }
-        if !report.extraneous.is_empty() {
-            parts.push(format!("extraneous=[{}]", head(&report.extraneous)));
-        }
-        if !report.out_of_range.is_empty() {
-            parts.push(format!("out_of_range={}", report.out_of_range.len()));
-        }
-        if !report.invalid_keys.is_empty() {
-            parts.push(format!("invalid_keys={}", report.invalid_keys.len()));
-        }
-        anyhow::bail!("resolution invalid: {}", parts.join(" "));
-    }
-
-    let mut memo = HashMap::new();
-    rewrite(store, root, "", decisions, &mut memo)
-}
-
-fn find_variant_index_by_key(variants: &[SuperpositionVariant], key: &VariantKey) -> Option<usize> {
-    variants.iter().position(|v| &v.key() == key)
-}
-
-fn decision_to_index(
-    path: &str,
-    decision: &ResolutionDecision,
-    variants: &[SuperpositionVariant],
-) -> Result<usize> {
-    match decision {
-        ResolutionDecision::Index(idx) => {
-            let idx = *idx as usize;
-            if idx >= variants.len() {
-                anyhow::bail!(
-                    "resolution decision out of range for {} (idx {}, variants {})",
-                    path,
-                    idx,
-                    variants.len()
-                );
-            }
-            Ok(idx)
-        }
-        ResolutionDecision::Key(key) => match find_variant_index_by_key(variants, key) {
-            Some(i) => Ok(i),
-            None => {
-                let mut available = Vec::new();
-                for v in variants {
-                    let kj = serde_json::to_string(&v.key())
-                        .unwrap_or_else(|_| "<unserializable-key>".to_string());
-                    available.push(kj);
-                }
-                anyhow::bail!(
-                    "resolution variant_key not found for {} (wanted source={}); available keys: {}",
-                    path,
-                    key.source,
-                    available.join(", ")
-                );
-            }
-        },
-    }
-}
-
-fn rewrite(
+pub(super) fn rewrite_manifest(
     store: &LocalStore,
     id: &ObjectId,
     prefix: &str,
@@ -115,7 +36,7 @@ fn rewrite(
 
         let kind = match e.kind {
             ManifestEntryKind::Dir { manifest } => {
-                let rewritten = rewrite(store, &manifest, &path, decisions, memo)?;
+                let rewritten = rewrite_manifest(store, &manifest, &path, decisions, memo)?;
                 ManifestEntryKind::Dir {
                     manifest: rewritten,
                 }
@@ -143,7 +64,7 @@ fn rewrite(
                         }
                     }
                     SuperpositionVariantKind::Dir { manifest } => {
-                        let rewritten = rewrite(store, manifest, &path, decisions, memo)?;
+                        let rewritten = rewrite_manifest(store, manifest, &path, decisions, memo)?;
                         ManifestEntryKind::Dir {
                             manifest: rewritten,
                         }
