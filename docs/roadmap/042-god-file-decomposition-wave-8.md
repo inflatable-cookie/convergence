@@ -36,7 +36,7 @@ Progress notes:
 
 ### C) Wizard Flow Decomposition
 - [x] Split `src/tui_shell/wizard/member_flow.rs` into state transitions, validation, and side-effect helpers.
-- [ ] Split `src/tui_shell/wizard/publish_sync_flow.rs` into parse/transition/effect helpers.
+- [x] Split `src/tui_shell/wizard/publish_sync_flow.rs` into parse/transition/effect helpers.
 
 Progress notes:
 - Replaced `src/tui_shell/wizard/member_flow.rs` with module directory:
@@ -44,6 +44,11 @@ Progress notes:
   - `src/tui_shell/wizard/member_flow/repo_member.rs`
   - `src/tui_shell/wizard/member_flow/lane_member.rs`
 - Preserved wizard prompts, action parsing, and final remote-side effects for repo and lane membership flows.
+- Replaced `src/tui_shell/wizard/publish_sync_flow.rs` with module directory:
+  - `src/tui_shell/wizard/publish_sync_flow/mod.rs`
+  - `src/tui_shell/wizard/publish_sync_flow/publish.rs`
+  - `src/tui_shell/wizard/publish_sync_flow/sync.rs`
+- Preserved publish/sync wizard prompt flow and command argument assembly (`cmd_publish_impl`/`cmd_sync_impl` inputs).
 
 ### D) Verification and Hygiene
 - [x] Run `cargo fmt`.
@@ -59,3 +64,8 @@ Progress notes:
 - Validation for member-wizard split:
   - `cargo fmt` passed
   - `cargo clippy --all-targets -- -D warnings` passed
+- Validation for publish/sync wizard split:
+  - `cargo fmt` passed
+  - `cargo clippy --all-targets -- -D warnings` passed
+  - `cargo test --lib` passed (`15 passed`, `0 failed`)
+  - `nextest`/integration invocations continue to intermittently stall in this environment after compile, so full `nextest` remains pending.
