@@ -1,24 +1,17 @@
-use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::path::PathBuf;
-use std::sync::Arc;
 
 use anyhow::{Context, Result};
-use axum::Router;
-use axum::routing::{get, post};
 use clap::Parser;
-use tokio::sync::RwLock;
 
-use super::handlers_system::{bootstrap, healthz};
-use super::identity_store::hash_token;
-use super::persistence::load_repos_from_disk;
-use super::routes::authed_router;
-use super::types::AppState;
-
+mod app;
 mod identity;
+mod listener;
 mod shutdown;
 
+use self::app::{build_app_router, build_state, load_repos_into_state};
 use self::identity::load_or_bootstrap_identity;
+use self::listener::{bind_listener, maybe_write_addr_file};
 use self::shutdown::shutdown_signal;
 
 #[derive(Parser)]
@@ -64,60 +57,14 @@ pub(super) async fn run() -> Result<()> {
         .with_context(|| format!("create data dir {}", args.data_dir.display()))?;
 
     let (users, tokens) = load_or_bootstrap_identity(&args)?;
+    let state = build_state(&args, users, tokens);
+    load_repos_into_state(&state).await?;
 
-    let default_user = users
-        .values()
-        .find(|u| u.admin)
-        .or_else(|| users.values().next())
-        .map(|u| u.handle.clone())
-        .unwrap_or_else(|| "dev".to_string());
-
-    let handle_to_id: HashMap<String, String> = users
-        .values()
-        .map(|u| (u.handle.clone(), u.id.clone()))
-        .collect();
-
-    let token_hash_index: HashMap<String, String> = tokens
-        .values()
-        .map(|t| (t.token_hash.clone(), t.id.clone()))
-        .collect();
-
-    let state = Arc::new(AppState {
-        default_user,
-        data_dir: args.data_dir.clone(),
-        repos: Arc::new(RwLock::new(HashMap::new())),
-        users: Arc::new(RwLock::new(users)),
-        tokens: Arc::new(RwLock::new(tokens)),
-        token_hash_index: Arc::new(RwLock::new(token_hash_index)),
-        bootstrap_token_hash: args.bootstrap_token.as_deref().map(hash_token),
-    });
-
-    // Best-effort load repos from disk so the dev server survives restarts.
-    let loaded =
-        load_repos_from_disk(state.as_ref(), &handle_to_id).context("load repos from disk")?;
-    {
-        let mut repos = state.repos.write().await;
-        *repos = loaded;
-    }
-
-    let authed = authed_router(state.clone());
-    let app = Router::new()
-        .route("/healthz", get(healthz))
-        .route("/bootstrap", post(bootstrap))
-        .merge(authed)
-        .with_state(state);
-
-    let listener = tokio::net::TcpListener::bind(args.addr)
-        .await
-        .with_context(|| format!("bind {}", args.addr))?;
-
+    let app = build_app_router(state);
+    let listener = bind_listener(args.addr).await?;
     let local_addr = listener.local_addr().context("read listener local addr")?;
     eprintln!("converge-server listening on {}", local_addr);
-
-    if let Some(addr_file) = &args.addr_file {
-        std::fs::write(addr_file, local_addr.to_string())
-            .with_context(|| format!("write addr file {}", addr_file.display()))?;
-    }
+    maybe_write_addr_file(args.addr_file.as_ref(), local_addr)?;
 
     axum::serve(listener, app)
         .with_graceful_shutdown(shutdown_signal())
