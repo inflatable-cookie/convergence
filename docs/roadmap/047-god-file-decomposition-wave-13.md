@@ -45,8 +45,18 @@ Progress notes:
 - Preserved exported command-def function names and all command metadata text.
 
 ### D) Model Decomposition
-- [ ] Split `src/model.rs` by config/snap/manifest/resolution concerns.
-- [ ] Preserve serde shapes and public type API.
+- [x] Split `src/model.rs` by config/snap/manifest/resolution concerns.
+- [x] Preserve serde shapes and public type API.
+
+Progress notes:
+- Replaced `src/model.rs` with module directory:
+  - `src/model/mod.rs`
+  - `src/model/ids.rs`
+  - `src/model/config.rs`
+  - `src/model/resolution.rs`
+  - `src/model/snap.rs`
+  - `src/model/manifest.rs`
+- Preserved public model API via re-exports in `src/model/mod.rs` and kept serde annotations/field layouts unchanged.
 
 ### E) Verification and Hygiene
 - [x] Run `cargo fmt`.
@@ -56,6 +66,10 @@ Progress notes:
 
 Progress notes:
 - Validation for wizard + mode_defs slices:
+  - `cargo fmt` passed
+  - `cargo clippy --all-targets -- -D warnings` passed
+  - `cargo test --lib` passed (`15 passed`, `0 failed`)
+- Validation for model decomposition:
   - `cargo fmt` passed
   - `cargo clippy --all-targets -- -D warnings` passed
   - `cargo test --lib` passed (`15 passed`, `0 failed`)
