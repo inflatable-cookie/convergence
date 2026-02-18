@@ -15,6 +15,7 @@ Key terms:
 Documentation is the source of truth:
 - Architecture + semantics: `docs/architecture/README.md`
 - Operator notes: `docs/operators/README.md`
+- Process guardrails: `docs/processes/README.md`
 - Roadmap phases: `docs/roadmap/`
 - Decisions: `docs/decisions/`
 
