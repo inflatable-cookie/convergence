@@ -8,7 +8,7 @@ mod sections;
 pub(super) fn render_remote_dashboard(frame: &mut ratatui::Frame, area: Rect, d: &DashboardData) {
     let rows = Layout::default()
         .direction(Direction::Vertical)
-        .constraints([Constraint::Length(8), Constraint::Min(0)])
+        .constraints([Constraint::Length(9), Constraint::Min(0)])
         .split(area);
 
     frame.render_widget(

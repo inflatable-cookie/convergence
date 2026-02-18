@@ -10,6 +10,7 @@ pub(super) fn action_lines(d: &DashboardData) -> Vec<Line<'static>> {
         d.workflow_profile.as_str()
     )));
     action_lines.push(Line::from(onboarding_hint(d)));
+    action_lines.push(Line::from(onboarding_command(d)));
     action_lines.push(Line::from(
         "terms: publish=input  bundle=gate output  promote=advance gate",
     ));
@@ -50,6 +51,38 @@ fn onboarding_hint(d: &DashboardData) -> String {
         return "start: create first release channel [bundles -> release]".to_string();
     }
     "start: fetch a release into local workspace [releases -> fetch]".to_string()
+}
+
+fn onboarding_command(d: &DashboardData) -> String {
+    if d.inbox_total == 0 && d.bundles_total == 0 && d.releases_total == 0 {
+        return "quick path: local `publish`, then remote `inbox`".to_string();
+    }
+    if d.inbox_pending > 0 {
+        return "quick path: `inbox` -> `bundle`".to_string();
+    }
+    if d.blocked_superpositions > 0 {
+        return "quick path: `bundles` -> `superpositions`".to_string();
+    }
+    if d.blocked_approvals > 0 {
+        return "quick path: `bundles` -> `approve`".to_string();
+    }
+    if d.bundles_promotable > 0 {
+        return "quick path: `bundles` -> `promote`".to_string();
+    }
+    if d.releases_total == 0 {
+        return match d.workflow_profile {
+            crate::model::WorkflowProfile::Daw => {
+                "quick path: `bundles` -> `release` (default channel: master)".to_string()
+            }
+            crate::model::WorkflowProfile::GameAssets => {
+                "quick path: `bundles` -> `release` (default channel: internal)".to_string()
+            }
+            crate::model::WorkflowProfile::Software => {
+                "quick path: `bundles` -> `release` (default channel: main)".to_string()
+            }
+        };
+    }
+    "quick path: `releases` -> `fetch`".to_string()
 }
 
 pub(super) fn inbox_lines(d: &DashboardData) -> Vec<Line<'static>> {
