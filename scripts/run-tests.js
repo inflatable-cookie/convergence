@@ -14,7 +14,8 @@ function hasNextest() {
 const args = process.argv.slice(2);
 
 function mapArgsForNextest(argv) {
-  // `pnpm test -q` forwards `-q` to the script. `cargo test -q` accepts it, but nextest does not.
+  // Package-manager test runners often forward `-q` to the script.
+  // `cargo test -q` accepts it, but nextest does not.
   // Map to nextest's equivalent `--cargo-quiet`.
   const out = [];
   let passthrough = false;

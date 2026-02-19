@@ -5,12 +5,12 @@
     "scripts": {
         "converge": "node scripts/run-converge.js",
         "tui": "node scripts/run-converge.js",
-    "api": "node scripts/run-converge-server.js",
-    "build": "cargo build",
-    "test": "node scripts/run-tests.js",
-    "test:nextest": "cargo nextest run",
-    "test:cargo": "cargo test",
-    "fmt": "cargo fmt",
-    "clippy": "cargo clippy"
-  }
+        "api": "node scripts/run-converge-server.js",
+        "build": "cargo build",
+        "test": "node scripts/run-tests.js",
+        "test:nextest": "cargo nextest run",
+        "test:cargo": "cargo test",
+        "fmt": "cargo fmt",
+        "clippy": "cargo clippy"
+    }
 }

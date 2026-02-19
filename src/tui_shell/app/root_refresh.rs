@@ -1,6 +1,36 @@
 use super::*;
 
 impl App {
+    fn remote_auth_onboarding_lines(note: &str) -> Vec<String> {
+        match note {
+            "auth: login" | "auth: unauthorized" => vec![
+                "start here:".to_string(),
+                "1) login --url <url> --token <token> --repo <id> [--scope <id>] [--gate <id>"
+                    .to_string(),
+                "2) refresh".to_string(),
+                "3) inbox".to_string(),
+            ],
+            "auth: server unreachable" => vec![
+                "start here:".to_string(),
+                "1) ping".to_string(),
+                "2) if unreachable, verify server URL/network".to_string(),
+                "3) login --url <url> --token <token> --repo <id>".to_string(),
+            ],
+            "auth: server error" => vec![
+                "start here:".to_string(),
+                "1) ping".to_string(),
+                "2) refresh".to_string(),
+                "3) retry login after server health recovers".to_string(),
+            ],
+            _ => vec![
+                "start here:".to_string(),
+                "1) ping".to_string(),
+                "2) login --url <url> --token <token> --repo <id>".to_string(),
+                "3) inbox".to_string(),
+            ],
+        }
+    }
+
     pub(in crate::tui_shell) fn refresh_root_view(&mut self) {
         let ws = self.workspace.clone();
         let ctx = self.root_ctx;
@@ -50,17 +80,7 @@ impl App {
                 ));
                 lines.push(note.to_string());
                 lines.push("".to_string());
-                let hint = if note == "auth: login" || note == "auth: unauthorized" {
-                    "hint: login --url <url> --token <token> --repo <id> [--scope <id>] [--gate <id>]"
-                        .to_string()
-                } else if note == "auth: server unreachable" {
-                    "hint: ping (or verify server URL/network), then refresh".to_string()
-                } else if note == "auth: server error" {
-                    "hint: server returned an error; try refresh, then ping".to_string()
-                } else {
-                    "hint: ping, then login --url <url> --token <token> --repo <id>".to_string()
-                };
-                lines.push(hint);
+                lines.extend(Self::remote_auth_onboarding_lines(note));
                 Some(lines)
             } else {
                 None

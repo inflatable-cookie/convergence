@@ -1,13 +1,32 @@
 const path = require('path');
+const fs = require('fs');
 const { spawnSync } = require('child_process');
 
 const repoRoot = path.resolve(__dirname, '..');
 const manifestPath = path.join(repoRoot, 'Cargo.toml');
 
-// npm/pnpm set INIT_CWD to the directory the user invoked the command from.
-// We want the server's relative paths (like default --data-dir ./converge-data)
-// to resolve from there.
-const desiredCwd = process.env.INIT_CWD || process.cwd();
+function firstExistingDir(candidates) {
+  for (const candidate of candidates) {
+    if (!candidate || typeof candidate !== 'string') {
+      continue;
+    }
+    const resolved = path.resolve(candidate);
+    if (fs.existsSync(resolved) && fs.statSync(resolved).isDirectory()) {
+      return resolved;
+    }
+  }
+  return process.cwd();
+}
+
+// Package managers may launch scripts from repo root while preserving
+// invocation context in env vars. Prefer those so server-relative paths
+// resolve from where the command was run.
+const desiredCwd = firstExistingDir([
+  process.env.INIT_CWD, // npm-compatible runners
+  process.env.npm_config_local_prefix, // bun/npm compatibility var
+  process.env.PWD, // shell invocation directory
+  process.cwd(),
+]);
 
 const args = process.argv.slice(2);
 if (args[0] === '--') {
