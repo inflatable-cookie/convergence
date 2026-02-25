@@ -15,6 +15,16 @@ impl App {
         }
 
         let cmd = cmds[0].clone();
+        self.write_trace_event(
+            "user_action",
+            serde_json::json!({
+                "source": "default_action",
+                "action": "run_primary_hint",
+                "command": cmd.clone(),
+                "mode": format!("{:?}", self.mode()).to_lowercase(),
+                "root_context": self.root_ctx.label(),
+            }),
+        );
         let action = if self.mode() == UiMode::Root {
             PendingAction::Root {
                 root_ctx: self.root_ctx,

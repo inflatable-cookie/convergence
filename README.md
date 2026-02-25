@@ -43,6 +43,18 @@ TUI:
 cargo run --bin converge
 ```
 
+TUI with agent trace (JSONL semantic events):
+
+```bash
+cargo run --bin converge -- --agent-trace /tmp/converge-agent-trace.jsonl
+```
+
+Generate a friction report from a trace:
+
+```bash
+node scripts/agent-trace-report.js /tmp/converge-agent-trace.jsonl --out /tmp/converge-friction-report.md
+```
+
 Local quickstart (workspace):
 
 ```bash

@@ -43,12 +43,21 @@ impl App {
     }
 
     pub(super) fn pop_mode(&mut self) {
+        let from_mode = self.mode();
         if self.frames.len() > 1 {
             self.frames.pop();
         }
 
         if self.mode() == UiMode::Root {
             self.refresh_root_view();
+        }
+        let to_mode = self.mode();
+        if from_mode != to_mode {
+            self.trace_state_change(
+                "mode",
+                &format!("{:?}", from_mode).to_lowercase(),
+                &format!("{:?}", to_mode).to_lowercase(),
+            );
         }
     }
 

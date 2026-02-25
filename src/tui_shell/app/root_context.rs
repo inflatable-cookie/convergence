@@ -36,19 +36,23 @@ impl App {
     }
 
     pub(super) fn switch_to_local_root(&mut self) {
+        let from = self.root_ctx.label().to_string();
         self.root_ctx = RootContext::Local;
         self.frames = vec![ViewFrame {
             view: Box::new(RootView::new(RootContext::Local)),
         }];
         self.refresh_root_view();
+        self.trace_state_change("root_context", &from, self.root_ctx.label());
     }
 
     pub(super) fn switch_to_remote_root(&mut self) {
+        let from = self.root_ctx.label().to_string();
         self.root_ctx = RootContext::Remote;
         self.frames = vec![ViewFrame {
             view: Box::new(RootView::new(RootContext::Remote)),
         }];
         self.refresh_root_view();
+        self.trace_state_change("root_context", &from, self.root_ctx.label());
     }
 
     pub(super) fn remote_repo_missing(&self) -> bool {

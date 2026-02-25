@@ -47,10 +47,12 @@ impl App {
         }
 
         if cmd == "help" {
+            self.trace_command_submitted(line, "help");
             self.cmd_help(&defs, args);
             return;
         }
 
+        self.trace_command_submitted(line, &cmd);
         if mode == UiMode::Root {
             self.dispatch_root(cmd.as_str(), args);
         } else {

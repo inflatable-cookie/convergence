@@ -24,10 +24,12 @@ pub(super) fn run_loop(
             last_local_refresh = std::time::Instant::now();
         }
 
+        app.trace_screen_view_if_changed();
         terminal
             .draw(|f| super::render::draw(f, app))
             .context("draw")?;
         if app.quit {
+            app.trace_session_end("quit");
             return Ok(());
         }
 

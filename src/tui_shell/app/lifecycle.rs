@@ -1,7 +1,7 @@
 use super::*;
 
 impl App {
-    pub(super) fn load() -> Self {
+    pub(super) fn load(opts: crate::tui::TuiRunOptions) -> Self {
         let mut app = App::default();
         let cwd = match std::env::current_dir() {
             Ok(p) => p,
@@ -26,6 +26,7 @@ impl App {
             "Type `help` for commands.".to_string(),
             "(Use `Esc` to go back; use `/` to show available commands.)".to_string(),
         ]);
+        app.enable_agent_trace(opts.agent_trace);
         app
     }
 

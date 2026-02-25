@@ -6,6 +6,8 @@ mod root_mode;
 mod superpositions_shortcuts;
 
 pub(super) fn handle_key(app: &mut App, key: KeyEvent) {
+    app.trace_key_action(key);
+
     if app.modal.is_some() {
         modal::handle_modal_key(app, key);
         return;

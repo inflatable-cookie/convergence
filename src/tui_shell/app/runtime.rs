@@ -10,7 +10,7 @@ use ratatui::backend::CrosstermBackend;
 
 use super::{App, event_loop};
 
-pub(in crate::tui_shell) fn run() -> Result<()> {
+pub(in crate::tui_shell) fn run(opts: crate::tui::TuiRunOptions) -> Result<()> {
     if !io::stdin().is_terminal() || !io::stdout().is_terminal() {
         anyhow::bail!("TUI requires an interactive terminal (TTY)");
     }
@@ -23,7 +23,7 @@ pub(in crate::tui_shell) fn run() -> Result<()> {
     let mut terminal = Terminal::new(backend).context("create terminal")?;
     terminal.clear().ok();
 
-    let mut app = App::load();
+    let mut app = App::load(opts);
     let res = event_loop::run_loop(&mut terminal, &mut app);
 
     disable_raw_mode().ok();

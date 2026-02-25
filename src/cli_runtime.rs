@@ -1,5 +1,6 @@
 use anyhow::{Context, Result};
 use clap::Parser;
+use std::path::PathBuf;
 
 use converge::{model::RemoteConfig, store::LocalStore};
 
@@ -9,6 +10,9 @@ use crate::Commands;
 #[command(name = "converge")]
 #[command(about = "Convergence version control", long_about = None)]
 pub(crate) struct Cli {
+    #[arg(long = "agent-trace", value_name = "PATH")]
+    agent_trace: Option<PathBuf>,
+
     #[command(subcommand)]
     command: Option<Commands>,
 }
@@ -18,9 +22,18 @@ pub(crate) fn run() -> Result<()> {
 
     match cli.command {
         None => {
-            converge::tui::run()?;
+            converge::tui::run_with_options(converge::tui::TuiRunOptions {
+                agent_trace: cli.agent_trace,
+            })?;
         }
-        Some(command) => crate::cli_exec::handle_command(command)?,
+        Some(command) => {
+            if cli.agent_trace.is_some() {
+                anyhow::bail!(
+                    "`--agent-trace` is only supported when running the TUI (no subcommand)"
+                );
+            }
+            crate::cli_exec::handle_command(command)?
+        }
     }
 
     Ok(())

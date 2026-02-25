@@ -19,5 +19,9 @@ use app::{
 use view::{RenderCtx, View, render_view_chrome};
 
 pub fn run() -> Result<()> {
-    app::run()
+    run_with_options(crate::tui::TuiRunOptions::default())
+}
+
+pub fn run_with_options(opts: crate::tui::TuiRunOptions) -> Result<()> {
+    app::run(opts)
 }

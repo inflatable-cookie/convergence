@@ -5,6 +5,7 @@
     "scripts": {
         "converge": "node scripts/run-converge.js",
         "tui": "node scripts/run-converge.js",
+        "trace:report": "node scripts/agent-trace-report.js",
         "api": "node scripts/run-converge-server.js",
         "build": "cargo build",
         "test": "node scripts/run-tests.js",

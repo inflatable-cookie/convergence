@@ -1,4 +1,5 @@
 use super::*;
+use super::agent_trace::{AgentTraceStats, AgentTraceWriter};
 
 pub(in crate::tui_shell) struct ViewFrame {
     pub(in crate::tui_shell) view: Box<dyn View>,
@@ -7,6 +8,9 @@ pub(in crate::tui_shell) struct ViewFrame {
 pub(in crate::tui_shell) struct App {
     pub(in crate::tui_shell) workspace: Option<Workspace>,
     pub(in crate::tui_shell) workspace_err: Option<String>,
+    pub(in crate::tui_shell) agent_trace: Option<AgentTraceWriter>,
+    pub(in crate::tui_shell) last_screen_signature: Option<String>,
+    pub(in crate::tui_shell) agent_trace_stats: AgentTraceStats,
 
     pub(in crate::tui_shell) root_ctx: RootContext,
     pub(in crate::tui_shell) ts_mode: TimestampMode,
@@ -63,6 +67,9 @@ impl Default for App {
         Self {
             workspace: None,
             workspace_err: None,
+            agent_trace: None,
+            last_screen_signature: None,
+            agent_trace_stats: AgentTraceStats::default(),
             root_ctx: RootContext::Local,
             ts_mode: TimestampMode::Relative,
             remote_configured: false,

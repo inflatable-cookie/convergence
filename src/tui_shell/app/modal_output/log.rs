@@ -29,6 +29,7 @@ impl App {
     }
 
     pub(in crate::tui_shell) fn push_error(&mut self, msg: String) {
+        self.trace_error(&msg);
         // If auth fails, update the header immediately so the user sees guidance.
         if msg.contains("unauthorized") {
             self.remote_identity = None;

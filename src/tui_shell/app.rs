@@ -32,6 +32,7 @@ use super::wizard::{
     SyncWizard,
 };
 
+mod agent_trace;
 mod cmd_dispatch;
 mod cmd_gate_graph;
 mod cmd_mode_actions;
