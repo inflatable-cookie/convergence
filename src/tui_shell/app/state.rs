@@ -1,5 +1,5 @@
-use super::*;
 use super::agent_trace::{AgentTraceStats, AgentTraceWriter};
+use super::*;
 
 pub(in crate::tui_shell) struct ViewFrame {
     pub(in crate::tui_shell) view: Box<dyn View>,

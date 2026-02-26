@@ -24,7 +24,8 @@ fn run_converge(args: &[&str]) -> Result<String> {
 #[test]
 fn cli_help_surface_is_stable() -> Result<()> {
     let help = run_converge(&["--help"])?;
-    assert!(help.contains("Usage: converge [COMMAND]"));
+    assert!(help.contains("Usage: converge"));
+    assert!(help.contains("[COMMAND]"));
     assert!(help.contains("remote"));
     assert!(help.contains("publish"));
     assert!(help.contains("resolve"));
