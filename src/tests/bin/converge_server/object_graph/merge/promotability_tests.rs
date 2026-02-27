@@ -1,4 +1,3 @@
-
 use super::*;
 
 fn gate(allow_superpositions: bool, required_approvals: u32) -> GateDef {
