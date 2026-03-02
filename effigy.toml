@@ -1,0 +1,32 @@
+[catalog]
+alias = "convergence"
+
+[tasks.converge]
+run = "node scripts/run-converge.js"
+
+[tasks.tui]
+run = "node scripts/run-converge.js"
+
+[tasks."trace:report"]
+run = "node scripts/agent-trace-report.js"
+
+[tasks.api]
+run = "node scripts/run-converge-server.js"
+
+[tasks.build]
+run = "cargo build"
+
+[tasks.test]
+run = "node scripts/run-tests.js"
+
+[tasks."test:nextest"]
+run = "cargo nextest run"
+
+[tasks."test:cargo"]
+run = "cargo test"
+
+[tasks.fmt]
+run = "cargo fmt"
+
+[tasks.clippy]
+run = "cargo clippy"

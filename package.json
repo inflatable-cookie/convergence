@@ -1,17 +1,5 @@
 {
     "name": "convergence",
     "version": "0.0.0",
-    "private": true,
-    "scripts": {
-        "converge": "node scripts/run-converge.js",
-        "tui": "node scripts/run-converge.js",
-        "trace:report": "node scripts/agent-trace-report.js",
-        "api": "node scripts/run-converge-server.js",
-        "build": "cargo build",
-        "test": "node scripts/run-tests.js",
-        "test:nextest": "cargo nextest run",
-        "test:cargo": "cargo test",
-        "fmt": "cargo fmt",
-        "clippy": "cargo clippy"
-    }
+    "private": true
 }
