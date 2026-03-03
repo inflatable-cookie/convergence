@@ -32,3 +32,8 @@ target
 
 # Better Context (btca)
 .btca
+
+# Project-local Cargo caches
+.cache/
+.cargo/*
+!.cargo/config.toml

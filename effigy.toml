@@ -1,32 +1,32 @@
 [catalog]
 alias = "convergence"
 
-[tasks.converge]
-run = "node scripts/run-converge.js"
+[env]
+CARGO_HOME = "{project}/.cache/cargo/home"
 
-[tasks.tui]
-run = "node scripts/run-converge.js"
-
-[tasks."trace:report"]
-run = "node scripts/agent-trace-report.js"
-
-[tasks.api]
-run = "node scripts/run-converge-server.js"
-
-[tasks.build]
-run = "cargo build"
-
-[tasks.test]
-run = "node scripts/run-tests.js"
-
-[tasks."test:nextest"]
-run = "cargo nextest run"
-
-[tasks."test:cargo"]
-run = "cargo test"
-
-[tasks.fmt]
-run = "cargo fmt"
-
-[tasks.clippy]
-run = "cargo clippy"
+[tasks]
+converge = "node scripts/run-converge.js"
+tui = "node scripts/run-converge.js"
+"trace:report" = "node scripts/agent-trace-report.js"
+api = "node scripts/run-converge-server.js"
+build = [
+  { env = "CARGO_HOME" },
+  { run = "cargo build {args}" },
+]
+test = "node scripts/run-tests.js"
+"test:nextest" = [
+  { env = "CARGO_HOME" },
+  { run = "cargo nextest run {args}" },
+]
+"test:cargo" = [
+  { env = "CARGO_HOME" },
+  { run = "cargo test {args}" },
+]
+fmt = [
+  { env = "CARGO_HOME" },
+  { run = "cargo fmt {args}" },
+]
+clippy = [
+  { env = "CARGO_HOME" },
+  { run = "cargo clippy {args}" },
+]
