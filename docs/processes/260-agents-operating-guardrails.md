@@ -4,15 +4,17 @@ Purpose: keep AGENTS guidance concise and operational while moving detail into d
 
 ## Working Model
 
-- Treat `docs/` as source of truth for architecture, decisions, and roadmap intent.
+- Treat `docs/` as source of truth for vision, architecture, logs, and roadmap intent.
 - Keep implementation changes scoped; avoid unrelated refactors.
 - Keep roadmap checklists current as tasks are completed.
 
 ## Source of Truth
 
+- Overview: `docs/README.md`
+- Vision: `docs/vision/`
 - Architecture and semantics: `docs/architecture/`
-- Decision history: `docs/decisions/`
-- Delivery plans: `docs/roadmap/`
+- Log and rationale history: `docs/logs/`
+- Delivery plans: `docs/roadmaps/`
 - Operator guidance: `docs/operators/`
 
 ## Tooling Rules
@@ -38,7 +40,8 @@ Run what matches scope:
 
 ## Reporting and Roadmap Hygiene
 
-- Track major migrations in `docs/roadmap/` with checkboxes.
+- Track major migrations in `docs/roadmaps/` with checkboxes.
+- Record rationale, doctrinal updates, and meaningful execution batches in `docs/logs/YYYY-MM/`.
 - Mark completed tasks immediately.
 - Keep updates factual: changed, validated, remaining.
 

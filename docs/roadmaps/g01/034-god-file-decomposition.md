@@ -120,5 +120,5 @@ The following legacy files are now consolidated into this single phase document:
 ## Exit Criteria
 
 - A single roadmap file represents the god-file reduction initiative.
-- Per-wave roadmap file sprawl is removed from `docs/roadmap/`.
+- Per-wave roadmap file sprawl is removed from `docs/roadmaps/g01/`.
 - Roadmap numbering remains contiguous after consolidation.

@@ -2,22 +2,24 @@
 
 Convergence is an experimental next-generation version control and collaboration system.
 
-Core idea: capture work continuously (or via explicit snapshots), then converge it through configurable, policy-driven phase gates into increasingly "consumable" bundles, culminating in a release.
+Core idea: capture work continuously (or via explicit snapshots), then converge it through configurable, policy-driven gate stages into increasingly consumable bundles, culminating in release channels where appropriate.
 
 Key terms:
 - `snap`: a snapshot of a workspace state (not necessarily buildable)
 - `publish`: submit a snap to a gate/scope as an input
 - `bundle`: output produced by a gate after coalescing inputs
 - `promote`: move a bundle to the next gate
-- `release`: final public output (often from the terminal gate)
-- "superpositions": conflicts preserved as data and resolved per gate policy
+- `release`: public or organizational output cut from an allowed gate
+- `superpositions`: conflicts preserved as data and resolved per gate policy
 
 Documentation is the source of truth:
+- Overview: `docs/README.md`
+- Vision: `docs/vision/001-convergence-platform-vision.md`
 - Architecture + semantics: `docs/architecture/README.md`
 - Operator notes: `docs/operators/README.md`
 - Process guardrails: `docs/processes/README.md`
-- Roadmap phases: `docs/roadmap/`
-- Decisions: `docs/decisions/`
+- Roadmaps: `docs/roadmaps/`
+- Logs: `docs/logs/`
 
 ## Build
 

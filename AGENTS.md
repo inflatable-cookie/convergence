@@ -5,9 +5,10 @@ Scope: whole `convergence/` repository.
 ## Hard Rules
 
 - Keep AGENTS content lean: scope, hard rules, validation, links.
-- Treat `docs/` as source of truth for architecture, semantics, and roadmap intent.
+- Treat `docs/` as source of truth for vision, architecture, roadmap intent, and rationale history.
 - Keep roadmap checklists in sync with completed implementation work.
-- Keep terminology consistent (`snap`, `publish`, `bundle`, `promote`, `release`).
+- Keep terminology consistent (`snap`, `publish`, `bundle`, `promote`, `release`, `superposition`).
+- Do not recreate retired `docs/roadmap/` or `docs/decisions/` folders.
 
 ## Validate
 
@@ -18,6 +19,9 @@ Scope: whole `convergence/` repository.
 
 ## References
 
-- `docs/processes/260-agents-operating-guardrails.md`
+- `docs/README.md`
+- `docs/vision/001-convergence-platform-vision.md`
 - `docs/architecture/README.md`
-- `docs/roadmap/`
+- `docs/roadmaps/`
+- `docs/logs/`
+- `docs/processes/260-agents-operating-guardrails.md`

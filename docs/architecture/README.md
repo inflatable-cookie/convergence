@@ -5,7 +5,7 @@ This folder defines Convergence architecture, semantics, and core system boundar
 Convergence is designed for large development organizations first, with the same architecture usable by solo/small teams via lightweight deployments.
 
 Related docs:
-- Decision: `docs/decisions/2026-01-22-155954-convergence-gates-phases.md`
+- Decision: `docs/logs/2026-01/22-155954-convergence-gates-phases.md`
 - Transcript notes / early direction: `docs/git-podcast/README.md`
 
 Docs:
