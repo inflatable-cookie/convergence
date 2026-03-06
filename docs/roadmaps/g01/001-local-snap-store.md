@@ -1,6 +1,6 @@
 # 001 - Local Snap Store (MVP Foundation)
 
-Current status:
+Status:
 - Implemented: local `.converge/` store, `converge init|snap|snaps|show|restore`
 - Determinism: sorted manifests; restore recreates byte-identical trees
 - Tests: roundtrip restore, blob corruption detection, manifest determinism
@@ -13,12 +13,12 @@ Ship a working local-first Convergence CLI that can:
 - list and inspect snaps
 - restore a snap back into the working directory
 
-This phase intentionally does not require a server or background file watcher; users explicitly run `converge snap`.
+This roadmap intentionally does not require a server or background file watcher; users explicitly run `converge snap`.
 
 ## Why This Phase Exists
 
 - Establish the core data model (blobs/manifests/snaps) with strong determinism.
-- Provide an end-to-end vertical slice that future phases (publish/gates/server/TUI) can build on.
+- Provide an end-to-end vertical slice that future roadmaps (publish/gates/server/TUI) can build on.
 - Validate the ergonomics of "snap without needing a working build".
 
 ## Scope

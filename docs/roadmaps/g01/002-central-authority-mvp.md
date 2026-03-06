@@ -8,7 +8,7 @@ Introduce a minimal central authority (GitHub-like) that can:
 - accept `publish` submissions from clients
 - serve the stored objects back to clients (`fetch`)
 
-This phase proves the large-org-first premise: identity + access control + authoritative namespaces, without yet implementing full convergence (bundling) semantics.
+This roadmap proves the large-org-first premise: identity + access control + authoritative namespaces, without yet implementing full convergence (bundling) semantics.
 
 ## Scope
 

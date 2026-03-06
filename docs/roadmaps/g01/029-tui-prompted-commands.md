@@ -7,7 +7,7 @@ Make every TUI command feel "wizard-like" and low-friction:
 - Commands that can safely default should still work with zero args (Enter should do the obvious thing).
 - Power users can still paste full command lines, but nothing *requires* knowing `--flags`.
 
-This phase is scoped to the TUI command shell (`src/tui_shell.rs`). The standalone CLI may keep flag-based UX.
+This roadmap is scoped to the TUI command shell (`src/tui_shell.rs`). The standalone CLI may keep flag-based UX.
 
 ## Tasks
 

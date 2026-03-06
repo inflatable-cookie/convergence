@@ -2,7 +2,7 @@
 
 Goal: simplify releases by allowing any gate to create a release by default.
 
-Today the gate graph has a `terminal_gate` concept and some flows assume “release only from terminal”. This phase removes that abstraction and replaces it with a per-gate `allow_releases` policy knob (default `true`).
+Today the gate graph has a `terminal_gate` concept and some flows assume “release only from terminal”. This roadmap removes that abstraction and replaces it with a per-gate `allow_releases` policy knob (default `true`).
 
 Non-goals:
 - Full release-channel policy system (beyond what exists today).

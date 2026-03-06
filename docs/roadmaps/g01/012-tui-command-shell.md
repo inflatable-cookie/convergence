@@ -1,6 +1,6 @@
 # 012 - TUI Command Shell (Local-First)
 
-Status: implemented as an intermediate step. The global command input remains, but later phases will shift away from an open-ended scrollback UI toward modal, view-driven screens.
+Status: implemented as an intermediate step. The global command input remains, but later roadmaps will shift away from an open-ended scrollback UI toward modal, view-driven screens.
 
 ## Goal
 
@@ -17,9 +17,9 @@ In scope:
 - A mode indicator with `Tab` toggling Local/Remote only when the input is empty.
 
 Out of scope:
-- Remote commands (handled in Phase 013).
-- Rich list/detail views (handled in Phase 014).
-- Interactive per-command prompting contexts (handled in Phase 015).
+- Remote commands (handled in roadmap 013).
+- Rich list/detail views (handled in roadmap 014).
+- Interactive per-command prompting contexts (handled in roadmap 015).
 
 ## Tasks
 

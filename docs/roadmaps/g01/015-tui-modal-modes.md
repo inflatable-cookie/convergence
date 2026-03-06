@@ -21,7 +21,7 @@ In scope:
 
 Out of scope:
 - Rewriting core converge workflows.
-- A full TUI redesign for every screen in one pass (handled in later phases).
+- A full TUI redesign for every screen in one pass (handled in later roadmaps).
 
 ## Tasks
 

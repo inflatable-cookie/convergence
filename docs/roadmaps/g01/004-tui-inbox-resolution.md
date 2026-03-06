@@ -7,7 +7,7 @@ Add an interactive terminal UI (`converge` with no args) that supports day-to-da
 - inspect publications, bundles, promotion state
 - inspect superpositions (conflicts) and understand why bundles are not promotable
 
-This phase should not change semantics; it should be a UI on top of existing deterministic CLI/API behavior.
+This roadmap should not change semantics; it should be a UI on top of existing deterministic CLI/API behavior.
 
 ## Scope
 

@@ -1,13 +1,13 @@
 # 018 - Large Object Storage, Retention, And Gate Policies
 
-Current status:
+Status:
 - Implemented (fixed-size chunking MVP): chunked file entry type, local store ingest/restore, publish/fetch over recipes+chunks.
 
 ## Goal
 
 Make large, frequently-changing files (game assets, audio, video, etc.) feasible in Convergence.
 
-This phase focuses on two problems:
+This roadmap focuses on two problems:
 - what gets snapped (locally) and for how long
 - how publications/bundles/releases handle large objects without destroying performance or distribution
 

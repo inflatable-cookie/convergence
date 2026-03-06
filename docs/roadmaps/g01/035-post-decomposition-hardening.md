@@ -6,7 +6,7 @@ Stabilize and harden the decomposed module layout from roadmap 034 so boundaries
 
 ## Scope
 
-This phase is limited to follow-through improvements after the god-file decomposition:
+This roadmap is limited to follow-through improvements after the god-file decomposition:
 - boundary and ownership clarity
 - focused regression coverage around extracted flows
 - consistency cleanup where decomposition introduced minor structural drift

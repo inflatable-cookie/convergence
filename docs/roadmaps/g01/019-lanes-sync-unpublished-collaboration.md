@@ -1,6 +1,6 @@
 # 019 - Lanes, Sync, And Unpublished Collaboration
 
-Current status:
+Status:
 - In progress: server lane heads + endpoints; client/CLI/TUI sync and lanes fetch.
 
 ## Goal
@@ -35,7 +35,7 @@ In scope:
 
 Out of scope (for this phase):
 - A full merge workflow that automatically produces superpositions for two lane heads.
-  - This phase should make lane snaps "grabbable"; a follow-on can make them "mergeable".
+  - This roadmap should make lane snaps "grabbable"; a follow-on roadmap can make them "mergeable".
 - Organization-wide defaults, quotas, billing, and enterprise policy.
 
 ## Architecture Notes

@@ -9,7 +9,7 @@ Output should be a new snap that:
 - can be published as a new input
 - produces a promotable bundle when policy allows
 
-This phase is intentionally narrow: resolve by choosing one variant (or tombstone) per conflicted path.
+This roadmap is intentionally narrow: resolve by choosing one variant (or tombstone) per conflicted path.
 
 ## Scope
 

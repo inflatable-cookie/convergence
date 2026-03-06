@@ -1,6 +1,6 @@
 # 020 - Identity And Authentication
 
-Current status:
+Status:
 - Started: persisted users/tokens, bearer middleware resolves Subject, token endpoints.
 
 ## Goal
@@ -9,7 +9,7 @@ Make identity real and verifiable.
 
 The authority should be able to answer "who is this request" in a durable, auditable way, and the client should provide a first-class UX for managing credentials.
 
-This phase replaces the current dev-only single-token/single-user model with:
+This roadmap replaces the current dev-only single-token/single-user model with:
 - multi-user identities
 - per-user access tokens
 - proper token verification (hashed-at-rest, revocable, optionally expiring)

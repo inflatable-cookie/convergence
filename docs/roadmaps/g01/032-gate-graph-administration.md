@@ -2,7 +2,7 @@
 
 Goal: make gate graph setup and evolution a first-class admin UX (not a hardcoded "dev-intake" pipeline).
 
-Convergence depends on org-defined gates/policies. This phase adds persistence + admin APIs + CLI/TUI flows to create, validate, and update a repo's gate graph.
+Convergence depends on org-defined gates/policies. This roadmap adds persistence + admin APIs + CLI/TUI flows to create, validate, and update a repo's gate graph.
 
 Non-goals:
 - Fine-grained per-gate ACLs (beyond existing repo roles/admin checks).

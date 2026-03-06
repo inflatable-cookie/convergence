@@ -13,7 +13,7 @@ Keep behavior identical (or nearly identical), keep tests passing, and make it e
 
 ## Scope
 
-This phase is limited to internal Rust module structure.
+This roadmap is limited to internal Rust module structure.
 No product/UX changes except tiny wiring fixes required by the refactor.
 
 ## Tasks
