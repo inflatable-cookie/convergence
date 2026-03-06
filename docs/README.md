@@ -17,5 +17,5 @@ Northstar-aligned documentation authority for Convergence.
 
 - Canonical roadmap execution lives under `roadmaps/g01/`.
 - Historical decision records now live under `logs/YYYY-MM/`.
-- New roadmap work should use roadmap IDs such as `g01.042`.
+- New roadmap work should use roadmap IDs such as `g01.043`.
 - New rationale records and implementation batch notes should go in `logs/YYYY-MM/`.

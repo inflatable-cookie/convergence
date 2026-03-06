@@ -13,13 +13,13 @@ Key terms:
 - `superpositions`: conflicts preserved as data and resolved per gate policy
 
 Documentation is the source of truth:
-- Overview: `docs/README.md`
-- Vision: `docs/vision/001-convergence-platform-vision.md`
-- Architecture + semantics: `docs/architecture/README.md`
-- Operator notes: `docs/operators/README.md`
-- Process guardrails: `docs/processes/README.md`
-- Roadmaps: `docs/roadmaps/`
-- Logs: `docs/logs/`
+- Overview: [docs/README.md](/Users/betterthanclay/Dev/projects/convergence/docs/README.md)
+- Vision: [docs/vision/001-convergence-platform-vision.md](/Users/betterthanclay/Dev/projects/convergence/docs/vision/001-convergence-platform-vision.md)
+- Architecture + semantics: [docs/architecture/README.md](/Users/betterthanclay/Dev/projects/convergence/docs/architecture/README.md)
+- Operator notes: [docs/operators/README.md](/Users/betterthanclay/Dev/projects/convergence/docs/operators/README.md)
+- Process guardrails: [docs/processes/README.md](/Users/betterthanclay/Dev/projects/convergence/docs/processes/README.md)
+- Roadmaps: [docs/roadmaps/README.md](/Users/betterthanclay/Dev/projects/convergence/docs/roadmaps/README.md)
+- Logs: [docs/logs/README.md](/Users/betterthanclay/Dev/projects/convergence/docs/logs/README.md)
 
 ## Build
 

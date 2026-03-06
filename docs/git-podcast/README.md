@@ -1,6 +1,6 @@
 # The Real Problems w/ Git (Transcript Notes)
 
-Source transcript: `docs/The Real Problems w Git.txt`.
+Source transcript: `docs/git-podcast/The Real Problems w Git.txt`.
 
 This folder extracts the key ideas from the discussion (mostly Casey Muratori's perspective) and expands them into a design/problem analysis for a "next-gen" version control system.
 

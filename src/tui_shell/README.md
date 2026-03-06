@@ -5,7 +5,7 @@ This folder contains the interactive TUI implementation.
 Where to look:
 
 - `src/tui_shell/mod.rs`: module root + entry point (`tui_shell::run()`).
-- `src/tui_shell/app.rs`: `App` + event loop/state machine + command dispatch (still the largest file during the split).
+- `src/tui_shell/app.rs`: `App` + event loop/state machine + command dispatch.
 - `src/tui_shell/commands.rs`: command palette definitions (what `/` can show).
 - `src/tui_shell/input.rs`: input editing + history.
 - `src/tui_shell/suggest.rs`: palette matching + sorting.
@@ -15,6 +15,6 @@ Where to look:
 - `src/tui_shell/status.rs`: local/remote status + diff helpers.
 - `src/tui_shell/wizard.rs`: multi-step wizards.
 
-Planned next (Phase 030):
+Current note:
 
-- Further split `src/tui_shell/app.rs` into smaller modules (modal handling, command handlers).
+- `src/tui_shell/app.rs` remains the main orchestration entrypoint; further decomposition should open as a new roadmap rather than reviving the old phase note.

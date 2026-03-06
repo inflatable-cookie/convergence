@@ -40,7 +40,7 @@ Run what matches scope:
 
 ## Reporting and Roadmap Hygiene
 
-- Track major migrations in `docs/roadmaps/` with checkboxes.
+- Track major migrations in the active `docs/roadmaps/g01/` sequence with checkboxes.
 - Record rationale, doctrinal updates, and meaningful execution batches in `docs/logs/YYYY-MM/`.
 - Mark completed tasks immediately.
 - Keep updates factual: changed, validated, remaining.
