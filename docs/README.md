@@ -6,6 +6,7 @@ Northstar-aligned documentation authority for Convergence.
 
 - `vision/`: long-horizon product direction and operating intent
 - `architecture/`: system model, invariants, and technical boundaries
+- `research/`: comparative systems research, translation memos, and implementation bridge artifacts
 - `roadmaps/`: segmented executable milestones and backlog
 - `logs/`: month-sharded execution history and decision/rationale records
 - `operators/`: deployment and runtime operations guidance

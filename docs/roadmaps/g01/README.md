@@ -5,7 +5,11 @@
 ## Sequence
 
 - `001` to `041` existing Convergence roadmap sequence migrated from the flat roadmap folder
-- `042` Convergence Northstar doctrine alignment
+- `042` Convergence Northstar doctrine alignment — ✅ Complete
+- `043` Research Phase 1: Baseline Specimen Dossiers — ✅ Complete
+- `044` Research Phase 2: Core Value Track Syntheses — ✅ Complete
+- `045` Research Phase 3: Translation Memos and Architecture Input — ✅ Complete
+- `046` Research Phase 4: Expansion (optional) — 📋 Proposed
 
 ## Naming boundary
 
@@ -14,4 +18,4 @@
 
 ## Next roadmap
 
-- Open the next real milestone as `g01.043`.
+- Open the next real milestone as `g01.046` (or continue research with additional tracks).

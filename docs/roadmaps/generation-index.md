@@ -2,5 +2,9 @@
 
 - `g01`
   - Status: active
-  - Range: `001` onward
-  - Notes: foundational Convergence milestone sequence plus Northstar doctrine alignment
+  - Range: `001` to `046`
+  - Notes: |
+    Foundational Convergence milestone sequence (001-041), 
+    Northstar doctrine alignment (042),
+    and Comparative Research Program (043-045) — Complete
+    Optional expansion (046) available for additional tracks
