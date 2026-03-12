@@ -26,9 +26,23 @@ Northstar-aligned documentation authority for Convergence.
 From the repo root:
 
 ```bash
-effigy tasks --repo .
-effigy health --repo .
-effigy validate --repo .
+effigy tasks
+effigy doctor
+effigy health
+effigy validate
+effigy qa:docs
 ```
 
-Use `effigy test --repo .` for the repository test default, which prefers `cargo nextest` when it is available on the machine.
+Use `effigy test --plan` before test-focused work; the repository test default
+prefers `cargo nextest` when it is available on the machine.
+
+## Validation
+
+- `effigy qa:docs`
+- `effigy qa:northstar`
+
+## Next Task
+
+Turn the remaining Convergence docs indexes into fully self-validating Northstar
+surfaces so the repo can rely on native Effigy docs checks instead of drift
+being caught only during manual review.

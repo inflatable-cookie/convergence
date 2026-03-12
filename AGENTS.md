@@ -12,18 +12,20 @@ Scope: whole `convergence/` repository.
 
 ## Effigy-First Execution
 
-- Start with `effigy tasks --repo .`.
-- Run `effigy doctor --repo .` when environment or task resolution is uncertain.
-- Prefer `effigy health --repo .` for the narrow baseline.
-- Prefer `effigy validate --repo .` before broader merge-ready checks.
-- Prefer `effigy test --repo .` over raw `cargo test`; the repo task intentionally defaults to `cargo nextest` when available.
+- Start with `effigy tasks`.
+- Run `effigy doctor` when environment or task resolution is uncertain.
+- Prefer `effigy health` for the narrow baseline.
+- Prefer `effigy validate` before broader merge-ready checks.
+- Prefer `effigy test --plan` before test-focused work; the repo task intentionally defaults to `cargo nextest` when available.
+- Run `effigy qa:docs` when docs or planning surfaces change.
 - Use direct Cargo or Node commands only when the needed operation is not represented in `effigy.toml`.
 
 ## Validate
 
-- `effigy health --repo .`
-- `effigy validate --repo .`
-- `effigy test --repo .` (for test-focused work)
+- `effigy health`
+- `effigy validate`
+- `effigy qa:docs`
+- `effigy test --plan` (for test-focused work)
 
 ## References
 

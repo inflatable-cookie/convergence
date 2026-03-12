@@ -18,6 +18,12 @@ Convergence roadmaps hold executable milestone work.
 
 ## Index
 
-- [generation-index.md](/Users/betterthanclay/Dev/projects/convergence/docs/roadmaps/generation-index.md)
-- [g01/README.md](/Users/betterthanclay/Dev/projects/convergence/docs/roadmaps/g01/README.md)
-- [backlog/README.md](/Users/betterthanclay/Dev/projects/convergence/docs/roadmaps/backlog/README.md)
+- [generation-index.md](./generation-index.md)
+- [g01/README.md](./g01/README.md)
+- [backlog/README.md](./backlog/README.md)
+
+## Next Task
+
+Keep `g01` as the active queue until the next real milestone boundary justifies
+generation rollover, and continue opening new roadmap work with normalized
+Northstar IDs.

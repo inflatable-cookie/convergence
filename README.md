@@ -26,27 +26,28 @@ Documentation is the source of truth:
 Use Effigy as the default repo command surface:
 
 ```bash
-effigy tasks --repo .
-effigy doctor --repo .
-effigy health --repo .
-effigy validate --repo .
+effigy tasks
+effigy doctor
+effigy health
+effigy validate
+effigy qa:docs
 ```
 
 Primary repo-owned checks:
 
 ```bash
-effigy check --repo .
-effigy fmt:check --repo .
-effigy clippy --repo .
-effigy test --repo .
+effigy check
+effigy fmt:check
+effigy clippy
+effigy test
 ```
 
 Runtime entrypoints:
 
 ```bash
-effigy tui --repo .
-effigy api --repo . -- --addr 127.0.0.1:8080 --data-dir ./converge-data
-effigy trace:report --repo . -- /tmp/converge-agent-trace.jsonl --out /tmp/converge-friction-report.md
+effigy tui
+effigy api -- --addr 127.0.0.1:8080 --data-dir ./converge-data
+effigy trace:report -- /tmp/converge-agent-trace.jsonl --out /tmp/converge-friction-report.md
 ```
 
 ## Underlying Tooling

@@ -70,10 +70,10 @@ Use `docs/research/templates/specimen-dossier-template.md`.
 
 ### Planned for Future Phases
 
-- [fossil.md](./fossil.md) — Pending (integrated philosophy)
-- [pijul.md](./pijul.md) — Pending (patch-based, commutative)
-- [sapling.md](./sapling.md) — Pending (Meta's scale solution)
-- [subversion.md](./subversion.md) — Pending (historical context)
+- `fossil` — Pending (integrated philosophy)
+- `pijul` — Pending (patch-based, commutative)
+- `sapling` — Pending (Meta's scale solution)
+- `subversion` — Pending (historical context)
 
 ## Summary
 
@@ -97,4 +97,5 @@ Proceed to Phase 2 (g01.044): Synthesize value tracks for continuous capture, ga
 - What makes binary files painful
 - What CI/CD workflows have bolted on
 
-Then write Mercurial and Perforce to establish comparative baseline.
+Use the completed Git, Mercurial, Perforce, Plastic, and Jujutsu dossiers as
+the comparative baseline for that synthesis work.

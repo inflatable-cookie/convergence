@@ -27,4 +27,30 @@ validate = [
 ]
 qa = [
   { task = "validate" },
+  { task = "qa:docs" },
 ]
+"qa:docs:links" = "effigy docs check-links"
+"qa:docs:agent-defaults" = "effigy docs check-forbidden AGENTS.md README.md docs/README.md --forbid '--repo .'"
+"qa:docs:headings" = "effigy docs check-headings docs/README.md docs/vision/README.md docs/roadmaps/README.md docs/logs/README.md --require-heading '## Next Task'"
+"qa:docs:index:vision" = "effigy docs check-index --policy-index vision"
+"qa:docs:next-action:vision" = "effigy docs check-next-action --policy vision"
+"qa:northstar" = [
+  { task = "qa:docs:headings" },
+  { task = "qa:docs:index:vision" },
+  { task = "qa:docs:next-action:vision" },
+]
+"qa:docs" = [
+  { task = "qa:docs:links" },
+  { task = "qa:docs:agent-defaults" },
+  { task = "qa:northstar" },
+]
+
+[docs_policy.indexes.vision]
+file = "docs/vision/README.md"
+dir = "docs/vision"
+section = "Vision Artifacts"
+
+[docs_policy.next_actions.vision]
+index = "vision"
+heading = "## Next Task"
+allowlist_file = "docs/policy/vision-next-task-verbs.txt"

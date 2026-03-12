@@ -5,4 +5,14 @@ They should stay strategic and avoid collapsing into milestone-level implementat
 
 ## Active vision docs
 
-1. [001-convergence-platform-vision.md](/Users/betterthanclay/Dev/projects/convergence/docs/vision/001-convergence-platform-vision.md)
+1. [001-convergence-platform-vision.md](./001-convergence-platform-vision.md)
+
+## Vision Artifacts
+
+- [001-convergence-platform-vision.md](./001-convergence-platform-vision.md)
+
+## Next Task
+
+Use the active platform vision as the durable source for new roadmap work and
+add more vision files only when Convergence needs a materially different
+long-horizon constraint or operating target.
