@@ -1,7 +1,12 @@
 [catalog]
 alias = "convergence"
 
+[bootstrap]
+setup = ["bootstrap:deps"]
+start = "tui"
+
 [tasks]
+"bootstrap:deps" = "cargo fetch"
 converge = "node scripts/run-converge.js {args}"
 cli = "node scripts/run-converge.js {args}"
 tui = "node scripts/run-converge.js {args}"
