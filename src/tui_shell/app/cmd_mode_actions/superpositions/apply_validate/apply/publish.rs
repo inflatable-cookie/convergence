@@ -20,8 +20,7 @@ pub(super) fn publish_resolved_snap(
         Ok(Some(t)) => t,
         Ok(None) => {
             app.push_error(
-                "no remote token configured (run `login --url ... --token .....`)"
-                    .to_string(),
+                "no remote token configured (run `login --url ... --token .....`)".to_string(),
             );
             return Err(());
         }

@@ -1,54 +1,17 @@
-use std::thread;
-use std::time::{Duration, Instant};
-
 use anyhow::{Context, Result};
 
 #[allow(dead_code)]
 mod common;
 
-fn read_addr_file(addr_file: &std::path::Path) -> Result<String> {
-    let start = Instant::now();
-    loop {
-        if start.elapsed() > Duration::from_secs(5) {
-            anyhow::bail!("addr file not written at {}", addr_file.display());
-        }
-
-        if let Ok(s) = std::fs::read_to_string(addr_file) {
-            let s = s.trim();
-            if !s.is_empty() {
-                return Ok(format!("http://{}", s));
-            }
-        }
-
-        thread::sleep(Duration::from_millis(10));
-    }
-}
-
 fn spawn_server(
     data_dir: &std::path::Path,
     addr_file: &std::path::Path,
 ) -> Result<(std::process::Child, String)> {
-    let token = "dev";
-
-    let child = std::process::Command::new(env!("CARGO_BIN_EXE_converge-server"))
-        .args([
-            "--addr",
-            "127.0.0.1:0",
-            "--addr-file",
-            addr_file.to_str().unwrap(),
-            "--data-dir",
-            data_dir.to_str().unwrap(),
-            "--dev-user",
-            "dev",
-            "--dev-token",
-            token,
-        ])
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .spawn()
-        .context("spawn converge-server")?;
-
-    let base_url = read_addr_file(addr_file)?;
+    let (child, base_url) = common::spawn_server_process(
+        data_dir,
+        addr_file,
+        &["--dev-user", "dev", "--dev-token", "dev"],
+    )?;
     common::wait_for_healthz(&base_url)?;
     Ok((child, base_url))
 }
