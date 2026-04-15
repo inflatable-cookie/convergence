@@ -2,7 +2,7 @@
 
 This document defines conflict representation as data.
 
-**Research basis**: [Track 3: Conflict Preservation](/Users/betterthanclay/Dev/projects/convergence/docs/research/value-tracks/conflict-preservation.md), [Translation Memo 003](/Users/betterthanclay/Dev/projects/convergence/docs/research/translation-memos/003-superposition-as-data.md)
+**Research basis**: [Track 3: Conflict Preservation](~/Dev/projects/convergence/docs/research/value-tracks/conflict-preservation.md), [Translation Memo 003](~/Dev/projects/convergence/docs/research/translation-memos/003-superposition-as-data.md)
 
 ## What is a superposition?
 
@@ -263,6 +263,6 @@ Planned:
 
 ## Related Documents
 
-- [Track 3: Conflict Preservation](/Users/betterthanclay/Dev/projects/convergence/docs/research/value-tracks/conflict-preservation.md) — Research synthesis
-- [Translation Memo 003](/Users/betterthanclay/Dev/projects/convergence/docs/research/translation-memos/003-superposition-as-data.md) — Design rationale
+- [Track 3: Conflict Preservation](~/Dev/projects/convergence/docs/research/value-tracks/conflict-preservation.md) — Research synthesis
+- [Translation Memo 003](~/Dev/projects/convergence/docs/research/translation-memos/003-superposition-as-data.md) — Design rationale
 - [01-concepts-and-object-model.md](./01-concepts-and-object-model.md) — Core object definitions

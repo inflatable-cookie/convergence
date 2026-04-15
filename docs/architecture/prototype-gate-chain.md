@@ -1,7 +1,7 @@
 # Prototype: Linear Gate Chain
 
 **Status**: Design Complete — Ready for Implementation
-**Research Basis**: [Translation Memo 002](/Users/betterthanclay/Dev/projects/convergence/docs/research/translation-memos/002-gate-policy-model.md)
+**Research Basis**: [Translation Memo 002](~/Dev/projects/convergence/docs/research/translation-memos/002-gate-policy-model.md)
 
 ## Goal
 
@@ -341,6 +341,6 @@ Prototype is successful if:
 
 ## References
 
-- [Translation Memo 002: Gate Policy Model](/Users/betterthanclay/Dev/projects/convergence/docs/research/translation-memos/002-gate-policy-model.md)
-- [Track 2: Gate-Based Workflows](/Users/betterthanclay/Dev/projects/convergence/docs/research/value-tracks/gate-based-workflows.md)
+- [Translation Memo 002: Gate Policy Model](~/Dev/projects/convergence/docs/research/translation-memos/002-gate-policy-model.md)
+- [Track 2: Gate-Based Workflows](~/Dev/projects/convergence/docs/research/value-tracks/gate-based-workflows.md)
 - [02-repo-gates-lanes-scopes.md](./02-repo-gates-lanes-scopes.md)

@@ -11,8 +11,8 @@ Batch: `repo-surface normalization`
 
 ## Changes
 
-- Expanded [`effigy.toml`](/Users/betterthanclay/Dev/projects/convergence/effigy.toml) to include `check`, `fmt:check`, `clippy`, `health`, `validate`, `qa`, and clearer runtime aliases alongside the existing run and trace tasks.
-- Updated [`README.md`](/Users/betterthanclay/Dev/projects/convergence/README.md), [`AGENTS.md`](/Users/betterthanclay/Dev/projects/convergence/AGENTS.md), [`docs/README.md`](/Users/betterthanclay/Dev/projects/convergence/docs/README.md), and [`docs/processes/260-agents-operating-guardrails.md`](/Users/betterthanclay/Dev/projects/convergence/docs/processes/260-agents-operating-guardrails.md) to teach the Effigy-first loop.
+- Expanded [`effigy.toml`](~/Dev/projects/convergence/effigy.toml) to include `check`, `fmt:check`, `clippy`, `health`, `validate`, `qa`, and clearer runtime aliases alongside the existing run and trace tasks.
+- Updated [`README.md`](~/Dev/projects/convergence/README.md), [`AGENTS.md`](~/Dev/projects/convergence/AGENTS.md), [`docs/README.md`](~/Dev/projects/convergence/docs/README.md), and [`docs/processes/260-agents-operating-guardrails.md`](~/Dev/projects/convergence/docs/processes/260-agents-operating-guardrails.md) to teach the Effigy-first loop.
 
 ## Validation Performed
 

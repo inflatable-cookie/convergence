@@ -1,7 +1,7 @@
 # Prototype: Automatic Snap Capture
 
 **Status**: Design Complete — Ready for Implementation
-**Research Basis**: [Translation Memo 001](/Users/betterthanclay/Dev/projects/convergence/docs/research/translation-memos/001-snap-semantics.md)
+**Research Basis**: [Translation Memo 001](~/Dev/projects/convergence/docs/research/translation-memos/001-snap-semantics.md)
 
 ## Goal
 
@@ -236,6 +236,6 @@ Prototype is successful if:
 
 ## References
 
-- [Translation Memo 001: Snap Semantics](/Users/betterthanclay/Dev/projects/convergence/docs/research/translation-memos/001-snap-semantics.md)
-- [Track 1: Continuous Capture vs. Explicit Commit](/Users/betterthanclay/Dev/projects/convergence/docs/research/value-tracks/continuous-capture-vs-explicit-commit.md)
+- [Translation Memo 001: Snap Semantics](~/Dev/projects/convergence/docs/research/translation-memos/001-snap-semantics.md)
+- [Track 1: Continuous Capture vs. Explicit Commit](~/Dev/projects/convergence/docs/research/value-tracks/continuous-capture-vs-explicit-commit.md)
 - [01-concepts-and-object-model.md](./01-concepts-and-object-model.md)

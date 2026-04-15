@@ -32,7 +32,7 @@ A workspace is a client-side working directory plus local metadata that can:
 
 A `snap` is a point-in-time capture of workspace filesystem state.
 
-**Research basis**: [Translation Memo 001](/Users/betterthanclay/Dev/projects/convergence/docs/research/translation-memos/001-snap-semantics.md)
+**Research basis**: [Translation Memo 001](~/Dev/projects/convergence/docs/research/translation-memos/001-snap-semantics.md)
 
 Invariants:
 - A snap is not assumed buildable.
@@ -79,7 +79,7 @@ A gate is a policy boundary that:
 - defines how to coalesce inputs into a bundle
 - defines checks/approvals required for a bundle to be promotable
 
-**Research basis**: [Translation Memo 002](/Users/betterthanclay/Dev/projects/convergence/docs/research/translation-memos/002-gate-policy-model.md)
+**Research basis**: [Translation Memo 002](~/Dev/projects/convergence/docs/research/translation-memos/002-gate-policy-model.md)
 
 Gates are connected as a DAG that typically converges to a terminal gate for the primary release flow.
 
@@ -138,7 +138,7 @@ Releases commonly attach:
 
 A superposition is a first-class conflict object representing multiple competing versions of the same logical item.
 
-**Research basis**: [Translation Memo 003](/Users/betterthanclay/Dev/projects/convergence/docs/research/translation-memos/003-superposition-as-data.md)
+**Research basis**: [Translation Memo 003](~/Dev/projects/convergence/docs/research/translation-memos/003-superposition-as-data.md)
 
 Key properties:
 - it is preserved, not rejected
@@ -200,10 +200,10 @@ This document incorporates findings from the Comparative Research Program (g01.0
 
 ### Research Documents
 
-- [Research Program Overview](/Users/betterthanclay/Dev/projects/convergence/docs/research/README.md)
-- [Specimen Dossiers](/Users/betterthanclay/Dev/projects/convergence/docs/research/specimen-dossiers/)
-- [Value Tracks](/Users/betterthanclay/Dev/projects/convergence/docs/research/value-tracks/)
-- [Translation Memos](/Users/betterthanclay/Dev/projects/convergence/docs/research/translation-memos/)
+- [Research Program Overview](~/Dev/projects/convergence/docs/research/README.md)
+- [Specimen Dossiers](~/Dev/projects/convergence/docs/research/specimen-dossiers/)
+- [Value Tracks](~/Dev/projects/convergence/docs/research/value-tracks/)
+- [Translation Memos](~/Dev/projects/convergence/docs/research/translation-memos/)
 
 ### Prototypes
 

@@ -38,3 +38,4 @@ target
 .cargo/*
 !.cargo/config.toml
 .effigy/
+.claude/settings.local.json
