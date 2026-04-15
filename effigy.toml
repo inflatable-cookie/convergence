@@ -59,3 +59,17 @@ section = "Vision Artifacts"
 index = "vision"
 heading = "## Next Task"
 allowlist_file = "docs/policy/vision-next-task-verbs.txt"
+
+[distribution.package]
+name = "converge"
+
+[distribution.publish]
+binary-name = "converge"
+registry-label = "local cargo install"
+verify-tag-install = false
+verify-binary-json-tasks = false
+
+[distribution.closeout]
+owner = "operators"
+related = "docs/operators/releases-and-retention.md"
+next-step = "Decide whether Effigy's optional distribution surface can now pause on the current boundary or still needs one published-consumer proof."
