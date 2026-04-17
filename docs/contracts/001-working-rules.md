@@ -66,6 +66,18 @@ For Convergence that usually means naming whether the next move is:
 Keep work bounded to one honest owner at a time. Do not mix research expansion,
 platform invention, and UX polish into one vague continuation lane.
 
+## Generation Rollover Rule
+
+Treat roadmap generations as substantial sequencing eras, not tiny buckets. In a long-running repo, expect roughly 20 to 40 roadmap files in one generation before rollover is even worth discussing.
+
+Treat rollover as full closeout:
+
+- every roadmap in the old generation must be explicitly closed, paused, superseded, or moved to backlog
+- the roadmap front doors must reflect that closed state before the next generation opens
+- stale specs and batch cards from the closing generation must be archived or removed from `docs/specs/`
+
+If those closeout conditions are not satisfied, repair the current generation instead of opening a new one.
+
 ## Next Task
 
 Use these rules to hold Convergence in an explicit strict planning gate until a

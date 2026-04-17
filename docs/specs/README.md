@@ -11,6 +11,9 @@ repo needs tighter execution grammar than the roadmap alone provides.
 - promote durable rules into architecture or contracts
 - keep `docs/specs/` mostly limited to active or still-useful planning
 - archive or remove stale specs once the durable outcome is carried elsewhere
+- before roadmap generation rollover, purge stale generation-specific specs and
+  batch cards from the active tree so the next generation does not inherit dead
+  planning debris
 
 ## Active Spec Set
 
