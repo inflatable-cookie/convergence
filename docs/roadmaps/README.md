@@ -9,7 +9,7 @@ Convergence roadmaps hold executable milestone work.
 - References should use roadmap IDs such as `g01.041`.
 - Generation rollover is manual only.
 - Treat generations as substantial sequencing eras, not one-or-two-file buckets. As a healthy default, expect roughly 20 to 40 roadmap files in one generation before rollover is even worth discussing.
-- Treat rollover as full generation closeout, not a convenience reset: close, supersede, or rehome every roadmap in the current generation first, then purge stale generation-specific specs and batch cards from `docs/specs/` before opening the next generation.
+- Treat rollover as full generation closeout, not a convenience reset: close, supersede, or rehome every roadmap in the current generation first, then purge stale generation-specific specs from `docs/specs/` before opening the next generation.
 - Backlog items belong in `backlog/`.
 - Metadata files stay at the `roadmaps/` root if later needed.
 

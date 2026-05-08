@@ -25,3 +25,6 @@ There is currently no ready batch card.
 
 Keep `g02.001` paused until a real next owner exists, then open one honest
 ready card.
+
+
+Batch cards live in `g02/batch-cards/` when strict posture uses them.
