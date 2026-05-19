@@ -37,5 +37,8 @@ target
 .cache/
 .cargo/*
 !.cargo/config.toml
-.effigy/
 .claude/settings.local.json
+
+# BEGIN EFFIGY LOCAL STATE
+.effigy/
+# END EFFIGY LOCAL STATE
