@@ -1,6 +1,6 @@
 # 013 TUI Wizards and Resolution
 
-Status: ready
+Status: complete
 Updated: 2026-07-24
 Roadmap: `g02.004`
 Spec: `docs/specs/004-tui-rebuild.md`
@@ -41,6 +41,21 @@ options) and the superposition resolution view.
 
 - needs CLI semantics that do not exist — extend CLI first
 
+## Outcome
+
+- wizard framework (`wizard.rs`): ordered fields with defaults, optional
+  fields, structured choice prompts with unknown/ambiguous rejection (wart
+  fix), Esc back-one-step restoring prior values, review screen before
+  execution (wart fix); wizards emit argv only
+- login + publish wizards; console `login`/`publish` and the remote primary
+  action open them; publish gate defaults from remote config
+- resolution view: `resolve <snap>` lists superposed paths with variant
+  counts, 1-9/0 assign/clear decisions, Enter jumps to next undecided then
+  applies via a TUI-written decisions file through `resolve apply`;
+  undecided counter live in the view
+- 6 wizard unit tests + reducer coverage; 39 workspace tests
+- `effigy validate` green
+
 ## Next Task
 
-On completion, open the Batch 4.4 agent-trace card.
+Execute the Batch 4.4 agent-trace card (`014-tui-agent-trace.md`).

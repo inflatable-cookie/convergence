@@ -21,8 +21,9 @@ the CLI surface first.
 
 - Batch 4.1 (command layer and shell core) complete.
 - Batch 4.2 (remote views and async) complete.
-- Batch 4.3 has a ready card:
-  `docs/roadmaps/g02/batch-cards/013-tui-wizards-and-resolution.md`
+- Batch 4.3 (wizards and resolution) complete.
+- Batch 4.4 has a ready card:
+  `docs/roadmaps/g02/batch-cards/014-tui-agent-trace.md`
 
 ## Exit Condition
 
@@ -30,4 +31,4 @@ Roadmap `g02.004` exit criteria met.
 
 ## Next Task
 
-Execute the ready Batch 4.3 card.
+Execute the ready Batch 4.4 card.

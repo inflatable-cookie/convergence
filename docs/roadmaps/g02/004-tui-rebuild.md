@@ -47,9 +47,9 @@ principles, fix the seven warts.
 
 ### Batch 4.3 - Wizards and Resolution View
 
-- [ ] wizard framework with back-one-step and review step (wart fix);
+- [x] wizard framework with back-one-step and review step (wart fix);
       structured option prompts, unrecognized input errors (wart fix)
-- [ ] publish/login wizards; superposition resolution view with variant
+- [x] publish/login wizards; superposition resolution view with variant
       keys and live validation
 
 ### Batch 4.4 - Agent Trace
@@ -65,5 +65,4 @@ principles, fix the seven warts.
 
 ## Next Task
 
-Execute the ready Batch 4.3 card
-(`batch-cards/013-tui-wizards-and-resolution.md`).
+Execute the ready Batch 4.4 card (`batch-cards/014-tui-agent-trace.md`).

@@ -1,7 +1,11 @@
 //! Shell state and reducer. Pure — key events go in, actions come out —
 //! so the UX spec's key semantics are unit-testable without a terminal.
 
+use std::collections::BTreeMap;
+
 use crossterm::event::{KeyCode, KeyEvent};
+
+use crate::wizard::{Wizard, WizardEvent, WizardKind};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Context {
@@ -29,6 +33,7 @@ impl Context {
 pub enum View {
     Root,
     History,
+    Resolution,
 }
 
 impl View {
@@ -36,7 +41,28 @@ impl View {
         match self {
             View::Root => "Root",
             View::History => "History",
+            View::Resolution => "Superpositions",
         }
+    }
+}
+
+/// Non-modal resolution flow state (UX spec §5).
+#[derive(Clone, Debug, Default)]
+pub struct ResolutionState {
+    pub snap_id: String,
+    /// (path, variant count), sorted.
+    pub paths: Vec<(String, u64)>,
+    /// path -> chosen 0-based variant index.
+    pub decisions: BTreeMap<String, u32>,
+    pub selected: usize,
+}
+
+impl ResolutionState {
+    pub fn undecided(&self) -> usize {
+        self.paths
+            .iter()
+            .filter(|(p, _)| !self.decisions.contains_key(p))
+            .count()
     }
 }
 
@@ -62,6 +88,12 @@ pub enum Action {
     Run(Vec<String>),
     /// Push a view frame.
     Enter(View),
+    /// Open a wizard modal.
+    StartWizard(WizardKind),
+    /// Load superpositions for a snap and enter the resolution view.
+    EnterResolution(String),
+    /// Write the decisions file and run `resolve apply`.
+    ApplyResolution,
     Quit,
 }
 
@@ -90,6 +122,10 @@ pub struct App {
     pub remote: Option<serde_json::Value>,
     /// Label of the remote command currently running on the worker.
     pub in_flight: Option<String>,
+    /// Active wizard modal, if any (owns the keyboard while open).
+    pub wizard: Option<Wizard>,
+    /// Resolution view state.
+    pub resolution: Option<ResolutionState>,
 }
 
 impl Default for App {
@@ -108,6 +144,8 @@ impl Default for App {
             snaps: Vec::new(),
             remote: None,
             in_flight: None,
+            wizard: None,
+            resolution: None,
         }
     }
 }
@@ -120,6 +158,17 @@ impl App {
     /// UX spec §4.2: one state-computed primary action per screen.
     pub fn primary_action(&self) -> (&'static str, Action) {
         match self.context {
+            Context::Local if self.current_view() == View::Resolution => {
+                let all_decided = self
+                    .resolution
+                    .as_ref()
+                    .is_some_and(|r| !r.paths.is_empty() && r.undecided() == 0);
+                if all_decided {
+                    ("apply", Action::ApplyResolution)
+                } else {
+                    ("next unresolved", Action::Enter(View::Resolution))
+                }
+            }
             Context::Local => {
                 if self.pending_changes > 0 {
                     ("snap", Action::Run(vec!["snap".into()]))
@@ -154,6 +203,7 @@ impl App {
         let view = match self.current_view() {
             View::Root => "root",
             View::History => "history",
+            View::Resolution => "supers",
         };
         // Wart fix: context is named in the prompt, not color-only.
         format!("{} {view}>", self.context.label())
@@ -181,6 +231,9 @@ impl App {
         let argv: Vec<String> = line.split_whitespace().map(str::to_string).collect();
         match argv.first().map(String::as_str) {
             Some("history") if argv.len() == 1 => Some(Action::Enter(View::History)),
+            Some("login") if argv.len() == 1 => Some(Action::StartWizard(WizardKind::Login)),
+            Some("publish") if argv.len() == 1 => Some(Action::StartWizard(WizardKind::Publish)),
+            Some("resolve") if argv.len() == 2 => Some(Action::EnterResolution(argv[1].clone())),
             Some(_) => Some(Action::Run(argv)),
             None => None,
         }
@@ -188,6 +241,15 @@ impl App {
 
     /// The reducer. Returns an action for the runtime to perform.
     pub fn handle_key(&mut self, key: KeyEvent) -> Option<Action> {
+        if self.wizard.is_some() {
+            return self.handle_wizard_key(key);
+        }
+        if self.current_view() == View::Resolution
+            && self.input.is_empty()
+            && let Some(action) = self.handle_resolution_key(key)
+        {
+            return action;
+        }
         if self.quit_confirm {
             return match key.code {
                 KeyCode::Enter | KeyCode::Char('y') => Some(Action::Quit),
@@ -270,6 +332,83 @@ impl App {
                 self.input.push(c);
                 self.refresh_suggestions();
                 None
+            }
+            _ => None,
+        }
+    }
+
+    fn handle_wizard_key(&mut self, key: KeyEvent) -> Option<Action> {
+        let wizard = self.wizard.as_mut().expect("wizard active");
+        let event = match key.code {
+            KeyCode::Esc => wizard.back(),
+            KeyCode::Enter => wizard.submit(),
+            KeyCode::Backspace => {
+                wizard.input.pop();
+                WizardEvent::Continue
+            }
+            KeyCode::Char(c) => {
+                wizard.input.push(c);
+                WizardEvent::Continue
+            }
+            _ => WizardEvent::Continue,
+        };
+        match event {
+            WizardEvent::Continue => None,
+            WizardEvent::Cancelled => {
+                self.wizard = None;
+                None
+            }
+            WizardEvent::Execute(argv) => {
+                self.wizard = None;
+                Some(Action::Run(argv))
+            }
+        }
+    }
+
+    /// Resolution-view keys when the console input is empty. `Some(...)`
+    /// means the key was consumed.
+    fn handle_resolution_key(&mut self, key: KeyEvent) -> Option<Option<Action>> {
+        let resolution = self.resolution.as_mut()?;
+        match key.code {
+            KeyCode::Up => {
+                resolution.selected = resolution.selected.saturating_sub(1);
+                Some(None)
+            }
+            KeyCode::Down => {
+                if !resolution.paths.is_empty() {
+                    resolution.selected = (resolution.selected + 1).min(resolution.paths.len() - 1);
+                }
+                Some(None)
+            }
+            KeyCode::Char(c @ '1'..='9') => {
+                if let Some((path, count)) = resolution.paths.get(resolution.selected) {
+                    let index = c as u32 - '1' as u32;
+                    if u64::from(index) < *count {
+                        resolution.decisions.insert(path.clone(), index);
+                    }
+                }
+                Some(None)
+            }
+            KeyCode::Char('0') => {
+                if let Some((path, _)) = resolution.paths.get(resolution.selected) {
+                    resolution.decisions.remove(path);
+                }
+                Some(None)
+            }
+            KeyCode::Enter => {
+                if resolution.undecided() == 0 && !resolution.paths.is_empty() {
+                    Some(Some(Action::ApplyResolution))
+                } else {
+                    // Jump to the next undecided path.
+                    let next = resolution
+                        .paths
+                        .iter()
+                        .position(|(p, _)| !resolution.decisions.contains_key(p));
+                    if let Some(idx) = next {
+                        resolution.selected = idx;
+                    }
+                    Some(None)
+                }
             }
             _ => None,
         }

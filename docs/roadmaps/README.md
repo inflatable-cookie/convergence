@@ -32,7 +32,7 @@ records the closed state.
 - `g02.004` (TUI rebuild) is the active roadmap.
 - `docs/specs/004-tui-rebuild.md` is the active strict planning lane
   around that roadmap.
-- ready card: `g02/batch-cards/013-tui-wizards-and-resolution.md`
+- ready card: `g02/batch-cards/014-tui-agent-trace.md`
 
 ## Rollover guardrail
 
@@ -46,4 +46,4 @@ Before rollover:
 
 ## Next Task
 
-Execute the ready `g02.004` Batch 4.3 card.002` Batch 2.4 rebuild-architecture card.
+Execute the ready `g02.004` Batch 4.4 card.002` Batch 2.4 rebuild-architecture card.

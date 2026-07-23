@@ -1,4 +1,5 @@
 mod app;
+mod wizard;
 
 use std::time::Duration;
 
@@ -10,7 +11,8 @@ use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, List, ListItem, Paragraph};
 
-use app::{Action, App, LastLine, View, is_remote_command};
+use app::{Action, App, LastLine, ResolutionState, View, is_remote_command};
+use wizard::{Wizard, WizardKind, WizardStep};
 
 /// Result of a worker-thread command.
 type WorkerResult = (Vec<String>, anyhow::Result<serde_json::Value>);
@@ -51,6 +53,76 @@ fn run(terminal: &mut ratatui::DefaultTerminal) -> Result<()> {
             Some(Action::Enter(view)) => {
                 app.frames.push(view);
                 refresh(&mut app);
+            }
+            Some(Action::StartWizard(kind)) => {
+                app.wizard = Some(match kind {
+                    WizardKind::Login => Wizard::login(),
+                    WizardKind::Publish => {
+                        let default_gate = app
+                            .remote
+                            .as_ref()
+                            .and_then(|r| r["gate"].as_str())
+                            .map(str::to_string);
+                        Wizard::publish(default_gate.as_deref(), Vec::new())
+                    }
+                });
+            }
+            Some(Action::EnterResolution(snap_id)) => {
+                app.record_command(&["resolve".into(), "list".into(), snap_id.clone()]);
+                match converge_cli::execute(["resolve".into(), "list".into(), snap_id.clone()]) {
+                    Ok(value) => {
+                        let mut paths: Vec<(String, u64)> = value
+                            .as_object()
+                            .map(|m| {
+                                m.iter()
+                                    .map(|(k, v)| (k.clone(), v.as_u64().unwrap_or(0)))
+                                    .collect()
+                            })
+                            .unwrap_or_default();
+                        paths.sort();
+                        app.record_result(Ok(serde_json::json!(format!(
+                            "{} superposed path(s)",
+                            paths.len()
+                        ))));
+                        app.resolution = Some(ResolutionState {
+                            snap_id,
+                            paths,
+                            decisions: Default::default(),
+                            selected: 0,
+                        });
+                        app.frames.push(View::Resolution);
+                    }
+                    Err(err) => app.record_result(Err(err)),
+                }
+            }
+            Some(Action::ApplyResolution) => {
+                if let Some(resolution) = app.resolution.take() {
+                    let decisions: std::collections::BTreeMap<&String, &u32> =
+                        resolution.decisions.iter().collect();
+                    let path = std::env::temp_dir().join(format!(
+                        "converge-tui-decisions-{}.json",
+                        std::process::id()
+                    ));
+                    let argv = vec![
+                        "resolve".to_string(),
+                        "apply".to_string(),
+                        resolution.snap_id.clone(),
+                        path.display().to_string(),
+                    ];
+                    app.record_command(&argv);
+                    let result = std::fs::write(
+                        &path,
+                        serde_json::to_vec(&decisions).expect("serialize decisions"),
+                    )
+                    .map_err(anyhow::Error::from)
+                    .and_then(|_| converge_cli::execute(argv.iter().cloned()));
+                    let _ = std::fs::remove_file(&path);
+                    app.record_result(result);
+                    if app.current_view() == View::Resolution {
+                        app.frames.pop();
+                    }
+                    refresh(&mut app);
+                }
             }
             Some(Action::Run(argv)) => {
                 app.record_command(&argv);
@@ -170,6 +242,35 @@ fn render(frame: &mut Frame, app: &App) {
             ];
             frame.render_widget(Paragraph::new(lines).block(view_block(app)), body);
         }
+        View::Resolution => {
+            let empty = ResolutionState::default();
+            let resolution = app.resolution.as_ref().unwrap_or(&empty);
+            let mut items: Vec<ListItem> = resolution
+                .paths
+                .iter()
+                .enumerate()
+                .map(|(i, (path, count))| {
+                    let decision = resolution
+                        .decisions
+                        .get(path)
+                        .map(|d| format!("variant {}", d + 1))
+                        .unwrap_or_else(|| "undecided".to_string());
+                    let style = if i == resolution.selected {
+                        Style::default().add_modifier(Modifier::REVERSED)
+                    } else {
+                        Style::default()
+                    };
+                    ListItem::new(format!("{path}  [{count} variants]  {decision}")).style(style)
+                })
+                .collect();
+            items.push(ListItem::new(""));
+            items.push(ListItem::new(format!(
+                "{} undecided of {}   keys: 1-9 pick  0 clear  Enter next/apply",
+                resolution.undecided(),
+                resolution.paths.len()
+            )));
+            frame.render_widget(List::new(items).block(view_block(app)), body);
+        }
         View::History => {
             let items: Vec<ListItem> = app
                 .snaps
@@ -224,6 +325,43 @@ fn render(frame: &mut Frame, app: &App) {
             })
             .collect();
         frame.render_widget(List::new(items), suggestions);
+    }
+
+    // Wizard modal overlays the body when active.
+    if let Some(wizard) = &app.wizard {
+        let mut lines = vec![Line::styled(
+            wizard.title,
+            Style::default().add_modifier(Modifier::BOLD),
+        )];
+        match wizard.step {
+            WizardStep::Field(_) => {
+                let field = wizard.current_field().expect("field step");
+                lines.push(Line::raw(format!("{}: {}", field.prompt, wizard.input)));
+                if let wizard::FieldKind::Choice { options } = &field.kind {
+                    lines.push(Line::raw(format!("options: {}", options.join(", "))));
+                }
+                lines.push(Line::styled(
+                    "Enter: next  Esc: back/cancel",
+                    Style::default().fg(Color::DarkGray),
+                ));
+            }
+            WizardStep::Review => {
+                for (field, value) in wizard.fields.iter().zip(&wizard.values) {
+                    lines.push(Line::raw(format!("{}: {}", field.name, value)));
+                }
+                lines.push(Line::styled(
+                    "Enter: run  Esc: back",
+                    Style::default().fg(Color::DarkGray),
+                ));
+            }
+        }
+        if let Some(error) = &wizard.error {
+            lines.push(Line::styled(error.clone(), Style::default().fg(Color::Red)));
+        }
+        frame.render_widget(
+            Paragraph::new(lines).block(Block::default().borders(Borders::ALL).title("Wizard")),
+            body,
+        );
     }
 
     // Input line with prompt and key legend.
