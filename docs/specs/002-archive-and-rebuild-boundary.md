@@ -77,8 +77,10 @@ archives with the branch.
 - Batch 2.1 (capture) complete.
 - Batch 2.2 (archive cut) complete: `v0-legacy` tag + `archive/g01` branch;
   `main` is docs + salvaged lib-only crate.
-- Batch 2.3 (docs spine restructure) has a ready card:
-  `docs/roadmaps/g02/batch-cards/004-docs-spine-restructure.md`
+- Batch 2.3 (docs spine restructure) complete: docs tree 134 → 59 files,
+  keeper spine only.
+- Batch 2.4 (rebuild architecture) has a ready card:
+  `docs/roadmaps/g02/batch-cards/005-rebuild-architecture.md`
 
 ## Exit Condition
 
@@ -88,4 +90,4 @@ governing surfaces.
 
 ## Next Task
 
-Execute the ready Batch 2.3 docs-spine-restructure card.
+Execute the ready Batch 2.4 rebuild-architecture card.

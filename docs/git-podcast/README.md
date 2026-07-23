@@ -1,11 +1,11 @@
-# The Real Problems w/ Git (Transcript Notes)
+# The Real Problems w/ Git (Origin Notes)
 
-Source transcript: `docs/git-podcast/The Real Problems w Git.txt`.
+Origin rationale for Convergence: a discussion (mostly Casey Muratori's
+perspective) on what Git gets wrong and what a next-generation VCS should do.
 
-This folder extracts the key ideas from the discussion (mostly Casey Muratori's perspective) and expands them into a design/problem analysis for a "next-gen" version control system.
+- `summary.md` — structured summary of the discussion; the durable "why"
+  anchor for the platform vision
 
-Files:
-- `docs/git-podcast/summary.md`: detailed, structured summary of what was said.
-- `docs/git-podcast/key-points-and-arguments.md`: distilled claims + pro/con arguments.
-- `docs/git-podcast/problem-analysis.md`: why Git/VCS friction happens; what is fundamental vs accidental.
-- `docs/git-podcast/design-directions.md`: concrete system directions and primitives to explore.
+The raw transcript and the expanded analysis set (key points, problem
+analysis, design directions) are archived on branch `archive/g01` under
+`docs/git-podcast/`.

@@ -22,15 +22,17 @@ Convergence roadmaps hold executable milestone work.
 
 - [generation-index.md](./generation-index.md)
 - [g02/README.md](./g02/README.md)
-- [g01/README.md](./g01/README.md)
 - [backlog/README.md](./backlog/README.md)
+
+`g01` roadmap files are archived on branch `archive/g01`; the generation index
+records the closed state.
 
 ## Active strict lane
 
 - `g02.002` (archive-and-rebuild boundary) is the active roadmap.
 - `docs/specs/002-archive-and-rebuild-boundary.md` is the active strict
   planning lane around that roadmap.
-- ready card: `g02/batch-cards/004-docs-spine-restructure.md`
+- ready card: `g02/batch-cards/005-rebuild-architecture.md`
 
 ## Rollover guardrail
 
@@ -44,4 +46,4 @@ Before rollover:
 
 ## Next Task
 
-Execute the ready `g02.002` Batch 2.3 docs-spine-restructure card.
+Execute the ready `g02.002` Batch 2.4 rebuild-architecture card.

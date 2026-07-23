@@ -34,7 +34,6 @@ Scope: whole `convergence/` repository.
 - `docs/architecture/README.md`
 - `docs/roadmaps/`
 - `docs/logs/`
-- `docs/processes/260-agents-operating-guardrails.md`
 - `docs/specs/README.md`
 - `docs/contracts/001-working-rules.md`
 

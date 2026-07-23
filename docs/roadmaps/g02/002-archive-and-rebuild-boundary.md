@@ -49,9 +49,9 @@ Artifacts: `docs/rebuild/001-lessons-retrospective.md`,
 
 ### Batch 2.3 - Docs Spine Restructure
 
-- [ ] carry the keeper set; dedupe the object model (currently restated 4x)
-- [ ] archive g01 roadmap files, pause apparatus, research scaffolding
-- [ ] realign front doors, contracts, Effigy QA surfaces
+- [x] carry the keeper set; dedupe the object model (currently restated 4x)
+- [x] archive g01 roadmap files, pause apparatus, research scaffolding
+- [x] realign front doors, contracts, Effigy QA surfaces
 
 ### Batch 2.4 - Rebuild Architecture Definition
 
@@ -69,5 +69,5 @@ Artifacts: `docs/rebuild/001-lessons-retrospective.md`,
 
 ## Next Task
 
-Execute the ready Batch 2.3 docs-spine-restructure card
-(`batch-cards/004-docs-spine-restructure.md`).
+Execute the ready Batch 2.4 rebuild-architecture card
+(`batch-cards/005-rebuild-architecture.md`).

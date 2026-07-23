@@ -1,6 +1,6 @@
 # 004 Docs Spine Restructure
 
-Status: ready
+Status: complete
 Updated: 2026-07-23
 Roadmap: `g02.002`
 Spec: `docs/specs/002-archive-and-rebuild-boundary.md`
@@ -46,6 +46,21 @@ the rest with the `archive/g01` branch as evidence.
 - a doc marked archive turns out to carry unique durable substance — move the
   substance to a keeper first
 
+## Outcome
+
+- docs tree reduced 134 → 59 files; every remaining file is a keeper, live
+  planning surface, or log
+- removed: g01 roadmap files, architecture 02-03/05-12 + prototypes,
+  operators/processes/testing, research scaffolding (templates, hubs,
+  playbooks, crossrefs), podcast raw transcript + analysis set — all
+  reachable on `archive/g01`
+- rewrote architecture/research/git-podcast READMEs for the lean spine;
+  architecture/01+04 are the canonical object model (dedupe satisfied by the
+  cut — vision holds intent only, memo 003 stays as evidence)
+- front doors, AGENTS references, and generation index updated; link check
+  green
+
 ## Next Task
 
-On completion, open the Batch 2.4 rebuild-architecture card.
+Execute the Batch 2.4 rebuild-architecture card
+(`005-rebuild-architecture.md`).

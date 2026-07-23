@@ -5,16 +5,18 @@ Northstar-aligned documentation authority for Convergence.
 ## Core structure
 
 - `vision/`: long-horizon product direction and operating intent
-- `architecture/`: system model, invariants, and technical boundaries
+- `architecture/`: durable system model and invariants (canonical object model)
 - `contracts/`: explicit working and behavior contracts
 - `specs/`: active strict planning and ready-card execution control
-- `research/`: comparative systems research, translation memos, and implementation bridge artifacts
+- `research/`: comparative systems research findings (dossiers, memos, tracks)
+- `rebuild/`: g01-era capture artifacts (lessons, TUI UX spec, salvage)
 - `roadmaps/`: segmented executable milestones and backlog
 - `logs/`: month-sharded execution history and decision/rationale records
-- `operators/`: deployment and runtime operations guidance
-- `processes/`: contributor and agent working rules
-- `git-podcast/`: source analysis and external framing material
-- `testing/`: manual and exploratory test guides
+- `git-podcast/`: origin rationale summary
+- `policy/`: writing style and docs QA policy inputs
+
+The g01-era docs (operators, processes, testing, extended architecture set,
+research scaffolding, g01 roadmap files) are archived on branch `archive/g01`.
 
 ## Current state
 
@@ -45,5 +47,5 @@ prefers `cargo nextest` when it is available on the machine.
 
 ## Next Task
 
-Execute the ready `g02.002` Batch 2.3 docs-spine-restructure card
-(`roadmaps/g02/batch-cards/004-docs-spine-restructure.md`).
+Execute the ready `g02.002` Batch 2.4 rebuild-architecture card
+(`roadmaps/g02/batch-cards/005-rebuild-architecture.md`).

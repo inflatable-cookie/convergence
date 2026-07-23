@@ -55,4 +55,4 @@ cargo nextest run -P ci
 
 ## Next task
 
-Execute the ready `g02.002` Batch 2.3 docs-spine-restructure card.
+Execute the ready `g02.002` Batch 2.4 rebuild-architecture card.

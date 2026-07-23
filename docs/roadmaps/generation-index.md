@@ -16,6 +16,8 @@
     Northstar doctrine alignment (042),
     and Comparative Research Program (043-045) — Complete.
     Optional research expansion (046) remains lineage, not the live queue.
+    Roadmap files archived on branch `archive/g01` (docs spine restructure,
+    2026-07-23).
 
 
 ## Rollover policy

@@ -1,23 +1,30 @@
 # Architecture
 
-This folder defines Convergence architecture, semantics, and core system boundaries.
+This folder holds the durable Convergence architecture: the concept/object
+model and superposition semantics that survived the g01 era.
 
-Convergence is designed for large development organizations first, with the same architecture usable by solo/small teams via lightweight deployments.
-
-Related docs:
-- Foundational rationale: `docs/logs/2026-01/22-155954-convergence-gates-phases.md`
-- Transcript notes / early direction: `docs/git-podcast/README.md`
+Convergence is designed for large development organizations first, with the
+same architecture usable by solo/small teams via lightweight deployments. The
+g01-era implementation did not honor that claim (single-node dev server); the
+rebuild architecture (roadmap `g02.002` Batch 2.4) owns closing that gap.
 
 Docs:
-- `docs/architecture/01-concepts-and-object-model.md`
-- `docs/architecture/02-repo-gates-lanes-scopes.md`
-- `docs/architecture/03-operations-and-semantics.md`
-- `docs/architecture/04-superpositions-and-resolution.md`
-- `docs/architecture/05-policy-model-and-phase-gates.md`
-- `docs/architecture/06-storage-and-data-model.md`
-- `docs/architecture/07-client-workspace-architecture.md`
-- `docs/architecture/08-server-authority-architecture.md`
-- `docs/architecture/09-security-identity-and-permissions.md`
-- `docs/architecture/10-cli-and-tui.md`
-- `docs/architecture/11-interop-and-migration.md`
-- `docs/architecture/12-gate-graph-schema.md`
+
+- `01-concepts-and-object-model.md` — canonical statement of the object model
+  and six-verb contract; other docs reference it rather than restate it
+- `04-superpositions-and-resolution.md` — conflict-as-data semantics
+- `product-guardrails.md` — terminology and product-shape guardrails
+
+The g01-era architecture set (repo/gates/lanes/scopes detail, operations,
+policy, storage, client/server, security, CLI/TUI, interop, gate-graph schema)
+is archived on branch `archive/g01` under `docs/architecture/`. Treat it as
+evidence, not authority; the rebuild rewrites those surfaces.
+
+Related:
+
+- Origin rationale: `docs/git-podcast/summary.md`
+- Lessons and rebuild inputs: `docs/rebuild/`
+
+## Next Task
+
+Feed this spine into the `g02.002` Batch 2.4 rebuild-architecture card.

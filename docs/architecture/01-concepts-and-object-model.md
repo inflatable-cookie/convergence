@@ -53,7 +53,6 @@ Minimum metadata:
 - optional `message` (free-form)
 - `build_status` — Unknown/Pending/Success/Failure
 
-See also: [Prototype: Automatic Snap Capture](./prototype-snap-capture.md)
 
 ### Publication
 
@@ -89,7 +88,6 @@ Gate characteristics (informed by research):
 - **Produces bundles** — Gates consume publications/bundles, output bundles
 - **Explicit promotion** — User-initiated `promote` operation with policy checking
 
-See also: [Prototype: Linear Gate Chain](./prototype-gate-chain.md)
 
 ### Bundle
 
@@ -207,5 +205,5 @@ This document incorporates findings from the Comparative Research Program (g01.0
 
 ### Prototypes
 
-- [Automatic Snap Capture](./prototype-snap-capture.md) — Validate continuous capture UX
-- [Linear Gate Chain](./prototype-gate-chain.md) — Validate gate policy and promotion flow
+The g01-era prototype notes are archived on branch `archive/g01` under
+`docs/architecture/`.
