@@ -47,6 +47,6 @@ prefers `cargo nextest` when it is available on the machine.
 
 ## Next Task
 
-Execute the ready `g02.003` Batch 3.3 card
-(`roadmaps/g02/batch-cards/008-cli-verb-surface.md`).002` Batch 2.4 rebuild-architecture card
+Execute the ready `g02.003` Batch 3.4 card
+(`roadmaps/g02/batch-cards/009-server-slice.md`).002` Batch 2.4 rebuild-architecture card
 (`roadmaps/g02/batch-cards/005-rebuild-architecture.md`).

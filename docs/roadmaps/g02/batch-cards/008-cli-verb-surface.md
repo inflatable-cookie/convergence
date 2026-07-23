@@ -1,6 +1,6 @@
 # 008 CLI Verb Surface
 
-Status: ready
+Status: complete
 Updated: 2026-07-23
 Roadmap: `g02.003`
 Spec: `docs/specs/003-rebuild-vertical-slice.md`
@@ -42,6 +42,17 @@ local verbs of the vertical slice, each with stable argv and `--json` output.
 - a verb needs client behavior that does not exist — stop and route through
   the roadmap rather than growing ad-hoc client API mid-batch
 
+## Outcome
+
+- `converge` binary: `init`, `snap -m`, `history`, `restore --force`,
+  `diff <a> <b>`, `resolve list|validate|apply` over `converge-client`
+- `--json` on every verb: `{ok, data}` / `{ok, error}` envelope; exit codes
+  0 / 1 (domain) / 2 (usage, clap)
+- integration tests drive the compiled binary: full local round-trip,
+  error envelopes and exit codes, superposition list -> validate -> apply
+  resolving to the chosen variant
+- `effigy validate` green: fmt, clippy -D warnings, 17 nextest tests
+
 ## Next Task
 
-On completion, open the Batch 3.4 server-slice card.
+Execute the Batch 3.4 server-slice card (`009-server-slice.md`).

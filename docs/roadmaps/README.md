@@ -32,7 +32,7 @@ records the closed state.
 - `g02.003` (rebuild vertical slice) is the active roadmap.
 - `docs/specs/003-rebuild-vertical-slice.md` is the active strict planning
   lane around that roadmap.
-- ready card: `g02/batch-cards/008-cli-verb-surface.md`
+- ready card: `g02/batch-cards/009-server-slice.md`
 
 ## Rollover guardrail
 
@@ -46,4 +46,4 @@ Before rollover:
 
 ## Next Task
 
-Execute the ready `g02.003` Batch 3.3 card.002` Batch 2.4 rebuild-architecture card.
+Execute the ready `g02.003` Batch 3.4 card.002` Batch 2.4 rebuild-architecture card.

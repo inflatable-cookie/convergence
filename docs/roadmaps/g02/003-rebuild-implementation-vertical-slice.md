@@ -48,7 +48,7 @@ Governing surfaces: `docs/specs/003-rebuild-vertical-slice.md`,
 
 ### Batch 3.3 - CLI Verb Surface
 
-- [ ] `converge-cli`: init, snap, history, diff, resolve verbs with stable
+- [x] `converge-cli`: init, snap, history, diff, resolve verbs with stable
       argv + `--json`
 
 ### Batch 3.4 - Server Slice
@@ -72,4 +72,4 @@ Governing surfaces: `docs/specs/003-rebuild-vertical-slice.md`,
 
 ## Next Task
 
-Execute the ready Batch 3.3 card (`batch-cards/008-cli-verb-surface.md`).
+Execute the ready Batch 3.4 card (`batch-cards/009-server-slice.md`).

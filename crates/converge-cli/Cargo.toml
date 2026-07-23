@@ -3,6 +3,17 @@ name = "converge-cli"
 version.workspace = true
 edition.workspace = true
 
+[[bin]]
+name = "converge"
+path = "src/main.rs"
+
 [dependencies]
+anyhow.workspace = true
+clap.workspace = true
 converge-client.workspace = true
 converge-model.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
