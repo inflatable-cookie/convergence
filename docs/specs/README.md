@@ -17,10 +17,10 @@ repo needs tighter execution grammar than the roadmap alone provides.
 
 ## Active Spec Set
 
-- [`001-post-research-next-boundary-gate.md`](./001-post-research-next-boundary-gate.md)
-- [`batch-cards/README.md`](./batch-cards/README.md)
+- [`002-archive-and-rebuild-boundary.md`](./002-archive-and-rebuild-boundary.md)
+
+Archived specs live in [`archive/`](./archive/).
 
 ## Next Task
 
-Use the active strict planning gate to keep Convergence in a coherent
-post-research posture until the next real execution boundary is explicit.
+Execute the ready `g02.002` Batch 2.2 archive-cut card on operator go.

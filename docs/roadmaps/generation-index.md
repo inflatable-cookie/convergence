@@ -2,11 +2,11 @@
 
 - `g02`
   - Status: active
-  - Range: `001` to `001`
+  - Range: `001` to `002`
   - Notes: |
-    Post-research strict planning gate.
-    Holds Convergence in an explicit paused posture until the next real
-    execution boundary is named.
+    Post-research strict planning gate (001, complete) and the
+    archive-and-rebuild boundary (002, active): capture, archive cut,
+    docs spine restructure, rebuild architecture definition.
 
 - `g01`
   - Status: complete

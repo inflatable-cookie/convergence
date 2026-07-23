@@ -1,7 +1,8 @@
 # 001 Post-Research Next-Boundary Gate
 
-Status: active
-Updated: 2026-04-09
+Status: complete (archived 2026-07-23; exit condition met — real owner opened
+as `g02.002`, see `docs/specs/002-archive-and-rebuild-boundary.md`)
+Updated: 2026-07-23
 Roadmap: `g02.001`
 
 ## Context

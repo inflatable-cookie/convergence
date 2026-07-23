@@ -80,5 +80,5 @@ If those closeout conditions are not satisfied, repair the current generation in
 
 ## Next Task
 
-Use these rules to hold Convergence in an explicit strict planning gate until a
-real post-research execution owner exists.
+Apply these rules to the active `g02.002` archive-and-rebuild lane; execution
+anchors on the current ready card.

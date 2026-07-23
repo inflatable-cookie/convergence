@@ -16,7 +16,7 @@ Convergence roadmaps hold executable milestone work.
 ## Current generation
 
 - Active generation: `g02`
-- Next roadmap ID: `g02.001`
+- Next roadmap ID: `g02.003`
 
 ## Index
 
@@ -27,10 +27,10 @@ Convergence roadmaps hold executable milestone work.
 
 ## Active strict lane
 
-- `g02.001` is the active planning gate.
-- `docs/specs/001-post-research-next-boundary-gate.md` is the active strict
+- `g02.002` (archive-and-rebuild boundary) is the active roadmap.
+- `docs/specs/002-archive-and-rebuild-boundary.md` is the active strict
   planning lane around that roadmap.
-- there is currently no ready batch card; the lane is paused in planning.
+- ready card: `g02/batch-cards/003-archive-cut.md` (operator-go gated)
 
 ## Rollover guardrail
 
@@ -44,5 +44,4 @@ Before rollover:
 
 ## Next Task
 
-Keep Convergence paused under `g02.001` until a real next execution boundary
-justifies opening the next owner.
+Execute the ready `g02.002` Batch 2.2 archive-cut card on operator go.

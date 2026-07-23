@@ -45,5 +45,5 @@ prefers `cargo nextest` when it is available on the machine.
 
 ## Next Task
 
-Keep Convergence paused under the active strict `g02.001` planning gate until a
-real post-research execution boundary justifies the next sequence.
+Execute the ready `g02.002` Batch 2.2 archive-cut card
+(`roadmaps/g02/batch-cards/003-archive-cut.md`) on operator go.

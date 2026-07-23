@@ -1,8 +1,8 @@
 # 001 Post-Research Execution Planning Gate
 
-Status: active
+Status: complete
 Owner: repo maintainers
-Updated: 2026-04-09
+Updated: 2026-07-23
 
 ## Context
 
@@ -43,9 +43,9 @@ explicit strict posture while it waits for a real next owner.
 
 ### Batch 1.2 - Next-Boundary Decision
 
-- [ ] review whether a real product or architecture boundary now justifies
+- [x] review whether a real product or architecture boundary now justifies
       opening a new execution owner
-- [ ] either define that owner explicitly or keep Convergence paused without a
+- [x] either define that owner explicitly or keep Convergence paused without a
       ready implementation card
 
 ## Exit Criteria
@@ -54,7 +54,12 @@ explicit strict posture while it waits for a real next owner.
 - the paused post-research posture is explicit
 - the next restart condition is clear
 
+## Outcome
+
+Batch 1.2 resolved on 2026-07-23: operator named the archive-and-rebuild
+boundary. The new execution owner is `g02.002`
+(`002-archive-and-rebuild-boundary.md`).
+
 ## Next Task
 
-Execute Batch 1.2 only when a real next execution boundary justifies the next
-sequence; otherwise keep Convergence paused explicitly.
+Continue under `g02.002`.
