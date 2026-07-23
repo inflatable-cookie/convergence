@@ -23,4 +23,4 @@ Archived specs live in [`archive/`](./archive/).
 
 ## Next Task
 
-Execute the ready `g02.002` Batch 2.2 archive-cut card on operator go.
+Execute the ready `g02.002` Batch 2.3 docs-spine-restructure card.

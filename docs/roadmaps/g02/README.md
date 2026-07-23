@@ -16,8 +16,11 @@ The paused posture is over. The lane is capture → archive cut → docs spine
 restructure → rebuild architecture definition. Batch 2.1 (capture) is
 complete; artifacts live in `docs/rebuild/`.
 
-Ready batch card (execute on operator go — mutates git surfaces):
-[`batch-cards/003-archive-cut.md`](./batch-cards/003-archive-cut.md)
+Batch 2.2 (archive cut) is complete: `v0-legacy` tag, `archive/g01` branch,
+`main` stripped to docs + salvaged lib crate.
+
+Ready batch card:
+[`batch-cards/004-docs-spine-restructure.md`](./batch-cards/004-docs-spine-restructure.md)
 
 ## Lanes
 
@@ -26,4 +29,4 @@ Ready batch card (execute on operator go — mutates git surfaces):
 
 ## Next Task
 
-Execute the ready `g02.002` Batch 2.2 archive-cut card on operator go.
+Execute the ready `g02.002` Batch 2.3 docs-spine-restructure card.

@@ -30,7 +30,7 @@ Convergence roadmaps hold executable milestone work.
 - `g02.002` (archive-and-rebuild boundary) is the active roadmap.
 - `docs/specs/002-archive-and-rebuild-boundary.md` is the active strict
   planning lane around that roadmap.
-- ready card: `g02/batch-cards/003-archive-cut.md` (operator-go gated)
+- ready card: `g02/batch-cards/004-docs-spine-restructure.md`
 
 ## Rollover guardrail
 
@@ -44,4 +44,4 @@ Before rollover:
 
 ## Next Task
 
-Execute the ready `g02.002` Batch 2.2 archive-cut card on operator go.
+Execute the ready `g02.002` Batch 2.3 docs-spine-restructure card.

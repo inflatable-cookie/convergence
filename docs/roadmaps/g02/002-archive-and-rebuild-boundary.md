@@ -43,9 +43,9 @@ Artifacts: `docs/rebuild/001-lessons-retrospective.md`,
 
 ### Batch 2.2 - Archive Cut
 
-- [ ] tag current state `v0-legacy`
-- [ ] create `archive/g01` branch
-- [ ] strip `main` to docs spine + salvaged code
+- [x] tag current state `v0-legacy`
+- [x] create `archive/g01` branch
+- [x] strip `main` to docs spine + salvaged code
 
 ### Batch 2.3 - Docs Spine Restructure
 
@@ -69,5 +69,5 @@ Artifacts: `docs/rebuild/001-lessons-retrospective.md`,
 
 ## Next Task
 
-Execute the ready Batch 2.2 archive-cut card
-(`batch-cards/003-archive-cut.md`) on operator go.
+Execute the ready Batch 2.3 docs-spine-restructure card
+(`batch-cards/004-docs-spine-restructure.md`).

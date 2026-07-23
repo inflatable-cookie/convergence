@@ -6,23 +6,15 @@ alias = "convergence"
 
 [bootstrap]
 setup = ["bootstrap:deps"]
-start = "tui"
 
 [tasks]
 "bootstrap:deps" = "cargo fetch"
-converge = "node scripts/run-converge.js {args}"
-cli = "node scripts/run-converge.js {args}"
-tui = "node scripts/run-converge.js {args}"
-api = "node scripts/run-converge-server.js {args}"
-server = "node scripts/run-converge-server.js {args}"
-"trace:report" = "node scripts/agent-trace-report.js {args}"
 check = "cargo check {args}"
 build = "cargo build {args}"
 fmt = "cargo fmt {args}"
 "fmt:check" = "cargo fmt --check"
 clippy = "cargo clippy --all-targets {args} -- -D warnings"
-test = "node scripts/run-tests.js {args}"
-"test:nextest" = "cargo nextest run -P ci {args}"
+test = "cargo nextest run -P ci {args}"
 "test:cargo" = "cargo test {args}"
 health = [
   { task = "fmt:check" },
@@ -62,17 +54,3 @@ section = "Vision Artifacts"
 index = "vision"
 heading = "## Next Task"
 allowlist_file = "docs/policy/vision-next-task-verbs.txt"
-
-[distribution.package]
-name = "converge"
-
-[distribution.publish]
-binary-name = "converge"
-registry-label = "local cargo install"
-verify-tag-install = false
-verify-binary-json-tasks = false
-
-[distribution.closeout]
-owner = "operators"
-related = "docs/operators/releases-and-retention.md"
-next-step = "Decide whether Effigy's optional distribution surface can now pause on the current boundary or still needs one published-consumer proof."

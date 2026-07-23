@@ -1,6 +1,6 @@
 # 003 Archive Cut
 
-Status: ready (execute on explicit operator go — mutates git surfaces)
+Status: complete
 Updated: 2026-07-23
 Roadmap: `g02.002`
 Spec: `docs/specs/002-archive-and-rebuild-boundary.md`
@@ -48,6 +48,23 @@ plus salvage, per the salvage inventory.
 - carry modules turn out entangled with discard modules beyond quick
   detachment — update the salvage inventory and spec before cutting
 
+## Outcome
+
+- `v0-legacy` tag and `archive/g01` branch point at the full pre-cut state
+- removed from `main`: `src/bin/` (server), `src/tui_shell/`, `src/tui.rs`,
+  `src/remote*`, `src/cli_*`, `src/main.rs`, `scripts/`, `dev/`, server/CLI/
+  e2e tests and the binary-driven `cli_diff.rs`
+- kept compiling: `model`, `store`, `diff`, `resolve`, `workspace` as a
+  lib-only crate under a documented `#![allow(dead_code)]` salvage posture;
+  deps pruned to anyhow/blake3/serde/serde_json/time (+tempfile dev)
+- chunking modules stayed (entangled with snap/materialize paths); still
+  discard-listed — replaced at rebuild, per salvage inventory
+- effigy.toml runtime/distribution tasks removed; README rewritten for the
+  archived posture
+- validation: `effigy validate` green (fmt, check, clippy, 7 nextest tests),
+  `effigy qa:docs` green
+
 ## Next Task
 
-On completion, open the Batch 2.3 docs-spine-restructure card.
+Execute the Batch 2.3 docs-spine-restructure card
+(`004-docs-spine-restructure.md`).

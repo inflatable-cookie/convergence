@@ -45,5 +45,5 @@ prefers `cargo nextest` when it is available on the machine.
 
 ## Next Task
 
-Execute the ready `g02.002` Batch 2.2 archive-cut card
-(`roadmaps/g02/batch-cards/003-archive-cut.md`) on operator go.
+Execute the ready `g02.002` Batch 2.3 docs-spine-restructure card
+(`roadmaps/g02/batch-cards/004-docs-spine-restructure.md`).

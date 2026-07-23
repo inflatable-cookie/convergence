@@ -12,18 +12,30 @@ Key terms:
 - `release`: public or organizational output cut from an allowed gate
 - `superpositions`: conflicts preserved as data and resolved per gate policy
 
+## Current State: Archive-and-Rebuild
+
+The g01-era implementation (CLI, TUI, dev server) is archived. The full tree
+lives at tag `v0-legacy` and branch `archive/g01`. `main` carries the docs
+spine plus the salvaged core library: content-addressed model, local store,
+diff, resolution, and workspace modules.
+
+Capture artifacts from the archived generation:
+
+- [docs/rebuild/001-lessons-retrospective.md](docs/rebuild/001-lessons-retrospective.md)
+- [docs/rebuild/002-tui-ux-spec.md](docs/rebuild/002-tui-ux-spec.md)
+- [docs/rebuild/003-salvage-inventory.md](docs/rebuild/003-salvage-inventory.md)
+
+Rebuild lane: `docs/specs/002-archive-and-rebuild-boundary.md` and roadmap
+`g02.002`.
+
 Documentation is the source of truth:
 - Overview: [docs/README.md](docs/README.md)
 - Vision: [docs/vision/001-convergence-platform-vision.md](docs/vision/001-convergence-platform-vision.md)
 - Architecture + semantics: [docs/architecture/README.md](docs/architecture/README.md)
-- Operator notes: [docs/operators/README.md](docs/operators/README.md)
-- Process guardrails: [docs/processes/README.md](docs/processes/README.md)
 - Roadmaps: [docs/roadmaps/README.md](docs/roadmaps/README.md)
 - Logs: [docs/logs/README.md](docs/logs/README.md)
 
 ## Effigy-First Loop
-
-Use Effigy as the default repo command surface:
 
 ```bash
 effigy tasks
@@ -33,28 +45,7 @@ effigy validate
 effigy qa:docs
 ```
 
-Primary repo-owned checks:
-
-```bash
-effigy check
-effigy fmt:check
-effigy clippy
-effigy test
-```
-
-Runtime entrypoints:
-
-```bash
-effigy tui
-effigy api -- --addr 127.0.0.1:8080 --data-dir ./converge-data
-effigy trace:report -- /tmp/converge-agent-trace.jsonl --out /tmp/converge-friction-report.md
-```
-
-## Underlying Tooling
-
-Effigy wraps the existing Cargo and Node helpers. The direct commands remain available when needed, but they are no longer the recommended first surface.
-
-Rust 2024 edition.
+Rust 2024 edition. Direct commands when needed:
 
 ```bash
 cargo fmt
@@ -62,62 +53,6 @@ cargo clippy --all-targets -- -D warnings
 cargo nextest run -P ci
 ```
 
-## Run (client)
-
-CLI help:
-
-```bash
-cargo run --bin converge -- --help
-```
-
-TUI:
-
-```bash
-cargo run --bin converge
-```
-
-TUI with agent trace (JSONL semantic events):
-
-```bash
-cargo run --bin converge -- --agent-trace /tmp/converge-agent-trace.jsonl
-```
-
-Generate a friction report from a trace:
-
-```bash
-node scripts/agent-trace-report.js /tmp/converge-agent-trace.jsonl --out /tmp/converge-friction-report.md
-```
-
-Local quickstart (workspace):
-
-```bash
-converge init
-converge snap "first snapshot"
-converge history
-```
-
-## Run (server, dev)
-
-Start a local dev server:
-
-```bash
-cargo run --bin converge-server -- --addr 127.0.0.1:8080 --data-dir ./converge-data
-```
-
-Then login from a workspace:
-
-```bash
-converge login --url http://127.0.0.1:8080 --repo test --token dev
-```
-
-For shared dev servers / first-admin bootstrap, see:
-- `docs/operators/bootstrapping-and-identity.md`
-
-TUI server setup:
-- In the TUI, press `Tab` to switch to remote and use `/bootstrap` (first admin) and `/create-repo` (repo setup).
-
 ## Next task
 
-Keep Convergence paused under `g02.001` until the next real post-research
-execution boundary is explicit, then open that owner through the strict lane
-instead of continuing `g01` by drift.
+Execute the ready `g02.002` Batch 2.3 docs-spine-restructure card.

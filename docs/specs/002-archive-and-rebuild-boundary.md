@@ -74,11 +74,11 @@ archives with the branch.
 
 ## Current State
 
-- Batch 2.1 (capture) is complete.
-- Batch 2.2 (archive cut) has a ready card:
-  `docs/roadmaps/g02/batch-cards/003-archive-cut.md`
-- The archive cut mutates git history surfaces (tag, branch, strip `main`);
-  execute only on explicit operator go.
+- Batch 2.1 (capture) complete.
+- Batch 2.2 (archive cut) complete: `v0-legacy` tag + `archive/g01` branch;
+  `main` is docs + salvaged lib-only crate.
+- Batch 2.3 (docs spine restructure) has a ready card:
+  `docs/roadmaps/g02/batch-cards/004-docs-spine-restructure.md`
 
 ## Exit Condition
 
@@ -88,4 +88,4 @@ governing surfaces.
 
 ## Next Task
 
-Execute the ready Batch 2.2 archive-cut card on operator go.
+Execute the ready Batch 2.3 docs-spine-restructure card.
