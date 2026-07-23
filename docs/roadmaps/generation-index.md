@@ -2,11 +2,11 @@
 
 - `g02`
   - Status: active
-  - Range: `001` to `003`
+  - Range: `001` to `004`
   - Notes: |
     Post-research planning gate (001, complete), archive-and-rebuild
     boundary (002, complete), rebuild implementation vertical slice
-    (003, active).
+    (003, complete), TUI rebuild (004, active).
 
 - `g01`
   - Status: complete

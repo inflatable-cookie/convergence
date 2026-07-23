@@ -1,6 +1,6 @@
 # 003 Rebuild Vertical Slice
 
-Status: active
+Status: complete (archived 2026-07-24; superseded by `docs/specs/004-tui-rebuild.md`)
 Updated: 2026-07-23
 Roadmap: `g02.003`
 
@@ -38,8 +38,7 @@ and dev-server data do not migrate).
 - Batch 3.2 (client core) complete.
 - Batch 3.3 (CLI verb surface) complete.
 - Batch 3.4 (server slice) complete.
-- Batch 3.5 has a ready card:
-  `docs/roadmaps/g02/batch-cards/010-end-to-end-sync.md`
+- All five batches complete; roadmap `g02.003` closed.
 
 ## Exit Condition
 
@@ -48,4 +47,4 @@ chunking property tests and sync e2e green.
 
 ## Next Task
 
-Execute the ready Batch 3.5 end-to-end sync card.
+Superseded by `docs/specs/004-tui-rebuild.md`.

@@ -1,6 +1,6 @@
 # 010 End-to-End Sync
 
-Status: ready
+Status: complete
 Updated: 2026-07-23
 Roadmap: `g02.003`
 Spec: `docs/specs/003-rebuild-vertical-slice.md`
@@ -47,6 +47,23 @@ remote verbs in the CLI, and an end-to-end test proving the vertical slice.
 - wire contract needs shapes not in `converge-model::wire` — extend the DTOs
   in model first, then use them; no ad-hoc JSON
 
+## Outcome
+
+- axum HTTP surface: negotiate, object put/get, publish, bundle status,
+  approve, promote; bearer tokens -> subjects; wire version enforced
+- `converge-server` bin: --addr/--data-dir/--token/--seed-dev
+- client `remote.rs`: Merkle-pruned two-phase negotiation (manifests first,
+  blob/recipe collection only under missing subtrees), idempotent uploads,
+  bundle fetch into local store
+- CLI verbs: `login`, `publish`, `fetch --into`, `status`
+- e2e over real HTTP: divergent publishes -> superposition bundle -> local
+  resolve -> republish -> approve -> promote; dedup asserted (second
+  publish uploads less), resume asserted (re-upload negotiates to zero);
+  wire-version refusal and unknown-token 401 tests
+- `ObjectId` gains `Ord`; new wire DTOs (`ObjectSet`, publish/approve/
+  promote requests)
+- `effigy validate` green: fmt, clippy -D warnings, 26 nextest tests
+
 ## Next Task
 
-On completion, close roadmap `g02.003` against its exit criteria.
+Close roadmap `g02.003`; open the next execution owner.

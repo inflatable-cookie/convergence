@@ -17,10 +17,10 @@ repo needs tighter execution grammar than the roadmap alone provides.
 
 ## Active Spec Set
 
-- [`003-rebuild-vertical-slice.md`](./003-rebuild-vertical-slice.md)
+- [`004-tui-rebuild.md`](./004-tui-rebuild.md)
 
 Archived specs live in [`archive/`](./archive/).
 
 ## Next Task
 
-Execute the ready `g02.003` Batch 3.5 card.002` Batch 2.4 rebuild-architecture card.
+Execute the ready `g02.004` Batch 4.1 card.002` Batch 2.4 rebuild-architecture card.

@@ -56,6 +56,42 @@ enum Command {
         #[command(subcommand)]
         command: ResolveCommand,
     },
+    /// Configure the remote server for this workspace.
+    Login {
+        #[arg(long)]
+        url: String,
+        #[arg(long)]
+        token: String,
+        #[arg(long)]
+        repo: String,
+        #[arg(long)]
+        scope: String,
+        #[arg(long)]
+        gate: String,
+    },
+    /// Publish a snap (default: latest) to the configured remote gate.
+    Publish {
+        /// Snap to publish; defaults to the most recent.
+        #[arg(long)]
+        snap: Option<String>,
+        /// Target gate; defaults to the configured gate.
+        #[arg(long)]
+        gate: Option<String>,
+        /// Lane identity for provenance.
+        #[arg(long, default_value = "default")]
+        lane: String,
+        #[arg(long)]
+        notes: Option<String>,
+    },
+    /// Fetch a bundle's tree into the local store.
+    Fetch {
+        bundle_id: String,
+        /// Materialize the fetched tree into a directory.
+        #[arg(long)]
+        into: Option<PathBuf>,
+    },
+    /// Show a bundle's status.
+    Status { bundle_id: String },
 }
 
 #[derive(Subcommand)]
@@ -206,7 +242,125 @@ fn run(cli: &Cli) -> Result<()> {
             Ok(())
         }
         Command::Resolve { command } => run_resolve(cli, command),
+        Command::Login {
+            url,
+            token,
+            repo,
+            scope,
+            gate,
+        } => {
+            let ws = open_workspace()?;
+            let mut cfg = ws.store.read_config()?;
+            let remote = converge_client::model::RemoteConfig {
+                base_url: url.clone(),
+                token: None,
+                repo_id: repo.clone(),
+                scope: scope.clone(),
+                gate: gate.clone(),
+            };
+            ws.store.set_remote_token(&remote, token)?;
+            cfg.remote = Some(remote);
+            ws.store.write_config(&cfg)?;
+            emit(
+                cli.json,
+                format!("{repo}/{scope}/{gate} @ {url}"),
+                |target| {
+                    println!("remote configured: {target}");
+                },
+            );
+            Ok(())
+        }
+        Command::Publish {
+            snap,
+            gate,
+            lane,
+            notes,
+        } => {
+            let ws = open_workspace()?;
+            let (client, remote) = remote_client(&ws)?;
+            let snap = match snap {
+                Some(id) => ws.store.get_snap(id)?,
+                None => latest_snap(&ws)?,
+            };
+            let gate = gate.clone().unwrap_or_else(|| remote.gate.clone());
+            let (bundle, stats) = client.publish(
+                &ws.store,
+                &remote.repo_id,
+                &remote.scope,
+                &gate,
+                &snap.id,
+                &snap.root_manifest,
+                lane,
+                notes.clone(),
+            )?;
+            #[derive(Serialize)]
+            struct PublishSummary {
+                bundle: converge_client::model::BundleRecord,
+                uploaded_objects: usize,
+            }
+            emit(
+                cli.json,
+                PublishSummary {
+                    bundle,
+                    uploaded_objects: stats.uploaded,
+                },
+                |s| {
+                    println!(
+                        "published to {gate}: bundle {} ({:?}, {} objects uploaded)",
+                        s.bundle.bundle_id, s.bundle.status, s.uploaded_objects
+                    );
+                },
+            );
+            Ok(())
+        }
+        Command::Fetch { bundle_id, into } => {
+            let ws = open_workspace()?;
+            let (client, _) = remote_client(&ws)?;
+            let root = client.fetch_bundle(&ws.store, bundle_id)?;
+            if let Some(dir) = into {
+                ws.materialize_manifest_to(&root, dir, true)?;
+            }
+            emit(cli.json, root.as_str().to_string(), |root| {
+                println!("fetched bundle root manifest {root}");
+            });
+            Ok(())
+        }
+        Command::Status { bundle_id } => {
+            let ws = open_workspace()?;
+            let (client, _) = remote_client(&ws)?;
+            let bundle = client.get_bundle(bundle_id)?;
+            emit(cli.json, bundle, |b| {
+                println!("bundle {}: {:?}", b.bundle_id, b.status);
+            });
+            Ok(())
+        }
     }
+}
+
+fn remote_client(
+    ws: &Workspace,
+) -> Result<(
+    converge_client::remote::RemoteClient,
+    converge_client::model::RemoteConfig,
+)> {
+    let cfg = ws.store.read_config()?;
+    let remote = cfg
+        .remote
+        .context("no remote configured; run `converge login` first")?;
+    let token = ws
+        .store
+        .get_remote_token(&remote)?
+        .context("no token stored for this remote; run `converge login` again")?;
+    Ok((
+        converge_client::remote::RemoteClient::new(&remote.base_url, &token),
+        remote,
+    ))
+}
+
+fn latest_snap(ws: &Workspace) -> Result<converge_client::model::SnapRecord> {
+    let mut snaps = ws.store.list_snaps()?;
+    snaps.sort_by(|a, b| b.created_at.cmp(&a.created_at));
+    snaps.into_iter().next().context("no snaps to publish")
 }
 
 fn run_resolve(cli: &Cli, command: &ResolveCommand) -> Result<()> {

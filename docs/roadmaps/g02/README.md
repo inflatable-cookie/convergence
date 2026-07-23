@@ -10,11 +10,11 @@ boundary was named.
 
 ## Current State
 
-`g02.003` (rebuild vertical slice) is active. `g02.002` closed with the
-rebuild architecture promoted as `docs/architecture/13-16`.
+`g02.004` (TUI rebuild) is active. `g02.003` closed with the vertical
+slice proven end to end over HTTP.
 
 Ready batch card:
-[`batch-cards/010-end-to-end-sync.md`](./batch-cards/010-end-to-end-sync.md)
+[`batch-cards/011-tui-command-layer-and-shell-core.md`](./batch-cards/011-tui-command-layer-and-shell-core.md)
 
 The paused posture is over. The lane is capture → archive cut → docs spine
 restructure → rebuild architecture definition. Batch 2.1 (capture) is
@@ -28,8 +28,9 @@ restructure) complete: docs tree reduced to the keeper spine.
 
 - [`001-post-research-execution-planning-gate.md`](./001-post-research-execution-planning-gate.md) — complete
 - [`002-archive-and-rebuild-boundary.md`](./002-archive-and-rebuild-boundary.md) — complete
-- [`003-rebuild-implementation-vertical-slice.md`](./003-rebuild-implementation-vertical-slice.md) — active
+- [`003-rebuild-implementation-vertical-slice.md`](./003-rebuild-implementation-vertical-slice.md) — complete
+- [`004-tui-rebuild.md`](./004-tui-rebuild.md) — active
 
 ## Next Task
 
-Execute the ready `g02.003` Batch 3.5 card.002` Batch 2.4 rebuild-architecture card.
+Execute the ready `g02.004` Batch 4.1 card.002` Batch 2.4 rebuild-architecture card.

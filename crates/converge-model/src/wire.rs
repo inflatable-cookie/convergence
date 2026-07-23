@@ -6,15 +6,61 @@ use crate::ids::ObjectId;
 /// compatibility shims (architecture doc 16).
 pub const WIRE_VERSION: u32 = 1;
 
+/// Object-ID sets grouped by kind, used for negotiation in both directions.
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+pub struct ObjectSet {
+    #[serde(default)]
+    pub blobs: Vec<ObjectId>,
+    #[serde(default)]
+    pub manifests: Vec<ObjectId>,
+    #[serde(default)]
+    pub recipes: Vec<ObjectId>,
+}
+
+impl ObjectSet {
+    pub fn is_empty(&self) -> bool {
+        self.blobs.is_empty() && self.manifests.is_empty() && self.recipes.is_empty()
+    }
+
+    pub fn len(&self) -> usize {
+        self.blobs.len() + self.manifests.len() + self.recipes.len()
+    }
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct NegotiateRequest {
     pub wire_version: u32,
-    pub object_ids: Vec<ObjectId>,
+    pub objects: ObjectSet,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct NegotiateResponse {
-    pub missing: Vec<ObjectId>,
+    pub missing: ObjectSet,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct PublishRequest {
+    pub wire_version: u32,
+    pub repo_id: String,
+    pub scope_id: String,
+    pub gate_id: String,
+    pub snap_id: String,
+    pub root_manifest: ObjectId,
+    pub lane_id: String,
+    pub notes: Option<String>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct PromoteRequest {
+    pub repo_id: String,
+    pub scope_id: String,
+    pub to_gate: String,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct ApproveRequest {
+    pub repo_id: String,
+    pub scope_id: String,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

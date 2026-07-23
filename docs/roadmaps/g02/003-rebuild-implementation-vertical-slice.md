@@ -1,6 +1,6 @@
 # 003 Rebuild Implementation: Vertical Slice
 
-Status: active
+Status: complete
 Owner: repo maintainers
 Updated: 2026-07-23
 
@@ -61,7 +61,7 @@ Governing surfaces: `docs/specs/003-rebuild-vertical-slice.md`,
 
 ### Batch 3.5 - End-to-End Sync
 
-- [ ] negotiate/upload/commit protocol client+server; publish and fetch
+- [x] negotiate/upload/commit protocol client+server; publish and fetch
       round-trip e2e test with dedup and resume assertions
 
 ## Exit Criteria
@@ -72,4 +72,7 @@ Governing surfaces: `docs/specs/003-rebuild-vertical-slice.md`,
 
 ## Next Task
 
-Execute the ready Batch 3.5 card (`batch-cards/010-end-to-end-sync.md`).
+All five batches complete; exit criteria met (workspace validates under
+Effigy; vertical slice runs end to end over HTTP with authz; chunking
+property tests and sync e2e green). Open the next execution owner
+(`g02.004`).

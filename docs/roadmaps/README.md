@@ -16,7 +16,7 @@ Convergence roadmaps hold executable milestone work.
 ## Current generation
 
 - Active generation: `g02`
-- Next roadmap ID: `g02.004`
+- Next roadmap ID: `g02.005`
 
 ## Index
 
@@ -29,10 +29,10 @@ records the closed state.
 
 ## Active strict lane
 
-- `g02.003` (rebuild vertical slice) is the active roadmap.
-- `docs/specs/003-rebuild-vertical-slice.md` is the active strict planning
-  lane around that roadmap.
-- ready card: `g02/batch-cards/010-end-to-end-sync.md`
+- `g02.004` (TUI rebuild) is the active roadmap.
+- `docs/specs/004-tui-rebuild.md` is the active strict planning lane
+  around that roadmap.
+- ready card: `g02/batch-cards/011-tui-command-layer-and-shell-core.md`
 
 ## Rollover guardrail
 
@@ -46,4 +46,4 @@ Before rollover:
 
 ## Next Task
 
-Execute the ready `g02.003` Batch 3.5 card.002` Batch 2.4 rebuild-architecture card.
+Execute the ready `g02.004` Batch 4.1 card.002` Batch 2.4 rebuild-architecture card.
