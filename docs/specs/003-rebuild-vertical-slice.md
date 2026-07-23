@@ -35,8 +35,9 @@ and dev-server data do not migrate).
 ## Current State
 
 - Batch 3.1 (workspace scaffold and model) complete.
-- Batch 3.2 has a ready card:
-  `docs/roadmaps/g02/batch-cards/007-client-core.md`
+- Batch 3.2 (client core) complete.
+- Batch 3.3 has a ready card:
+  `docs/roadmaps/g02/batch-cards/008-cli-verb-surface.md`
 
 ## Exit Condition
 
@@ -45,4 +46,4 @@ chunking property tests and sync e2e green.
 
 ## Next Task
 
-Execute the ready Batch 3.2 client-core card.
+Execute the ready Batch 3.3 CLI-verb-surface card.

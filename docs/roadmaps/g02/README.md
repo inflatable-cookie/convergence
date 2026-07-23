@@ -14,7 +14,7 @@ boundary was named.
 rebuild architecture promoted as `docs/architecture/13-16`.
 
 Ready batch card:
-[`batch-cards/007-client-core.md`](./batch-cards/007-client-core.md)
+[`batch-cards/008-cli-verb-surface.md`](./batch-cards/008-cli-verb-surface.md)
 
 The paused posture is over. The lane is capture → archive cut → docs spine
 restructure → rebuild architecture definition. Batch 2.1 (capture) is
@@ -32,4 +32,4 @@ restructure) complete: docs tree reduced to the keeper spine.
 
 ## Next Task
 
-Execute the ready `g02.003` Batch 3.2 card.002` Batch 2.4 rebuild-architecture card.
+Execute the ready `g02.003` Batch 3.3 card.002` Batch 2.4 rebuild-architecture card.

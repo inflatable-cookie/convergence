@@ -1,6 +1,6 @@
 # 007 Client Core
 
-Status: ready
+Status: complete
 Updated: 2026-07-23
 Roadmap: `g02.003`
 Spec: `docs/specs/003-rebuild-vertical-slice.md`
@@ -45,6 +45,20 @@ recipes, and retire the salvage dead-code posture.
 - salvage module needs behavior change (not deletion/rewiring) — route
   through architecture first
 
+## Outcome
+
+- store: uniform sharded object fanout (`objects/<kind>/ab/cd/<hash>`), CRUD
+  collapsed to one generic put/get/has layer with verify-on-read; flat g01
+  layout not read (no migration by design)
+- snap capture chunks large files with FastCDC via `converge_model::chunk_data`;
+  fixed-block reader gone; `ChunkingConfig.chunk_size` maps to CDC average
+  (min = avg/4, max = 4x avg)
+- dead salvage cut: `workspace/gc`, `store/traversal` (archive keeps them);
+  `#![allow(dead_code)]` lifted, zero allows in the workspace
+- new tests: v2 CDC recipe + params on snap, sharded blob path, exact
+  restore round-trip, cross-file dedup; g01 layout-dependent tests updated
+- `effigy validate` green: fmt, clippy -D warnings, 14 nextest tests
+
 ## Next Task
 
-On completion, open the Batch 3.3 CLI-verb-surface card.
+Execute the Batch 3.3 CLI-verb-surface card (`008-cli-verb-surface.md`).

@@ -43,10 +43,13 @@ fn blob_integrity_check_detects_corruption() -> Result<()> {
     let ws = Workspace::init(root, false)?;
 
     let id = ws.store.put_blob(b"abc")?;
+    let h = id.as_str();
     let blob_path = root
         .join(".converge")
         .join("objects/blobs")
-        .join(id.as_str());
+        .join(&h[..2])
+        .join(&h[2..4])
+        .join(h);
 
     fs::write(&blob_path, b"not abc").context("corrupt blob")?;
     assert!(ws.store.get_blob(&id).is_err());
@@ -140,7 +143,29 @@ fn chunked_file_small_edit_reuses_most_chunks() -> Result<()> {
     let recipes_dir = root.join(".converge/objects/recipes");
     let manifests_dir = root.join(".converge/objects/manifests");
 
-    let count = |p: &Path| -> Result<usize> { Ok(std::fs::read_dir(p)?.count()) };
+    fn count(p: &Path) -> Result<usize> {
+        let mut n = 0;
+        for entry in walkdir(p)? {
+            if entry.is_file() {
+                n += 1;
+            }
+        }
+        Ok(n)
+    }
+    fn walkdir(p: &Path) -> Result<Vec<std::path::PathBuf>> {
+        let mut out = Vec::new();
+        if p.is_dir() {
+            for e in std::fs::read_dir(p)? {
+                let path = e?.path();
+                if path.is_dir() {
+                    out.extend(walkdir(&path)?);
+                } else {
+                    out.push(path);
+                }
+            }
+        }
+        Ok(out)
+    }
 
     ws.create_snap(Some("one".to_string()))?;
     let blobs1 = count(&blobs_dir)?;

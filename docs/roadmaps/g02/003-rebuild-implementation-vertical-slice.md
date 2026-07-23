@@ -42,9 +42,9 @@ Governing surfaces: `docs/specs/003-rebuild-vertical-slice.md`,
 
 ### Batch 3.2 - Client Core
 
-- [ ] migrate store/diff/resolve/workspace salvage into `converge-client`;
+- [x] migrate store/diff/resolve/workspace salvage into `converge-client`;
       add sharded object fanout; lift the salvage `allow(dead_code)`
-- [ ] snap capture on FastCDC recipes
+- [x] snap capture on FastCDC recipes
 
 ### Batch 3.3 - CLI Verb Surface
 
@@ -72,4 +72,4 @@ Governing surfaces: `docs/specs/003-rebuild-vertical-slice.md`,
 
 ## Next Task
 
-Execute the ready Batch 3.2 card (`batch-cards/007-client-core.md`).
+Execute the ready Batch 3.3 card (`batch-cards/008-cli-verb-surface.md`).

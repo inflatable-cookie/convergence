@@ -10,7 +10,6 @@ mod core_setup;
 mod object_crud;
 mod snap_resolution;
 mod state_meta;
-mod traversal;
 
 #[derive(Clone)]
 pub struct LocalStore {
@@ -19,6 +18,20 @@ pub struct LocalStore {
 
 pub(crate) fn hash_bytes(bytes: &[u8]) -> ObjectId {
     ObjectId(blake3::hash(bytes).to_hex().to_string())
+}
+
+impl LocalStore {
+    // Sharded fanout: objects/<kind>/ab/cd/<hash>. Flat g01 layouts are not
+    // read — the archive is history, not a migration source (arch 14/16).
+    fn object_path(&self, kind: &str, id: &ObjectId) -> PathBuf {
+        let h = id.as_str();
+        let (a, b) = if h.len() >= 4 {
+            (&h[..2], &h[2..4])
+        } else {
+            ("_", "_")
+        };
+        self.root.join("objects").join(kind).join(a).join(b).join(h)
+    }
 }
 
 fn write_if_absent(path: &Path, bytes: &[u8]) -> Result<()> {

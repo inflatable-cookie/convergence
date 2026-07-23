@@ -43,8 +43,7 @@ pub(super) fn build_manifest_store_impl(
             let size = meta.len();
 
             let kind = if size >= policy.threshold {
-                let recipe =
-                    chunk_file_to_recipe_store(&workspace.store, &path, size, policy.chunk_size)?;
+                let recipe = chunk_file_to_recipe_store(&workspace.store, &path, size, policy)?;
                 ManifestEntryKind::FileChunks { recipe, mode, size }
             } else {
                 let bytes =

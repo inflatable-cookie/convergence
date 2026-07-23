@@ -9,7 +9,6 @@ use crate::store::LocalStore;
 
 mod chunk_io;
 mod chunking;
-mod gc;
 mod manifest_query;
 mod manifest_scan;
 mod materialize_fs;
