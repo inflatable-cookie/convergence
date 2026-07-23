@@ -55,4 +55,4 @@ cargo nextest run -P ci
 
 ## Next task
 
-Execute the ready `g02.003` Batch 3.4 server-slice card.002` Batch 2.4 rebuild-architecture card.
+Execute the ready `g02.003` Batch 3.5 end-to-end sync card.002` Batch 2.4 rebuild-architecture card.

@@ -37,8 +37,9 @@ and dev-server data do not migrate).
 - Batch 3.1 (workspace scaffold and model) complete.
 - Batch 3.2 (client core) complete.
 - Batch 3.3 (CLI verb surface) complete.
-- Batch 3.4 has a ready card:
-  `docs/roadmaps/g02/batch-cards/009-server-slice.md`
+- Batch 3.4 (server slice) complete.
+- Batch 3.5 has a ready card:
+  `docs/roadmaps/g02/batch-cards/010-end-to-end-sync.md`
 
 ## Exit Condition
 
@@ -47,4 +48,4 @@ chunking property tests and sync e2e green.
 
 ## Next Task
 
-Execute the ready Batch 3.4 server-slice card.
+Execute the ready Batch 3.5 end-to-end sync card.

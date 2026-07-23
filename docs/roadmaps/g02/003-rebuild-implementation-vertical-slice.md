@@ -53,10 +53,10 @@ Governing surfaces: `docs/specs/003-rebuild-vertical-slice.md`,
 
 ### Batch 3.4 - Server Slice
 
-- [ ] `MetadataStore`/`ObjectStore` traits + embedded impls (SQLite, FS)
-- [ ] control plane minimum: identity, capability grants, one repo + gate
+- [x] `MetadataStore`/`ObjectStore` traits + embedded impls (SQLite, FS)
+- [x] control plane minimum: identity, capability grants, one repo + gate
       graph; authz context required by every handler
-- [ ] publish intake → deterministic bundle coalescing (Merkle merge with
+- [x] publish intake → deterministic bundle coalescing (Merkle merge with
       superposition nodes) → promote, serialized per partition
 
 ### Batch 3.5 - End-to-End Sync
@@ -72,4 +72,4 @@ Governing surfaces: `docs/specs/003-rebuild-vertical-slice.md`,
 
 ## Next Task
 
-Execute the ready Batch 3.4 card (`batch-cards/009-server-slice.md`).
+Execute the ready Batch 3.5 card (`batch-cards/010-end-to-end-sync.md`).

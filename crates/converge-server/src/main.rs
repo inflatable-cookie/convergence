@@ -1,3 +1,3 @@
 fn main() {
-    println!("converge-server: rebuild scaffold (g02.003); no runtime surface yet");
+    println!("converge-server engine (g02.003 Batch 3.4); HTTP surface arrives with Batch 3.5");
 }

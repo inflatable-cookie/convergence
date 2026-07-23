@@ -1,6 +1,6 @@
 # 009 Server Slice
 
-Status: ready
+Status: complete
 Updated: 2026-07-23
 Roadmap: `g02.003`
 Spec: `docs/specs/003-rebuild-vertical-slice.md`
@@ -51,6 +51,25 @@ promote path from architecture doc 14.
 - storage trait shape fights the arch-14 partition model — stop and route
   through `docs/architecture/` before coding around it
 
+## Outcome
+
+- `converge-server` engine library + thin bin: `ObjectStore`/`MetadataStore`
+  traits with embedded impls (sharded FS with verify-on-read; SQLite with
+  scoped per-mutation transactions and per-partition publication sequencing)
+- authz by construction: `AuthzContext` mintable only via `authorize`;
+  every engine method requires it and re-checks capability + partition
+- deterministic bundle build: Merkle merge with subtree short-circuit,
+  union semantics, all-dir recursion, divergence -> `Superposition` with
+  per-lane provenance, nested superpositions flatten;
+  bundle_id = hash(gate, ordered inputs, merged root)
+- promote policy: ready+promotable check, gate-graph upstream check,
+  producing-gate required approvals; approve op records approvers
+- `PublicationRecord` wire DTO gains explicit `root_manifest`
+- 6 server tests: authz denial, superposition creation with sources,
+  determinism across fresh stores, pass-through + approve/promote flow,
+  superposed-promotion block, capability-mismatch rejection
+- `effigy validate` green: fmt, clippy -D warnings, 23 nextest tests
+
 ## Next Task
 
-On completion, open the Batch 3.5 end-to-end sync card.
+Execute the Batch 3.5 end-to-end sync card (`010-end-to-end-sync.md`).

@@ -21,6 +21,7 @@ pub struct NegotiateResponse {
 pub struct PublicationRecord {
     pub publication_id: String,
     pub snap_id: String,
+    pub root_manifest: ObjectId,
     pub repo_id: String,
     pub scope_id: String,
     pub target_gate_id: String,
