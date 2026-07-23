@@ -55,4 +55,4 @@ cargo nextest run -P ci
 
 ## Next task
 
-Execute the ready `g02.002` Batch 2.4 rebuild-architecture card.
+Compile the first rebuild implementation roadmap (`g02.003`).002` Batch 2.4 rebuild-architecture card.

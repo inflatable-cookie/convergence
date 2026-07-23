@@ -32,7 +32,7 @@ records the closed state.
 - `g02.002` (archive-and-rebuild boundary) is the active roadmap.
 - `docs/specs/002-archive-and-rebuild-boundary.md` is the active strict
   planning lane around that roadmap.
-- ready card: `g02/batch-cards/005-rebuild-architecture.md`
+- no ready card: `g02.002` is complete; lane is in planning for `g02.003`
 
 ## Rollover guardrail
 
@@ -46,4 +46,5 @@ Before rollover:
 
 ## Next Task
 
-Execute the ready `g02.002` Batch 2.4 rebuild-architecture card.
+Compile the first rebuild implementation roadmap (`g02.003`) from
+architecture docs 13-16.002` Batch 2.4 rebuild-architecture card.

@@ -1,6 +1,6 @@
 # 002 Archive-and-Rebuild Boundary
 
-Status: active
+Status: complete
 Updated: 2026-07-23
 Roadmap: `g02.002`
 
@@ -79,8 +79,9 @@ archives with the branch.
   `main` is docs + salvaged lib-only crate.
 - Batch 2.3 (docs spine restructure) complete: docs tree 134 → 59 files,
   keeper spine only.
-- Batch 2.4 (rebuild architecture) has a ready card:
-  `docs/roadmaps/g02/batch-cards/005-rebuild-architecture.md`
+- Batch 2.4 (rebuild architecture) complete: `docs/architecture/13-16`
+  promoted; operator decisions recorded (central control plane + partitioned
+  data plane; one binary, pluggable storage backends).
 
 ## Exit Condition
 
@@ -90,4 +91,5 @@ governing surfaces.
 
 ## Next Task
 
-Execute the ready Batch 2.4 rebuild-architecture card.
+Compile the first rebuild implementation roadmap (`g02.003`) from
+architecture docs 13-16; archive this spec once `g02.003` opens.

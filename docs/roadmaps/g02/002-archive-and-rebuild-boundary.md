@@ -1,6 +1,6 @@
 # 002 Archive-and-Rebuild Boundary
 
-Status: active
+Status: complete
 Owner: repo maintainers
 Updated: 2026-07-23
 
@@ -55,11 +55,13 @@ Artifacts: `docs/rebuild/001-lessons-retrospective.md`,
 
 ### Batch 2.4 - Rebuild Architecture Definition
 
-- [ ] workspace layout: model / client / server crates
-- [ ] server architecture for large distributed systems: storage, metadata DB,
+- [x] workspace layout: model / client / server crates (arch 13)
+- [x] server architecture for large distributed systems: storage, metadata DB,
       replication/federation posture, enforced gate/scope authorization
-- [ ] client architecture: CLI core + TUI rebuilt against the captured UX spec
-- [ ] sync protocol contract carried from salvage verdicts
+      (arch 14)
+- [x] client architecture: CLI core + TUI rebuilt against the captured UX spec
+      (arch 15)
+- [x] sync protocol contract carried from salvage verdicts (arch 16)
 
 ## Exit Criteria
 
@@ -67,7 +69,13 @@ Artifacts: `docs/rebuild/001-lessons-retrospective.md`,
 - docs tree is the lean strict spine with coherent front doors
 - rebuild architecture is promoted and the first rebuild roadmap can open
 
+## Outcome
+
+All four batches complete: capture artifacts in `docs/rebuild/`, archive at
+`v0-legacy`/`archive/g01`, docs reduced to the keeper spine, rebuild
+architecture promoted as `docs/architecture/13-16`.
+
 ## Next Task
 
-Execute the ready Batch 2.4 rebuild-architecture card
-(`batch-cards/005-rebuild-architecture.md`).
+Compile the first rebuild implementation roadmap (`g02.003`) from
+architecture docs 13-16.

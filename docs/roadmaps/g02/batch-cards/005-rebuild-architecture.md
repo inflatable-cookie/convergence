@@ -1,6 +1,6 @@
 # 005 Rebuild Architecture
 
-Status: ready
+Status: complete
 Updated: 2026-07-23
 Roadmap: `g02.002`
 Spec: `docs/specs/002-archive-and-rebuild-boundary.md`
@@ -59,7 +59,21 @@ the validated local UX theory. This is design work, not implementation.
 - a server design decision needs operator intent (e.g. deployment topology
   tradeoffs) — ask instead of guessing
 
+## Outcome
+
+- operator decisions taken: central control plane + partitioned
+  `(repo, scope, gate)` data plane; one binary with pluggable storage
+  (embedded SQLite/FS, external Postgres/S3)
+- promoted `docs/architecture/13-16`: workspace/crates, server authority and
+  distribution (deepest doc of the set — the g01 failure mode does not
+  repeat), client/TUI, sync protocol + FastCDC chunking
+- every lessons-retrospective open question answered (authority model,
+  storage backend, bundle coalescing, ACL enforcement, chunking) or
+  explicitly deferred with rationale in doc 14 (partition-worker mechanism,
+  per-kind merge policy)
+- `g02.002` exit criteria satisfied
+
 ## Next Task
 
-On completion, close `g02.002` and open the first rebuild implementation
-roadmap.
+Close `g02.002` and compile the first rebuild implementation roadmap
+(`g02.003`).

@@ -47,5 +47,6 @@ prefers `cargo nextest` when it is available on the machine.
 
 ## Next Task
 
-Execute the ready `g02.002` Batch 2.4 rebuild-architecture card
+Compile the first rebuild implementation roadmap (`g02.003`) from
+architecture docs 13-16.002` Batch 2.4 rebuild-architecture card
 (`roadmaps/g02/batch-cards/005-rebuild-architecture.md`).
