@@ -55,4 +55,4 @@ cargo nextest run -P ci
 
 ## Next task
 
-Execute the ready `g02.004` Batch 4.1 TUI shell card.002` Batch 2.4 rebuild-architecture card.
+Execute the ready `g02.004` Batch 4.2 TUI remote-views-and-async card.002` Batch 2.4 rebuild-architecture card.

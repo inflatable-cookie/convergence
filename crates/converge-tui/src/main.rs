@@ -1,3 +1,193 @@
-fn main() {
-    println!("converge-tui: rebuild scaffold (g02.003); no runtime surface yet");
+mod app;
+
+use std::time::Duration;
+
+use anyhow::Result;
+use crossterm::event::{self, Event};
+use ratatui::Frame;
+use ratatui::layout::{Constraint, Layout};
+use ratatui::style::{Color, Modifier, Style};
+use ratatui::text::{Line, Span};
+use ratatui::widgets::{Block, Borders, List, ListItem, Paragraph};
+
+use app::{Action, App, LastLine, View};
+
+fn main() -> Result<()> {
+    let mut terminal = ratatui::init();
+    let result = run(&mut terminal);
+    ratatui::restore();
+    result
+}
+
+fn run(terminal: &mut ratatui::DefaultTerminal) -> Result<()> {
+    let mut app = App::default();
+    refresh(&mut app);
+
+    loop {
+        terminal.draw(|frame| render(frame, &app))?;
+        if !event::poll(Duration::from_millis(50))? {
+            continue;
+        }
+        let Event::Key(key) = event::read()? else {
+            continue;
+        };
+        if key.kind != event::KeyEventKind::Press {
+            continue;
+        }
+        match app.handle_key(key) {
+            Some(Action::Quit) => return Ok(()),
+            Some(Action::Enter(view)) => {
+                app.frames.push(view);
+                refresh(&mut app);
+            }
+            Some(Action::Run(argv)) => {
+                app.record_command(&argv);
+                let result = converge_cli::execute(argv.iter().cloned());
+                app.record_result(result);
+                refresh(&mut app);
+            }
+            None => {}
+        }
+    }
+}
+
+/// Pull view data through the CLI layer (arch 15: no bespoke semantics).
+fn refresh(app: &mut App) {
+    app.pending_changes = converge_cli::execute(["changes"])
+        .ok()
+        .and_then(|v| v.as_array().map(Vec::len))
+        .unwrap_or(0);
+    app.snaps = converge_cli::execute(["history"])
+        .ok()
+        .and_then(|v| v.as_array().cloned())
+        .unwrap_or_default();
+}
+
+fn render(frame: &mut Frame, app: &App) {
+    let suggestion_rows = app.suggestions.len().min(9) as u16;
+    let [header, body, last, suggestions, input] = Layout::vertical([
+        Constraint::Length(1),
+        Constraint::Min(3),
+        Constraint::Length(4),
+        Constraint::Length(suggestion_rows),
+        Constraint::Length(1),
+    ])
+    .areas(frame.area());
+
+    // Header: workspace context, named not color-only.
+    frame.render_widget(
+        Paragraph::new(Line::from(vec![
+            Span::styled(
+                format!(" converge [{}] ", app.context.label()),
+                Style::default().add_modifier(Modifier::BOLD),
+            ),
+            Span::raw(format!(
+                "{} snaps, {} pending changes",
+                app.snaps.len(),
+                app.pending_changes
+            )),
+        ]))
+        .style(Style::default().bg(match app.context {
+            app::Context::Local => Color::DarkGray,
+            app::Context::Remote => Color::Blue,
+        })),
+        header,
+    );
+
+    // Body: active view.
+    match app.current_view() {
+        View::Root => {
+            let (primary, _) = app.primary_action();
+            let lines = vec![
+                Line::raw(format!("pending changes: {}", app.pending_changes)),
+                Line::raw(format!(
+                    "latest snap: {}",
+                    app.snaps
+                        .first()
+                        .and_then(|s| s["id"].as_str())
+                        .unwrap_or("none")
+                )),
+                Line::raw(""),
+                Line::styled(
+                    format!("Enter: {primary}"),
+                    Style::default().add_modifier(Modifier::BOLD),
+                ),
+            ];
+            frame.render_widget(Paragraph::new(lines).block(view_block(app)), body);
+        }
+        View::History => {
+            let items: Vec<ListItem> = app
+                .snaps
+                .iter()
+                .map(|s| {
+                    ListItem::new(format!(
+                        "{}  {}  {}",
+                        s["id"].as_str().unwrap_or("?"),
+                        s["created_at"].as_str().unwrap_or(""),
+                        s["message"].as_str().unwrap_or("")
+                    ))
+                })
+                .collect();
+            frame.render_widget(List::new(items).block(view_block(app)), body);
+        }
+    }
+
+    // Last strip: command echo cyan, output white, errors red (UX spec §4).
+    let last_lines: Vec<Line> = app
+        .last
+        .iter()
+        .map(|entry| match entry {
+            LastLine::Command(text) => Line::styled(text.clone(), Style::default().fg(Color::Cyan)),
+            LastLine::Output(text) => Line::raw(text.clone()),
+            LastLine::Error(text) => Line::styled(text.clone(), Style::default().fg(Color::Red)),
+        })
+        .collect();
+    frame.render_widget(
+        Paragraph::new(last_lines).block(Block::default().borders(Borders::TOP).title("Last")),
+        last,
+    );
+
+    // Suggestions palette.
+    if !app.suggestions.is_empty() {
+        let items: Vec<ListItem> = app
+            .suggestions
+            .iter()
+            .enumerate()
+            .map(|(i, s)| {
+                let style = if i == app.suggestion_index {
+                    Style::default().add_modifier(Modifier::REVERSED)
+                } else {
+                    Style::default()
+                };
+                ListItem::new(s.clone()).style(style)
+            })
+            .collect();
+        frame.render_widget(List::new(items), suggestions);
+    }
+
+    // Input line with prompt and key legend.
+    let legend = if app.quit_confirm {
+        "quit? Enter/y: yes  any other key: no".to_string()
+    } else {
+        format!(
+            "Enter: {}  Esc: back  Tab: context  q: quit",
+            app.primary_action().0
+        )
+    };
+    frame.render_widget(
+        Paragraph::new(Line::from(vec![
+            Span::styled(app.prompt(), Style::default().fg(Color::Green)),
+            Span::raw(" "),
+            Span::raw(app.input.clone()),
+            Span::raw("  "),
+            Span::styled(legend, Style::default().fg(Color::DarkGray)),
+        ])),
+        input,
+    );
+}
+
+fn view_block(app: &App) -> Block<'static> {
+    Block::default()
+        .borders(Borders::ALL)
+        .title(app.current_view().title())
 }

@@ -3,4 +3,13 @@ name = "converge-tui"
 version.workspace = true
 edition.workspace = true
 
+[[bin]]
+name = "converge-tui"
+path = "src/main.rs"
+
 [dependencies]
+anyhow.workspace = true
+converge-cli.workspace = true
+crossterm.workspace = true
+ratatui.workspace = true
+serde_json.workspace = true

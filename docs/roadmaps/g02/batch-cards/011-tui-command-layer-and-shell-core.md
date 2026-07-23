@@ -1,6 +1,6 @@
 # 011 TUI Command Layer and Shell Core
 
-Status: ready
+Status: complete
 Updated: 2026-07-24
 Roadmap: `g02.004`
 Spec: `docs/specs/004-tui-rebuild.md`
@@ -45,6 +45,23 @@ stack, and the local views — the UX spec's skeleton.
 
 - shell needs a semantic the CLI cannot express — stop, extend CLI first
 
+## Outcome
+
+- `converge-cli` is now lib + thin bin: `execute(argv) -> JSON value` runs
+  the exact binary code path (`OutputMode::Capture`); added `changes` verb
+  (working tree vs latest snap) the shell needed — extended CLI first per
+  stop-condition rule
+- `converge-tui` shell core: five-region layout, command console with live
+  suggestions + command history, view stack, layered Esc with explicit quit
+  confirm (wart fix), Tab context toggle with the context named in prompt
+  and header (wart fix), Enter runs the state-computed primary action
+  (changes -> snap, else history)
+- local root + history views pull data through the CLI layer only
+- 5 reducer unit tests: Esc layering, quit confirm, Tab semantics, primary
+  action, argv submission, suggestion navigation
+- `effigy validate` green: fmt, clippy -D warnings, 31 nextest tests
+
 ## Next Task
 
-On completion, open the Batch 4.2 remote-views-and-async card.
+Execute the Batch 4.2 remote-views-and-async card
+(`012-tui-remote-views-and-async.md`).

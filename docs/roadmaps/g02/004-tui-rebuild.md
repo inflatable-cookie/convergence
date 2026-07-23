@@ -30,13 +30,13 @@ principles, fix the seven warts.
 
 ### Batch 4.1 - Command Layer and Shell Core
 
-- [ ] expose `converge-cli` as a library: `execute(argv) -> JSON envelope`
+- [x] expose `converge-cli` as a library: `execute(argv) -> JSON envelope`
       (same code path as the binary)
-- [ ] ratatui shell: five-region layout, command input with history,
+- [x] ratatui shell: five-region layout, command input with history,
       fuzzy suggestions palette, view stack, layered Esc (with explicit
       quit confirm — wart fix), Tab Local/Remote toggle with labeled prompt
       (wart fix)
-- [ ] local root view (changes summary, latest snap) + history view over
+- [x] local root view (changes summary, latest snap) + history view over
       the command layer; Enter runs the state-computed primary action
 
 ### Batch 4.2 - Remote Views and Async Ops
@@ -65,5 +65,5 @@ principles, fix the seven warts.
 
 ## Next Task
 
-Execute the ready Batch 4.1 card
-(`batch-cards/011-tui-command-layer-and-shell-core.md`).
+Execute the ready Batch 4.2 card
+(`batch-cards/012-tui-remote-views-and-async.md`).
