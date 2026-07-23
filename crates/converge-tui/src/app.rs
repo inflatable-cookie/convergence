@@ -43,9 +43,18 @@ impl View {
 /// Commands the console accepts. View-entering commands push a frame;
 /// the rest run through the CLI layer verbatim.
 pub const COMMANDS: &[&str] = &[
-    "changes", "diff", "fetch", "history", "login", "publish", "resolve", "restore", "snap",
-    "status",
+    "changes", "diff", "fetch", "history", "login", "publish", "remote", "resolve", "restore",
+    "snap", "status",
 ];
+
+/// Commands that hit the network run on the async worker so the event loop
+/// never blocks (UX spec wart 1).
+pub fn is_remote_command(argv: &[String]) -> bool {
+    matches!(
+        argv.first().map(String::as_str),
+        Some("publish" | "fetch" | "status" | "login")
+    )
+}
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Action {
@@ -77,6 +86,10 @@ pub struct App {
     pub pending_changes: usize,
     /// Snap summaries (from `history`).
     pub snaps: Vec<serde_json::Value>,
+    /// Remote info (from `remote`).
+    pub remote: Option<serde_json::Value>,
+    /// Label of the remote command currently running on the worker.
+    pub in_flight: Option<String>,
 }
 
 impl Default for App {
@@ -93,6 +106,8 @@ impl Default for App {
             quit_confirm: false,
             pending_changes: 0,
             snaps: Vec::new(),
+            remote: None,
+            in_flight: None,
         }
     }
 }
@@ -104,11 +119,35 @@ impl App {
 
     /// UX spec §4.2: one state-computed primary action per screen.
     pub fn primary_action(&self) -> (&'static str, Action) {
-        if self.pending_changes > 0 {
-            ("snap", Action::Run(vec!["snap".into()]))
-        } else {
-            ("history", Action::Enter(View::History))
+        match self.context {
+            Context::Local => {
+                if self.pending_changes > 0 {
+                    ("snap", Action::Run(vec!["snap".into()]))
+                } else {
+                    ("history", Action::Enter(View::History))
+                }
+            }
+            Context::Remote => {
+                let configured = self
+                    .remote
+                    .as_ref()
+                    .and_then(|r| r["configured"].as_bool())
+                    .unwrap_or(false);
+                if configured {
+                    ("publish", Action::Run(vec!["publish".into()]))
+                } else {
+                    ("login", Action::Run(vec!["login".into()]))
+                }
+            }
         }
+    }
+
+    pub fn record_in_flight(&mut self, argv: &[String]) {
+        self.in_flight = Some(argv.join(" "));
+    }
+
+    pub fn finish_in_flight(&mut self) {
+        self.in_flight = None;
     }
 
     pub fn prompt(&self) -> String {
@@ -356,6 +395,25 @@ mod tests {
         );
         assert!(app.input.is_empty());
         assert_eq!(app.command_history, vec!["snap -m hello"]);
+    }
+
+    #[test]
+    fn remote_context_primary_action_depends_on_configuration() {
+        let mut app = App::default();
+        app.handle_key(key(KeyCode::Tab));
+        assert_eq!(app.context, Context::Remote);
+        assert_eq!(app.primary_action().0, "login", "unconfigured -> login");
+        app.remote = Some(serde_json::json!({"configured": true}));
+        assert_eq!(app.primary_action().0, "publish");
+    }
+
+    #[test]
+    fn remote_commands_classified_for_worker() {
+        let argv = |s: &str| vec![s.to_string()];
+        assert!(is_remote_command(&argv("publish")));
+        assert!(is_remote_command(&argv("fetch")));
+        assert!(!is_remote_command(&argv("snap")));
+        assert!(!is_remote_command(&argv("history")));
     }
 
     #[test]

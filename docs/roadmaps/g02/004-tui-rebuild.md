@@ -41,8 +41,8 @@ principles, fix the seven warts.
 
 ### Batch 4.2 - Remote Views and Async Ops
 
-- [ ] remote root dashboard (bundle status, recommended next actions)
-- [ ] async command runner: remote commands run off-thread, progress in the
+- [x] remote root dashboard (bundle status, recommended next actions)
+- [x] async command runner: remote commands run off-thread, progress in the
       Last strip, UI never freezes (wart fix)
 
 ### Batch 4.3 - Wizards and Resolution View
@@ -65,5 +65,5 @@ principles, fix the seven warts.
 
 ## Next Task
 
-Execute the ready Batch 4.2 card
-(`batch-cards/012-tui-remote-views-and-async.md`).
+Execute the ready Batch 4.3 card
+(`batch-cards/013-tui-wizards-and-resolution.md`).

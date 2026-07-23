@@ -1,6 +1,6 @@
 # 012 TUI Remote Views and Async
 
-Status: ready
+Status: complete
 Updated: 2026-07-24
 Roadmap: `g02.004`
 Spec: `docs/specs/004-tui-rebuild.md`
@@ -38,6 +38,20 @@ blocks on the network (UX spec wart 1).
 
 - needs CLI semantics that do not exist — extend CLI first
 
+## Outcome
+
+- async worker: `publish`/`fetch`/`status`/`login` run off-thread via mpsc;
+  event loop polls results non-blocking; Last strip shows a yellow
+  "… <cmd> (running)" marker until delivery — typing stays live mid-flight
+- new CLI verb `remote` (config + last published snap); `publish` now
+  records last-published state
+- remote root view: target `repo/scope/gate @ url`, last published snap,
+  context-aware primary action (unconfigured -> login, else publish)
+- reducer tests for remote-command classification and context-dependent
+  primary action; workspace tests 33
+- `effigy validate` green
+
 ## Next Task
 
-On completion, open the Batch 4.3 wizards-and-resolution card.
+Execute the Batch 4.3 wizards-and-resolution card
+(`013-tui-wizards-and-resolution.md`).

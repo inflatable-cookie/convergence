@@ -115,6 +115,8 @@ enum Command {
     },
     /// Show a bundle's status.
     Status { bundle_id: String },
+    /// Show the configured remote for this workspace.
+    Remote,
 }
 
 #[derive(Subcommand)]
@@ -342,6 +344,8 @@ fn run(cli: &Cli, mode: OutputMode) -> Result<serde_json::Value> {
                 lane,
                 notes.clone(),
             )?;
+            ws.store
+                .set_last_published(&remote, &remote.scope, &gate, &snap.id)?;
             #[derive(Serialize)]
             struct PublishSummary {
                 bundle: converge_client::model::BundleRecord,
@@ -370,6 +374,54 @@ fn run(cli: &Cli, mode: OutputMode) -> Result<serde_json::Value> {
             }
             emit(mode, root.as_str().to_string(), |root| {
                 println!("fetched bundle root manifest {root}");
+            })
+        }
+        Command::Remote => {
+            let ws = open_workspace()?;
+            let cfg = ws.store.read_config()?;
+            #[derive(Serialize)]
+            struct RemoteInfo {
+                configured: bool,
+                base_url: Option<String>,
+                repo_id: Option<String>,
+                scope: Option<String>,
+                gate: Option<String>,
+                last_published_snap: Option<String>,
+            }
+            let info = match &cfg.remote {
+                Some(remote) => RemoteInfo {
+                    configured: true,
+                    base_url: Some(remote.base_url.clone()),
+                    repo_id: Some(remote.repo_id.clone()),
+                    scope: Some(remote.scope.clone()),
+                    gate: Some(remote.gate.clone()),
+                    last_published_snap: ws.store.get_last_published(
+                        remote,
+                        &remote.scope,
+                        &remote.gate,
+                    )?,
+                },
+                None => RemoteInfo {
+                    configured: false,
+                    base_url: None,
+                    repo_id: None,
+                    scope: None,
+                    gate: None,
+                    last_published_snap: None,
+                },
+            };
+            emit(mode, info, |i| {
+                if i.configured {
+                    println!(
+                        "remote {}/{}/{} @ {}",
+                        i.repo_id.as_deref().unwrap_or(""),
+                        i.scope.as_deref().unwrap_or(""),
+                        i.gate.as_deref().unwrap_or(""),
+                        i.base_url.as_deref().unwrap_or("")
+                    );
+                } else {
+                    println!("no remote configured");
+                }
             })
         }
         Command::Status { bundle_id } => {

@@ -47,6 +47,6 @@ prefers `cargo nextest` when it is available on the machine.
 
 ## Next Task
 
-Execute the ready `g02.004` Batch 4.2 card
-(`roadmaps/g02/batch-cards/012-tui-remote-views-and-async.md`).002` Batch 2.4 rebuild-architecture card
+Execute the ready `g02.004` Batch 4.3 card
+(`roadmaps/g02/batch-cards/013-tui-wizards-and-resolution.md`).002` Batch 2.4 rebuild-architecture card
 (`roadmaps/g02/batch-cards/005-rebuild-architecture.md`).

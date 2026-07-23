@@ -20,8 +20,9 @@ the CLI surface first.
 ## Current State
 
 - Batch 4.1 (command layer and shell core) complete.
-- Batch 4.2 has a ready card:
-  `docs/roadmaps/g02/batch-cards/012-tui-remote-views-and-async.md`
+- Batch 4.2 (remote views and async) complete.
+- Batch 4.3 has a ready card:
+  `docs/roadmaps/g02/batch-cards/013-tui-wizards-and-resolution.md`
 
 ## Exit Condition
 
@@ -29,4 +30,4 @@ Roadmap `g02.004` exit criteria met.
 
 ## Next Task
 
-Execute the ready Batch 4.2 card.
+Execute the ready Batch 4.3 card.

@@ -10,7 +10,10 @@ use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, List, ListItem, Paragraph};
 
-use app::{Action, App, LastLine, View};
+use app::{Action, App, LastLine, View, is_remote_command};
+
+/// Result of a worker-thread command.
+type WorkerResult = (Vec<String>, anyhow::Result<serde_json::Value>);
 
 fn main() -> Result<()> {
     let mut terminal = ratatui::init();
@@ -21,9 +24,18 @@ fn main() -> Result<()> {
 
 fn run(terminal: &mut ratatui::DefaultTerminal) -> Result<()> {
     let mut app = App::default();
+    let (tx, rx) = std::sync::mpsc::channel::<WorkerResult>();
     refresh(&mut app);
 
     loop {
+        // Deliver finished worker results without blocking.
+        while let Ok((argv, result)) = rx.try_recv() {
+            let _ = argv;
+            app.finish_in_flight();
+            app.record_result(result);
+            refresh(&mut app);
+        }
+
         terminal.draw(|frame| render(frame, &app))?;
         if !event::poll(Duration::from_millis(50))? {
             continue;
@@ -42,9 +54,19 @@ fn run(terminal: &mut ratatui::DefaultTerminal) -> Result<()> {
             }
             Some(Action::Run(argv)) => {
                 app.record_command(&argv);
-                let result = converge_cli::execute(argv.iter().cloned());
-                app.record_result(result);
-                refresh(&mut app);
+                if is_remote_command(&argv) {
+                    // Never block the event loop on the network.
+                    app.record_in_flight(&argv);
+                    let tx = tx.clone();
+                    std::thread::spawn(move || {
+                        let result = converge_cli::execute(argv.iter().cloned());
+                        let _ = tx.send((argv, result));
+                    });
+                } else {
+                    let result = converge_cli::execute(argv.iter().cloned());
+                    app.record_result(result);
+                    refresh(&mut app);
+                }
             }
             None => {}
         }
@@ -61,6 +83,7 @@ fn refresh(app: &mut App) {
         .ok()
         .and_then(|v| v.as_array().cloned())
         .unwrap_or_default();
+    app.remote = converge_cli::execute(["remote"]).ok();
 }
 
 fn render(frame: &mut Frame, app: &App) {
@@ -96,6 +119,38 @@ fn render(frame: &mut Frame, app: &App) {
 
     // Body: active view.
     match app.current_view() {
+        View::Root if app.context == app::Context::Remote => {
+            let (primary, _) = app.primary_action();
+            let target = app
+                .remote
+                .as_ref()
+                .filter(|r| r["configured"].as_bool().unwrap_or(false))
+                .map(|r| {
+                    format!(
+                        "{}/{}/{} @ {}",
+                        r["repo_id"].as_str().unwrap_or(""),
+                        r["scope"].as_str().unwrap_or(""),
+                        r["gate"].as_str().unwrap_or(""),
+                        r["base_url"].as_str().unwrap_or("")
+                    )
+                })
+                .unwrap_or_else(|| "not configured (run login)".to_string());
+            let last_published = app
+                .remote
+                .as_ref()
+                .and_then(|r| r["last_published_snap"].as_str())
+                .unwrap_or("none");
+            let lines = vec![
+                Line::raw(format!("remote: {target}")),
+                Line::raw(format!("last published snap: {last_published}")),
+                Line::raw(""),
+                Line::styled(
+                    format!("Enter: {primary}"),
+                    Style::default().add_modifier(Modifier::BOLD),
+                ),
+            ];
+            frame.render_widget(Paragraph::new(lines).block(view_block(app)), body);
+        }
         View::Root => {
             let (primary, _) = app.primary_action();
             let lines = vec![
@@ -133,7 +188,7 @@ fn render(frame: &mut Frame, app: &App) {
     }
 
     // Last strip: command echo cyan, output white, errors red (UX spec §4).
-    let last_lines: Vec<Line> = app
+    let mut last_lines: Vec<Line> = app
         .last
         .iter()
         .map(|entry| match entry {
@@ -142,6 +197,12 @@ fn render(frame: &mut Frame, app: &App) {
             LastLine::Error(text) => Line::styled(text.clone(), Style::default().fg(Color::Red)),
         })
         .collect();
+    if let Some(label) = &app.in_flight {
+        last_lines.push(Line::styled(
+            format!("… {label} (running)"),
+            Style::default().fg(Color::Yellow),
+        ));
+    }
     frame.render_widget(
         Paragraph::new(last_lines).block(Block::default().borders(Borders::TOP).title("Last")),
         last,
