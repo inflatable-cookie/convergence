@@ -1,4 +1,5 @@
 mod app;
+mod trace;
 mod wizard;
 
 use std::time::Duration;
@@ -18,21 +19,33 @@ use wizard::{Wizard, WizardKind, WizardStep};
 type WorkerResult = (Vec<String>, anyhow::Result<serde_json::Value>);
 
 fn main() -> Result<()> {
+    // `--agent-trace <path>` is the only flag (UX spec §4.3).
+    let mut args = std::env::args().skip(1);
+    let mut trace_path = None;
+    while let Some(arg) = args.next() {
+        match arg.as_str() {
+            "--agent-trace" => trace_path = args.next().map(std::path::PathBuf::from),
+            other => anyhow::bail!("unknown argument {other}"),
+        }
+    }
+    let mut trace = trace::Trace::from_arg_or_env(trace_path.as_deref());
     let mut terminal = ratatui::init();
-    let result = run(&mut terminal);
+    let result = run(&mut terminal, &mut trace);
     ratatui::restore();
     result
 }
 
-fn run(terminal: &mut ratatui::DefaultTerminal) -> Result<()> {
+fn run(terminal: &mut ratatui::DefaultTerminal, trace: &mut trace::Trace) -> Result<()> {
     let mut app = App::default();
     let (tx, rx) = std::sync::mpsc::channel::<WorkerResult>();
     refresh(&mut app);
+    trace.session_start();
 
     loop {
+        trace_screen(trace, &app);
         // Deliver finished worker results without blocking.
         while let Ok((argv, result)) = rx.try_recv() {
-            let _ = argv;
+            trace.command_result(&argv, &result);
             app.finish_in_flight();
             app.record_result(result);
             refresh(&mut app);
@@ -48,8 +61,15 @@ fn run(terminal: &mut ratatui::DefaultTerminal) -> Result<()> {
         if key.kind != event::KeyEventKind::Press {
             continue;
         }
-        match app.handle_key(key) {
-            Some(Action::Quit) => return Ok(()),
+        let action = app.handle_key(key);
+        if let Some(action) = &action {
+            trace.user_action(&action_label(action), &format!("{:?}", key.code));
+        }
+        match action {
+            Some(Action::Quit) => {
+                trace.session_end();
+                return Ok(());
+            }
             Some(Action::Enter(view)) => {
                 app.frames.push(view);
                 refresh(&mut app);
@@ -136,6 +156,7 @@ fn run(terminal: &mut ratatui::DefaultTerminal) -> Result<()> {
                     });
                 } else {
                     let result = converge_cli::execute(argv.iter().cloned());
+                    trace.command_result(&argv, &result);
                     app.record_result(result);
                     refresh(&mut app);
                 }
@@ -143,6 +164,43 @@ fn run(terminal: &mut ratatui::DefaultTerminal) -> Result<()> {
             None => {}
         }
     }
+}
+
+fn action_label(action: &Action) -> String {
+    match action {
+        Action::Run(argv) => argv.join(" "),
+        Action::Enter(view) => format!("enter {}", view.title()),
+        Action::StartWizard(kind) => format!("wizard {kind:?}"),
+        Action::EnterResolution(snap) => format!("resolve {snap}"),
+        Action::ApplyResolution => "resolve apply".into(),
+        Action::Quit => "quit".into(),
+    }
+}
+
+/// Emit the current screen's semantic signature (deduped inside Trace).
+fn trace_screen(trace: &mut trace::Trace, app: &App) {
+    if !trace.enabled() {
+        return;
+    }
+    let screen_id = format!(
+        "{}:{}",
+        app.context.label().to_lowercase(),
+        app.current_view().title().to_lowercase()
+    );
+    let selectable: Vec<String> = match app.current_view() {
+        View::History => app
+            .snaps
+            .iter()
+            .filter_map(|s| s["id"].as_str().map(str::to_string))
+            .collect(),
+        View::Resolution => app
+            .resolution
+            .as_ref()
+            .map(|r| r.paths.iter().map(|(p, _)| p.clone()).collect())
+            .unwrap_or_default(),
+        View::Root => Vec::new(),
+    };
+    trace.screen_view(&screen_id, &selectable, app.primary_action().0);
 }
 
 /// Pull view data through the CLI layer (arch 15: no bespoke semantics).

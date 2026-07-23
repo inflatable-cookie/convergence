@@ -1,6 +1,6 @@
 # 004 TUI Rebuild
 
-Status: active
+Status: complete
 Owner: repo maintainers
 Updated: 2026-07-24
 
@@ -54,7 +54,7 @@ principles, fix the seven warts.
 
 ### Batch 4.4 - Agent Trace
 
-- [ ] JSONL semantic trace: screen_view (selectable items, primary CTA),
+- [x] JSONL semantic trace: screen_view (selectable items, primary CTA),
       user_action, state_change, classified errors, deduped by signature
 
 ## Exit Criteria
@@ -63,6 +63,16 @@ principles, fix the seven warts.
 - UX spec sections 1-6 implemented; all seven section-7 warts fixed
 - `effigy validate` green
 
+## Outcome
+
+All four batches complete. UX spec sections 1-5 implemented and all seven
+section-7 warts fixed (async remote, Alt-jump keys, wizard back/review,
+structured options, quit confirm, named context, no log pane). Workflow
+profiles (spec §4.6) were an explicit non-goal here and move to a later
+roadmap with releases.
+
 ## Next Task
 
-Execute the ready Batch 4.4 card (`batch-cards/014-tui-agent-trace.md`).
+Ask operator intent for the next execution owner (`g02.005` candidates:
+releases/retention/GC, external backends (Postgres/S3), real identity,
+edge nodes, workflow profiles).

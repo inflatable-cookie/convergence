@@ -260,6 +260,24 @@ impl App {
             };
         }
 
+        // Contextual jump layer (UX spec wart 2 fix, Alt+N template):
+        // works regardless of input state, so it never fights the console.
+        if key.modifiers.contains(crossterm::event::KeyModifiers::ALT) {
+            match key.code {
+                KeyCode::Char('h') => {
+                    if self.current_view() != View::History {
+                        return Some(Action::Enter(View::History));
+                    }
+                    return None;
+                }
+                KeyCode::Char('r') => {
+                    self.frames.truncate(1);
+                    return None;
+                }
+                _ => {}
+            }
+        }
+
         match key.code {
             KeyCode::Esc => {
                 // UX spec §3 layered back, with the wart fix: quitting from
@@ -553,6 +571,20 @@ mod tests {
         assert!(is_remote_command(&argv("fetch")));
         assert!(!is_remote_command(&argv("snap")));
         assert!(!is_remote_command(&argv("history")));
+    }
+
+    #[test]
+    fn alt_jump_keys_navigate_views() {
+        let mut app = App::default();
+        let alt = |c| KeyEvent::new(KeyCode::Char(c), KeyModifiers::ALT);
+        assert_eq!(
+            app.handle_key(alt('h')),
+            Some(Action::Enter(View::History)),
+            "Alt+h jumps to history even mid-typing"
+        );
+        app.frames.push(View::History);
+        app.handle_key(alt('r'));
+        assert_eq!(app.current_view(), View::Root, "Alt+r returns to root");
     }
 
     #[test]

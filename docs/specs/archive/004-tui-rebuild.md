@@ -1,6 +1,6 @@
 # 004 TUI Rebuild
 
-Status: active
+Status: complete
 Updated: 2026-07-24
 Roadmap: `g02.004`
 
@@ -22,8 +22,7 @@ the CLI surface first.
 - Batch 4.1 (command layer and shell core) complete.
 - Batch 4.2 (remote views and async) complete.
 - Batch 4.3 (wizards and resolution) complete.
-- Batch 4.4 has a ready card:
-  `docs/roadmaps/g02/batch-cards/014-tui-agent-trace.md`
+- All four batches complete; roadmap `g02.004` closed.
 
 ## Exit Condition
 
@@ -31,4 +30,5 @@ Roadmap `g02.004` exit criteria met.
 
 ## Next Task
 
-Execute the ready Batch 4.4 card.
+Archive this spec once the next owner opens; next move is an operator
+intent decision.

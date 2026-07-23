@@ -6,7 +6,7 @@
   - Notes: |
     Post-research planning gate (001, complete), archive-and-rebuild
     boundary (002, complete), rebuild implementation vertical slice
-    (003, complete), TUI rebuild (004, active).
+    (003, complete), TUI rebuild (004, complete).
 
 - `g01`
   - Status: complete

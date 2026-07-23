@@ -47,6 +47,7 @@ prefers `cargo nextest` when it is available on the machine.
 
 ## Next Task
 
-Execute the ready `g02.004` Batch 4.4 card
-(`roadmaps/g02/batch-cards/014-tui-agent-trace.md`).002` Batch 2.4 rebuild-architecture card
+Intent checkpoint: pick the next `g02.005` owner (releases/retention/GC,
+external backends, identity, edge nodes, or workflow profiles); the lane is
+in planning with no ready card.002` Batch 2.4 rebuild-architecture card
 (`roadmaps/g02/batch-cards/005-rebuild-architecture.md`).

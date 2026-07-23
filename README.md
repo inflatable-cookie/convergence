@@ -55,4 +55,6 @@ cargo nextest run -P ci
 
 ## Next task
 
-Execute the ready `g02.004` Batch 4.4 TUI agent-trace card.002` Batch 2.4 rebuild-architecture card.
+Intent checkpoint: pick the next `g02.005` owner (releases/retention/GC,
+external backends, identity, edge nodes, or workflow profiles); the lane is
+in planning with no ready card.002` Batch 2.4 rebuild-architecture card.

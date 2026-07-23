@@ -17,10 +17,12 @@ repo needs tighter execution grammar than the roadmap alone provides.
 
 ## Active Spec Set
 
-- [`004-tui-rebuild.md`](./004-tui-rebuild.md)
+There is no active spec; the lane is in planning awaiting operator intent.
 
 Archived specs live in [`archive/`](./archive/).
 
 ## Next Task
 
-Execute the ready `g02.004` Batch 4.4 card.002` Batch 2.4 rebuild-architecture card.
+Intent checkpoint: pick the next `g02.005` owner (releases/retention/GC,
+external backends, identity, edge nodes, or workflow profiles); the lane is
+in planning with no ready card.002` Batch 2.4 rebuild-architecture card.

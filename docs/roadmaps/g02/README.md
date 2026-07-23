@@ -10,11 +10,10 @@ boundary was named.
 
 ## Current State
 
-`g02.004` (TUI rebuild) is active. `g02.003` closed with the vertical
-slice proven end to end over HTTP.
+`g02.004` (TUI rebuild) is complete: shell, async remote, wizards,
+resolution view, agent trace — all seven UX-spec warts fixed.
 
-Ready batch card:
-[`batch-cards/014-tui-agent-trace.md`](./batch-cards/014-tui-agent-trace.md)
+There is no ready card; the lane is in planning awaiting operator intent.
 
 The paused posture is over. The lane is capture → archive cut → docs spine
 restructure → rebuild architecture definition. Batch 2.1 (capture) is
@@ -29,8 +28,10 @@ restructure) complete: docs tree reduced to the keeper spine.
 - [`001-post-research-execution-planning-gate.md`](./001-post-research-execution-planning-gate.md) — complete
 - [`002-archive-and-rebuild-boundary.md`](./002-archive-and-rebuild-boundary.md) — complete
 - [`003-rebuild-implementation-vertical-slice.md`](./003-rebuild-implementation-vertical-slice.md) — complete
-- [`004-tui-rebuild.md`](./004-tui-rebuild.md) — active
+- [`004-tui-rebuild.md`](./004-tui-rebuild.md) — complete
 
 ## Next Task
 
-Execute the ready `g02.004` Batch 4.4 card.002` Batch 2.4 rebuild-architecture card.
+Intent checkpoint: pick the next `g02.005` owner (releases/retention/GC,
+external backends, identity, edge nodes, or workflow profiles); the lane is
+in planning with no ready card.002` Batch 2.4 rebuild-architecture card.
