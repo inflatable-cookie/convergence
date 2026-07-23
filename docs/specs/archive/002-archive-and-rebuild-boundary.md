@@ -1,6 +1,7 @@
 # 002 Archive-and-Rebuild Boundary
 
-Status: complete
+Status: complete (archived 2026-07-23; exit condition met — `g02.003` opened,
+see `docs/specs/003-rebuild-vertical-slice.md`)
 Updated: 2026-07-23
 Roadmap: `g02.002`
 
@@ -91,5 +92,4 @@ governing surfaces.
 
 ## Next Task
 
-Compile the first rebuild implementation roadmap (`g02.003`) from
-architecture docs 13-16; archive this spec once `g02.003` opens.
+Superseded by `docs/specs/003-rebuild-vertical-slice.md`.

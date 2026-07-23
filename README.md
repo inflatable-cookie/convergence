@@ -55,4 +55,4 @@ cargo nextest run -P ci
 
 ## Next task
 
-Compile the first rebuild implementation roadmap (`g02.003`).002` Batch 2.4 rebuild-architecture card.
+Execute the ready `g02.003` Batch 3.1 workspace-scaffold card.002` Batch 2.4 rebuild-architecture card.

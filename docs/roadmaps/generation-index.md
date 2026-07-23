@@ -2,11 +2,11 @@
 
 - `g02`
   - Status: active
-  - Range: `001` to `002`
+  - Range: `001` to `003`
   - Notes: |
-    Post-research strict planning gate (001, complete) and the
-    archive-and-rebuild boundary (002, active): capture, archive cut,
-    docs spine restructure, rebuild architecture definition.
+    Post-research planning gate (001, complete), archive-and-rebuild
+    boundary (002, complete), rebuild implementation vertical slice
+    (003, active).
 
 - `g01`
   - Status: complete

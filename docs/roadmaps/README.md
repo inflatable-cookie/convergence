@@ -16,7 +16,7 @@ Convergence roadmaps hold executable milestone work.
 ## Current generation
 
 - Active generation: `g02`
-- Next roadmap ID: `g02.003`
+- Next roadmap ID: `g02.004`
 
 ## Index
 
@@ -29,10 +29,10 @@ records the closed state.
 
 ## Active strict lane
 
-- `g02.002` (archive-and-rebuild boundary) is the active roadmap.
-- `docs/specs/002-archive-and-rebuild-boundary.md` is the active strict
-  planning lane around that roadmap.
-- no ready card: `g02.002` is complete; lane is in planning for `g02.003`
+- `g02.003` (rebuild vertical slice) is the active roadmap.
+- `docs/specs/003-rebuild-vertical-slice.md` is the active strict planning
+  lane around that roadmap.
+- ready card: `g02/batch-cards/006-workspace-scaffold-and-model.md`
 
 ## Rollover guardrail
 
@@ -46,5 +46,4 @@ Before rollover:
 
 ## Next Task
 
-Compile the first rebuild implementation roadmap (`g02.003`) from
-architecture docs 13-16.002` Batch 2.4 rebuild-architecture card.
+Execute the ready `g02.003` Batch 3.1 card.002` Batch 2.4 rebuild-architecture card.

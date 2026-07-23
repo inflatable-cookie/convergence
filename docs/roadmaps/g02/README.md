@@ -10,8 +10,11 @@ boundary was named.
 
 ## Current State
 
-`g02.002` (archive-and-rebuild boundary) is complete. All four batches done;
+`g02.003` (rebuild vertical slice) is active. `g02.002` closed with the
 rebuild architecture promoted as `docs/architecture/13-16`.
+
+Ready batch card:
+[`batch-cards/006-workspace-scaffold-and-model.md`](./batch-cards/006-workspace-scaffold-and-model.md)
 
 The paused posture is over. The lane is capture → archive cut → docs spine
 restructure → rebuild architecture definition. Batch 2.1 (capture) is
@@ -25,8 +28,8 @@ restructure) complete: docs tree reduced to the keeper spine.
 
 - [`001-post-research-execution-planning-gate.md`](./001-post-research-execution-planning-gate.md) — complete
 - [`002-archive-and-rebuild-boundary.md`](./002-archive-and-rebuild-boundary.md) — complete
+- [`003-rebuild-implementation-vertical-slice.md`](./003-rebuild-implementation-vertical-slice.md) — active
 
 ## Next Task
 
-Compile the first rebuild implementation roadmap (`g02.003`) from
-architecture docs 13-16.002` Batch 2.4 rebuild-architecture card.
+Execute the ready `g02.003` Batch 3.1 card.002` Batch 2.4 rebuild-architecture card.

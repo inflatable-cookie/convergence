@@ -17,10 +17,10 @@ repo needs tighter execution grammar than the roadmap alone provides.
 
 ## Active Spec Set
 
-- [`002-archive-and-rebuild-boundary.md`](./002-archive-and-rebuild-boundary.md)
+- [`003-rebuild-vertical-slice.md`](./003-rebuild-vertical-slice.md)
 
 Archived specs live in [`archive/`](./archive/).
 
 ## Next Task
 
-Compile the first rebuild implementation roadmap (`g02.003`).002` Batch 2.4 rebuild-architecture card.
+Execute the ready `g02.003` Batch 3.1 card.002` Batch 2.4 rebuild-architecture card.
