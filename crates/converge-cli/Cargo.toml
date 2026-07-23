@@ -1,0 +1,8 @@
+[package]
+name = "converge-cli"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+converge-client.workspace = true
+converge-model.workspace = true

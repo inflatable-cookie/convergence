@@ -23,4 +23,4 @@ Archived specs live in [`archive/`](./archive/).
 
 ## Next Task
 
-Execute the ready `g02.003` Batch 3.1 card.002` Batch 2.4 rebuild-architecture card.
+Execute the ready `g02.003` Batch 3.2 card.002` Batch 2.4 rebuild-architecture card.

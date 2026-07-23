@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 
-use super::ids::ObjectId;
-use super::resolution::{VariantKey, VariantKeyKind};
+use crate::ids::ObjectId;
+use crate::resolution::{VariantKey, VariantKeyKind};
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Manifest {

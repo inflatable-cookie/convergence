@@ -2,11 +2,11 @@ use std::collections::BTreeMap;
 
 use anyhow::Result;
 
-use converge::model::{
+use converge_client::model::{
     Manifest, ManifestEntry, ManifestEntryKind, ResolutionDecision, SuperpositionVariant,
     SuperpositionVariantKind, VariantKey, VariantKeyKind,
 };
-use converge::store::LocalStore;
+use converge_client::store::LocalStore;
 
 #[test]
 fn validate_resolution_reports_missing_and_invalid() -> Result<()> {
@@ -45,14 +45,14 @@ fn validate_resolution_reports_missing_and_invalid() -> Result<()> {
     })?;
 
     let decisions = BTreeMap::<String, ResolutionDecision>::new();
-    let r = converge::resolve::validate_resolution(&store, &root, &decisions)?;
+    let r = converge_client::resolve::validate_resolution(&store, &root, &decisions)?;
     assert!(!r.ok);
     assert_eq!(r.missing, vec!["a.txt".to_string()]);
 
     let mut decisions = BTreeMap::<String, ResolutionDecision>::new();
     decisions.insert("a.txt".to_string(), ResolutionDecision::Key(v1.key()));
     decisions.insert("extra.txt".to_string(), ResolutionDecision::Index(0));
-    let r = converge::resolve::validate_resolution(&store, &root, &decisions)?;
+    let r = converge_client::resolve::validate_resolution(&store, &root, &decisions)?;
     assert!(r.ok);
     assert_eq!(r.extraneous, vec!["extra.txt".to_string()]);
 
@@ -67,7 +67,7 @@ fn validate_resolution_reports_missing_and_invalid() -> Result<()> {
     };
     let mut decisions = BTreeMap::<String, ResolutionDecision>::new();
     decisions.insert("a.txt".to_string(), ResolutionDecision::Key(wrong));
-    let r = converge::resolve::validate_resolution(&store, &root, &decisions)?;
+    let r = converge_client::resolve::validate_resolution(&store, &root, &decisions)?;
     assert!(!r.ok);
     assert_eq!(r.invalid_keys.len(), 1);
 

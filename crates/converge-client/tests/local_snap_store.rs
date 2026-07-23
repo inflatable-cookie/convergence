@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
 
-use converge::workspace::Workspace;
+use converge_client::workspace::Workspace;
 
 #[test]
 fn snap_and_restore_roundtrip() -> Result<()> {
@@ -102,7 +102,7 @@ fn chunked_file_roundtrip() -> Result<()> {
         .find(|e| e.name == "big.bin")
         .context("find big.bin entry")?;
     let recipe_id = match &e.kind {
-        converge::model::ManifestEntryKind::FileChunks { recipe, .. } => recipe.clone(),
+        converge_client::model::ManifestEntryKind::FileChunks { recipe, .. } => recipe.clone(),
         other => anyhow::bail!("expected FileChunks, got {:?}", other),
     };
     let recipe = ws.store.get_recipe(&recipe_id)?;

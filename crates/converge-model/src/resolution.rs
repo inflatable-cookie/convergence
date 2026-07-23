@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-use super::ids::ObjectId;
+use crate::ids::ObjectId;
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct VariantKey {

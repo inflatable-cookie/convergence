@@ -1,0 +1,7 @@
+[package]
+name = "converge-server"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+converge-model.workspace = true

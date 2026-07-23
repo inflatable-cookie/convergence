@@ -34,11 +34,11 @@ Governing surfaces: `docs/specs/003-rebuild-vertical-slice.md`,
 
 ### Batch 3.1 - Workspace Scaffold and Model
 
-- [ ] create the five-crate workspace; move salvaged `model/` into
+- [x] create the five-crate workspace; move salvaged `model/` into
       `converge-model`; collapse wire DTOs into it
-- [ ] implement FastCDC chunker + recipe format with property tests
+- [x] implement FastCDC chunker + recipe format with property tests
       (insert/delete edit stability)
-- [ ] `effigy.toml` tasks target the workspace
+- [x] `effigy.toml` tasks target the workspace
 
 ### Batch 3.2 - Client Core
 
@@ -72,5 +72,4 @@ Governing surfaces: `docs/specs/003-rebuild-vertical-slice.md`,
 
 ## Next Task
 
-Execute the ready Batch 3.1 card
-(`batch-cards/006-workspace-scaffold-and-model.md`).
+Execute the ready Batch 3.2 card (`batch-cards/007-client-core.md`).

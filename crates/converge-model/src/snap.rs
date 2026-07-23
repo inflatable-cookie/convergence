@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-use super::ids::ObjectId;
+use crate::ids::ObjectId;
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct SnapStats {
@@ -30,6 +30,9 @@ pub struct FileRecipeChunk {
 pub struct FileRecipe {
     pub version: u32,
     pub size: u64,
+    // Absent on version-1 (fixed-block) recipes from the g01 era.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub params: Option<crate::chunk::ChunkParams>,
     pub chunks: Vec<FileRecipeChunk>,
 }
 

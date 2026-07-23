@@ -2,11 +2,11 @@ use std::collections::BTreeMap;
 
 use anyhow::Result;
 
-use converge::model::{
+use converge_client::model::{
     Manifest, ManifestEntry, ManifestEntryKind, ResolutionDecision, SuperpositionVariant,
     SuperpositionVariantKind,
 };
-use converge::store::LocalStore;
+use converge_client::store::LocalStore;
 
 #[test]
 fn phase8_variant_keys_are_order_independent() -> Result<()> {
@@ -59,8 +59,8 @@ fn phase8_variant_keys_are_order_independent() -> Result<()> {
     let mut decisions = BTreeMap::new();
     decisions.insert("a.txt".to_string(), ResolutionDecision::Key(v2.key()));
 
-    let resolved1 = converge::resolve::apply_resolution(&store, &root1, &decisions)?;
-    let resolved2 = converge::resolve::apply_resolution(&store, &root2, &decisions)?;
+    let resolved1 = converge_client::resolve::apply_resolution(&store, &root1, &decisions)?;
+    let resolved2 = converge_client::resolve::apply_resolution(&store, &root2, &decisions)?;
 
     // Output should be identical regardless of input variant ordering.
     assert_eq!(resolved1.as_str(), resolved2.as_str());

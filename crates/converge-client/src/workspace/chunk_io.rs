@@ -45,6 +45,7 @@ pub(super) fn chunk_file_to_recipe_store(
     }
 
     let recipe = FileRecipe {
+        params: None,
         version: 1,
         size,
         chunks,
@@ -88,6 +89,7 @@ pub(super) fn chunk_file_to_recipe_id(
     }
 
     let recipe = FileRecipe {
+        params: None,
         version: 1,
         size,
         chunks,

@@ -1,6 +1,6 @@
 # 006 Workspace Scaffold and Model
 
-Status: ready
+Status: complete
 Updated: 2026-07-23
 Roadmap: `g02.003`
 Spec: `docs/specs/003-rebuild-vertical-slice.md`
@@ -49,6 +49,21 @@ format.
 - model changes required beyond mechanical moves — route through
   `docs/architecture/` first
 
+## Outcome
+
+- five-crate workspace up: `converge-model`, `converge-client` (salvage
+  migrated, tests moved), `converge-cli`/`converge-tui`/`converge-server`
+  stubs
+- `converge-model`: object model flattened to crate root, wire DTOs added
+  (`wire.rs`: negotiate/publication/bundle/lane/gate-graph, WIRE_VERSION),
+  FastCDC chunker (`chunk.rs`) with params recorded in the recipe header;
+  `FileRecipe.params` optional for g01 v1 recipes
+- 5 chunking property tests green: determinism, exact reassembly, bounded
+  insert/delete damage (<=4 chunks changed on mid-file edits of 16 MiB),
+  params in header
+- `effigy validate` green workspace-wide: fmt, clippy -D warnings,
+  12 nextest tests
+
 ## Next Task
 
-On completion, open the Batch 3.2 client-core card.
+Execute the Batch 3.2 client-core card (`007-client-core.md`).
