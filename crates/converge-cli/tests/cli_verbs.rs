@@ -339,3 +339,92 @@ fn annotate_edits_message_without_changing_identity() -> anyhow::Result<()> {
     assert_eq!(history[0]["message"], "added later");
     Ok(())
 }
+
+/// Batch 16.2 (audit P4.19): undo the capture, keep the work.
+#[test]
+fn unsnap_undoes_the_capture_and_leaves_the_tree() -> anyhow::Result<()> {
+    let tmp = tempfile::tempdir()?;
+    let root = tmp.path();
+    assert!(converge(root, &["init"]).status.success());
+
+    std::fs::write(root.join("a.txt"), "one")?;
+    let first = json_data(&converge(root, &["--json", "snap", "-m", "first"]));
+    std::fs::write(root.join("a.txt"), "two")?;
+    let second = json_data(&converge(root, &["--json", "snap", "-m", "second"]));
+
+    let undone = json_data(&converge(root, &["--json", "unsnap"]));
+    assert_eq!(undone["removed"], second["id"]);
+    assert_eq!(undone["head"], first["id"]);
+    assert_eq!(undone["record_deleted"], true);
+
+    // The work survives as pending changes — undo removed the capture,
+    // not the content.
+    assert_eq!(std::fs::read_to_string(root.join("a.txt"))?, "two");
+    let status = json_data(&converge(root, &["--json", "status"]));
+    assert_eq!(status["head"]["id"], first["id"]);
+    assert_eq!(status["pending"]["count"], 1);
+
+    // History no longer carries the undone snap.
+    let history = json_data(&converge(root, &["--json", "history"]));
+    assert!(
+        !history
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|s| s["id"] == second["id"]),
+        "undone snap is gone from history"
+    );
+
+    // Undoing the first capture leaves no head; `--keep` retains the record.
+    let undone = json_data(&converge(root, &["--json", "unsnap", "--keep"]));
+    assert_eq!(undone["removed"], first["id"]);
+    assert!(undone["head"].is_null());
+    assert_eq!(undone["record_deleted"], false);
+
+    // Nothing left to undo.
+    let out = converge(root, &["--json", "unsnap"]);
+    assert_eq!(out.status.code(), Some(1));
+    Ok(())
+}
+
+/// Batch 16.2 (audit P4.18): read-only browsing of a captured tree.
+#[test]
+fn show_lists_a_snap_tree_without_touching_the_workspace() -> anyhow::Result<()> {
+    let tmp = tempfile::tempdir()?;
+    let root = tmp.path();
+    assert!(converge(root, &["init"]).status.success());
+
+    std::fs::create_dir(root.join("src"))?;
+    std::fs::write(root.join("src/lib.rs"), "fn main() {}")?;
+    std::fs::write(root.join("top.txt"), "hello")?;
+    let snap = json_data(&converge(root, &["--json", "snap", "-m", "shown"]));
+    let snap_id = snap["id"].as_str().unwrap();
+
+    let shown = json_data(&converge(root, &["--json", "show", snap_id]));
+    assert_eq!(shown["kind"], "snap");
+    assert_eq!(shown["message"], "shown");
+    let names: Vec<&str> = shown["entries"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|e| e["name"].as_str().unwrap())
+        .collect();
+    assert_eq!(names, ["src/", "top.txt"], "dirs are marked as such");
+
+    // Descend into a directory.
+    let nested = json_data(&converge(
+        root,
+        &["--json", "show", snap_id, "--path", "src"],
+    ));
+    assert_eq!(nested["entries"][0]["name"], "lib.rs");
+    assert_eq!(nested["entries"][0]["kind"], "file");
+
+    // A path that is not a directory is a clear error, not a panic.
+    let out = converge(root, &["--json", "show", snap_id, "--path", "top.txt"]);
+    assert_eq!(out.status.code(), Some(1));
+
+    // Browsing changed nothing.
+    let status = json_data(&converge(root, &["--json", "status"]));
+    assert_eq!(status["pending"]["count"], 0);
+    Ok(())
+}

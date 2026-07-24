@@ -209,3 +209,117 @@ fn conflict_to_resolved_publish_without_out_of_band_knowledge() -> Result<()> {
     );
     Ok(())
 }
+
+/// Batch 16.2 (audit P1.3/P1.4): arriving at someone else's work must not
+/// need out-of-band knowledge either. Pull materializes; fetch checks out.
+#[test]
+fn arrival_paths_land_work_in_the_workspace() -> Result<()> {
+    let server_dir = tempfile::tempdir()?;
+    let base_url = start_server(server_dir.path())?;
+
+    let a_dir = tempfile::tempdir()?;
+    let a = a_dir.path();
+    assert!(converge(a, &["init"]).status.success());
+    login(a, &base_url, "token-a", "alice");
+    std::fs::write(a.join("shared.txt"), "alice version")?;
+    converge(a, &["snap", "-m", "alice"]);
+    assert!(
+        converge(a, &["sync", "push", "--lane", "lane-a"])
+            .status
+            .success()
+    );
+    let published = json_data(&converge(a, &["--json", "publish", "--lane", "lane-a"]));
+    let bundle_id = published["bundle"]["bundle_id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+
+    // Bob pulls the lane. Without --materialize he is told what to run
+    // next; with it, the workspace is updated in one step.
+    let b_dir = tempfile::tempdir()?;
+    let b = b_dir.path();
+    assert!(converge(b, &["init"]).status.success());
+    login(b, &base_url, "token-b", "bob");
+
+    let pulled = json_data(&converge(
+        b,
+        &["--json", "sync", "pull", "--lane", "lane-a"],
+    ));
+    assert_eq!(pulled["materialized"], false);
+    assert!(
+        !b.join("shared.txt").exists(),
+        "pull alone does not write files"
+    );
+    assert_eq!(
+        pulled["next"].as_str(),
+        Some(format!("restore {}", pulled["head"].as_str().unwrap()).as_str()),
+        "the manual step is named, not assumed"
+    );
+
+    let pulled = json_data(&converge(
+        b,
+        &[
+            "--json",
+            "sync",
+            "pull",
+            "--lane",
+            "lane-a",
+            "--materialize",
+        ],
+    ));
+    assert_eq!(pulled["materialized"], true);
+    assert_eq!(
+        std::fs::read_to_string(b.join("shared.txt"))?,
+        "alice version"
+    );
+
+    // Fetching a bundle with --checkout lands it as a snap to continue
+    // from, with the bundle as provenance (doc 17 §1).
+    let c_dir = tempfile::tempdir()?;
+    let c = c_dir.path();
+    assert!(converge(c, &["init"]).status.success());
+    login(c, &base_url, "token-b", "bob");
+
+    let bare = json_data(&converge(c, &["--json", "fetch", &bundle_id]));
+    assert!(bare["snap"].is_null());
+    assert_eq!(
+        bare["next"].as_str(),
+        Some(format!("show {bundle_id}").as_str())
+    );
+    assert!(
+        !c.join("shared.txt").exists(),
+        "a bare fetch writes no files"
+    );
+
+    // `show` works on the fetched bundle without materializing anything.
+    let shown = json_data(&converge(c, &["--json", "show", &bundle_id]));
+    assert_eq!(shown["kind"], "bundle");
+    assert_eq!(shown["entries"][0]["name"], "shared.txt");
+
+    let checked_out = json_data(&converge(c, &["--json", "fetch", &bundle_id, "--checkout"]));
+    let snap_id = checked_out["snap"]
+        .as_str()
+        .expect("checkout captures a snap");
+    assert_eq!(
+        std::fs::read_to_string(c.join("shared.txt"))?,
+        "alice version"
+    );
+    let status = json_data(&converge(c, &["--json", "status"]));
+    assert_eq!(status["head"]["id"], snap_id, "head follows the checkout");
+    assert_eq!(status["pending"]["count"], 0);
+
+    // --into and --checkout mean different things and refuse to be mixed.
+    let out = converge(
+        c,
+        &[
+            "--json",
+            "fetch",
+            &bundle_id,
+            "--checkout",
+            "--into",
+            "copy",
+        ],
+    );
+    assert_eq!(out.status.code(), Some(1));
+    Ok(())
+}

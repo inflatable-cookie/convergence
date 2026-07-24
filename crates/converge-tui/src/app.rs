@@ -87,7 +87,8 @@ impl ResolutionState {
 /// the rest run through the CLI layer verbatim.
 pub const COMMANDS: &[&str] = &[
     "approve", "bundle", "changes", "diff", "events", "fetch", "history", "inbox", "login",
-    "promote", "publish", "remote", "resolve", "restore", "snap", "status", "sync", "watch",
+    "promote", "publish", "remote", "resolve", "restore", "show", "snap", "status", "sync",
+    "unsnap", "watch",
 ];
 
 /// Commands that hit the network run on the async worker so the event loop
@@ -105,9 +106,10 @@ pub fn is_remote_command(argv: &[String]) -> bool {
                 | "sync"
                 | "inbox"
                 | "events"
-                // `resolve` may fetch a bundle before it can list or
-                // apply anything (batch 16.1).
+                // `resolve` and `show` may fetch a bundle before they can
+                // say anything about it (batches 16.1, 16.2).
                 | "resolve"
+                | "show"
         )
     )
 }
@@ -280,6 +282,11 @@ impl App {
             Some("login") if argv.len() == 1 => Some(Action::StartWizard(WizardKind::Login)),
             Some("publish") if argv.len() == 1 => Some(Action::StartWizard(WizardKind::Publish)),
             Some("resolve") if argv.len() == 2 => Some(Action::EnterResolution(argv[1].clone())),
+            // Undo confirms once, like restore and promote (UX spec §4.5).
+            Some("unsnap") => {
+                self.pending_confirm = Some(("undo the last snap".into(), Action::Run(argv)));
+                None
+            }
             Some(_) => Some(Action::Run(argv)),
             None => None,
         }

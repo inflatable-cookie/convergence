@@ -76,5 +76,4 @@ into a still-open window re-superposed it.
 
 ## Next Task
 
-Batch card 16.2 (arrival ergonomics: `sync pull --materialize`, `show`,
-`unsnap`, `fetch --into` rationalization).
+Batch card 16.2 (arrival ergonomics) — done, card 058.

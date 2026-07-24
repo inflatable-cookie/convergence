@@ -18,6 +18,9 @@ mod restore_materialize;
 mod root_lifecycle;
 mod snap_ops;
 mod thinning;
+mod undo;
+
+pub use undo::Unsnapped;
 
 #[derive(Clone)]
 pub struct Workspace {

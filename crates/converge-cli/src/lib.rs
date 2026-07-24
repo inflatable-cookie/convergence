@@ -212,12 +212,37 @@ enum Command {
         /// Fetch the latest release on this channel.
         #[arg(long)]
         release: Option<String>,
-        /// Materialize the fetched tree into a directory.
+        /// Materialize the fetched tree into a directory outside the
+        /// workspace (a copy; the workspace is untouched).
         #[arg(long)]
         into: Option<PathBuf>,
+        /// Check the bundle out into this workspace and continue from
+        /// it: the tree is captured as a snap and head moves.
+        #[arg(long)]
+        checkout: bool,
+        /// Overwrite uncaptured workspace changes when checking out.
+        #[arg(long)]
+        force: bool,
     },
     /// Show a bundle's record.
     Bundle { bundle_id: String },
+    /// Browse a snap or bundle read-only: record plus tree listing.
+    Show {
+        /// Local snap id, or a bundle id (fetched if not local yet).
+        target: String,
+        /// Directory inside the tree to list (default: the root).
+        #[arg(long, default_value = "")]
+        path: String,
+    },
+    /// Undo the head capture; the working tree is left alone.
+    Unsnap {
+        /// Keep the snap record instead of deleting it.
+        #[arg(long)]
+        keep: bool,
+        /// Undo even though the snap was published.
+        #[arg(long)]
+        force: bool,
+    },
     /// Show workspace status: changes, head, snaps, remote.
     Status,
     /// Set or replace a snap's message (identity is unaffected).
@@ -344,6 +369,12 @@ enum SyncCommand {
     },
     /// Pull a lane head's lineage into the local store.
     Pull {
+        /// Check the pulled head out into the workspace.
+        #[arg(long)]
+        materialize: bool,
+        /// Overwrite uncaptured workspace changes when materializing.
+        #[arg(long)]
+        force: bool,
         #[arg(long)]
         lane: String,
     },
@@ -785,6 +816,8 @@ fn run(cli: &Cli, mode: OutputMode, session: &Session) -> Result<serde_json::Val
             bundle_id,
             release,
             into,
+            checkout,
+            force,
         } => {
             let ws = session.workspace()?;
             let (client, remote) = remote_client(session, &ws)?;
@@ -795,15 +828,66 @@ fn run(cli: &Cli, mode: OutputMode, session: &Session) -> Result<serde_json::Val
                 }
                 (None, None) => anyhow::bail!("provide a bundle id or --release <channel>"),
             };
+            if *checkout && into.is_some() {
+                anyhow::bail!("--checkout works on this workspace; --into writes a copy elsewhere");
+            }
             // A fetched bundle for the configured target becomes the new
             // publish base (doc 17 §2) — see `fetch_bundle_tree`.
             let root = fetch_bundle_tree(session, &ws, &bundle_id)?;
             if let Some(dir) = into {
                 ws.materialize_manifest_to(&root, dir, true)?;
             }
-            emit(mode, root.as_str().to_string(), |root| {
-                println!("fetched bundle root manifest {root}");
-            })
+            // Checkout is the "continue from this bundle" move: the tree
+            // lands in the workspace and is captured with the bundle as
+            // its provenance edge (doc 17 §1).
+            let snap = if *checkout {
+                Some(ws.adopt_tree(
+                    &root,
+                    Some(format!("checkout of bundle {}", short(&bundle_id))),
+                    Some(&bundle_id),
+                    *force,
+                )?)
+            } else {
+                None
+            };
+
+            #[derive(Serialize)]
+            struct Fetched {
+                bundle_id: String,
+                root_manifest: String,
+                snap: Option<String>,
+                materialized_to: Option<String>,
+                next: Option<String>,
+            }
+            emit(
+                mode,
+                Fetched {
+                    bundle_id: bundle_id.clone(),
+                    root_manifest: root.as_str().to_string(),
+                    snap: snap.map(|s| s.id),
+                    materialized_to: into.as_ref().map(|d| d.display().to_string()),
+                    // A bare fetch is invisible without this (audit P1.4).
+                    next: (!*checkout && into.is_none()).then(|| format!("show {bundle_id}")),
+                },
+                |f| match (&f.snap, &f.materialized_to) {
+                    (Some(snap), _) => {
+                        println!("checked out bundle {} as snap {snap}", short(&f.bundle_id))
+                    }
+                    (None, Some(dir)) => {
+                        println!("fetched bundle {} into {dir}", short(&f.bundle_id))
+                    }
+                    (None, None) => {
+                        println!(
+                            "fetched bundle {} into the local store (nothing materialized)",
+                            short(&f.bundle_id)
+                        );
+                        println!(
+                            "next: converge show {} | converge fetch {} --checkout",
+                            f.bundle_id, f.bundle_id
+                        );
+                    }
+                },
+            )
         }
         Command::Watch { interval_ms, once } => {
             let ws = session.workspace()?;
@@ -890,6 +974,102 @@ fn run(cli: &Cli, mode: OutputMode, session: &Session) -> Result<serde_json::Val
                     println!("no remote configured");
                 }
             })
+        }
+        Command::Show { target, path } => {
+            let ws = session.workspace()?;
+            let (root, bundle_id) = resolve_target(session, &ws, target)?;
+            let listing = list_tree(&ws, &root, path)?;
+            let snap = ws.store.get_snap(target).ok();
+
+            #[derive(Serialize)]
+            struct Shown {
+                target: String,
+                kind: &'static str,
+                root_manifest: String,
+                derived_from_bundle: Option<String>,
+                message: Option<String>,
+                created_at: Option<String>,
+                path: String,
+                entries: Vec<TreeEntry>,
+            }
+            emit(
+                mode,
+                Shown {
+                    target: target.clone(),
+                    kind: if snap.is_some() { "snap" } else { "bundle" },
+                    root_manifest: root.as_str().to_string(),
+                    derived_from_bundle: snap
+                        .as_ref()
+                        .and_then(|s| s.derived_from_bundle.clone())
+                        .or(bundle_id),
+                    message: snap.as_ref().and_then(|s| s.message.clone()),
+                    created_at: snap.as_ref().map(|s| s.created_at.clone()),
+                    path: path.clone(),
+                    entries: listing,
+                },
+                |s| {
+                    println!("{} {}", s.kind, s.target);
+                    if let Some(created) = &s.created_at {
+                        println!("  captured {created}");
+                    }
+                    if let Some(message) = &s.message {
+                        println!("  message: {message}");
+                    }
+                    if let Some(bundle) = &s.derived_from_bundle {
+                        println!("  derived from bundle {bundle}");
+                    }
+                    println!(
+                        "  {}/  ({} entries)",
+                        if s.path.is_empty() { "" } else { &s.path },
+                        s.entries.len()
+                    );
+                    for entry in &s.entries {
+                        match entry.variants {
+                            Some(count) => {
+                                println!("  {}  superposed ({count} variants)", entry.name)
+                            }
+                            None => println!(
+                                "  {}  {}  {}",
+                                entry.name,
+                                entry.kind,
+                                entry
+                                    .size
+                                    .map(|s| s.to_string())
+                                    .unwrap_or_else(|| "-".into())
+                            ),
+                        }
+                    }
+                },
+            )
+        }
+        Command::Unsnap { keep, force } => {
+            let ws = session.workspace()?;
+            let undone = ws.unsnap(*keep, *force)?;
+
+            #[derive(Serialize)]
+            struct Unsnapped {
+                removed: String,
+                head: Option<String>,
+                record_deleted: bool,
+                message: Option<String>,
+            }
+            emit(
+                mode,
+                Unsnapped {
+                    removed: undone.removed.id.clone(),
+                    head: undone.head.clone(),
+                    record_deleted: undone.deleted,
+                    message: undone.removed.message.clone(),
+                },
+                |u| {
+                    println!("unsnapped {}", u.removed);
+                    match &u.head {
+                        Some(head) => println!("head is now {head}"),
+                        None => println!("no head snap (that was the first capture)"),
+                    }
+                    println!("the working tree is untouched — the changes are pending again");
+                },
+            )
         }
         Command::Bundle { bundle_id } => {
             let ws = session.workspace()?;
@@ -989,11 +1169,42 @@ fn run(cli: &Cli, mode: OutputMode, session: &Session) -> Result<serde_json::Val
                         println!("lane {} -> {}", h.lane_id, h.snap_id);
                     })
                 }
-                SyncCommand::Pull { lane } => {
+                SyncCommand::Pull {
+                    lane,
+                    materialize,
+                    force,
+                } => {
+                    // Pulling used to leave the user holding a snap id and
+                    // an undocumented `restore --force` (audit P1.3).
                     let head = client.pull_lane(&ws.store, &remote.repo_id, lane)?;
-                    emit(mode, head, |h| {
-                        println!("pulled lane head {h} (restore explicitly to use it)");
-                    })
+                    if *materialize {
+                        ws.restore_snap(&head, *force)?;
+                    }
+                    #[derive(Serialize)]
+                    struct Pulled {
+                        head: String,
+                        materialized: bool,
+                        next: Option<String>,
+                    }
+                    emit(
+                        mode,
+                        Pulled {
+                            head: head.clone(),
+                            materialized: *materialize,
+                            next: (!*materialize).then(|| format!("restore {head}")),
+                        },
+                        |p| {
+                            if p.materialized {
+                                println!("pulled lane head {} (workspace updated)", p.head);
+                            } else {
+                                println!("pulled lane head {}", p.head);
+                                println!(
+                                    "next: converge sync pull --materialize, or converge restore {}",
+                                    p.head
+                                );
+                            }
+                        },
+                    )
                 }
             }
         }
@@ -1311,6 +1522,70 @@ fn run_resolve(
             )
         }
     }
+}
+
+/// One row of a `show` listing.
+#[derive(Serialize)]
+struct TreeEntry {
+    name: String,
+    kind: &'static str,
+    size: Option<u64>,
+    /// Variant count when the path is superposed — the reason `show`
+    /// exists is to look at a tree before deciding, so an unresolved path
+    /// must be visible as such rather than rendered as a file.
+    variants: Option<usize>,
+}
+
+/// List one directory of a stored tree (batch 16.2, audit P4.18).
+fn list_tree(ws: &Workspace, root: &ObjectId, path: &str) -> Result<Vec<TreeEntry>> {
+    use converge_client::model::ManifestEntryKind as Kind;
+
+    let mut current = root.clone();
+    for segment in path.split('/').filter(|s| !s.is_empty()) {
+        let manifest = ws.store.get_manifest(&current)?;
+        let entry = manifest
+            .entries
+            .into_iter()
+            .find(|e| e.name == segment)
+            .with_context(|| format!("{path}: no such path in this tree"))?;
+        match entry.kind {
+            Kind::Dir { manifest } => current = manifest,
+            _ => anyhow::bail!("{path}: not a directory"),
+        }
+    }
+
+    Ok(ws
+        .store
+        .get_manifest(&current)?
+        .entries
+        .into_iter()
+        .map(|entry| match entry.kind {
+            Kind::Dir { .. } => TreeEntry {
+                name: format!("{}/", entry.name),
+                kind: "dir",
+                size: None,
+                variants: None,
+            },
+            Kind::File { size, .. } | Kind::FileChunks { size, .. } => TreeEntry {
+                name: entry.name,
+                kind: "file",
+                size: Some(size),
+                variants: None,
+            },
+            Kind::Symlink { .. } => TreeEntry {
+                name: entry.name,
+                kind: "symlink",
+                size: None,
+                variants: None,
+            },
+            Kind::Superposition { variants } => TreeEntry {
+                name: entry.name,
+                kind: "superposition",
+                size: None,
+                variants: Some(variants.len()),
+            },
+        })
+        .collect())
 }
 
 /// One inbox row: what happened, and the argv that acts on it.

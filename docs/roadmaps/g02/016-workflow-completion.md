@@ -1,6 +1,6 @@
 # 016 Workflow Completion
 
-Status: in progress (16.1 complete)
+Status: in progress (16.1-16.2 complete)
 Owner: repo maintainers
 Updated: 2026-07-25
 
@@ -45,9 +45,13 @@ conflicts-as-data flow must complete without reading source code.
   two the audit named — a resolution republished into an open window
   re-superposed — fixed by counting variant membership as base
   containment (doc 17 §2)
-- **16.2 Arrival ergonomics**: `sync pull --materialize` (safe-restore
-  path from g02.012); `fetch --into` default behavior rationalized;
-  `show <snap|bundle>` read-only browser; `unsnap` undo per UX spec
+- **16.2 Arrival ergonomics** (complete, card 058): `sync pull
+  --materialize`; `fetch --checkout` lands a bundle as a snap to
+  continue from while `--into` keeps meaning "copy elsewhere";
+  `show <snap|bundle> [--path]` browses read-only and renders superposed
+  paths as such; `unsnap` undoes the capture and leaves the work,
+  refusing on non-leaf or published snaps. Both arrival verbs now name
+  the next command instead of printing an id
 - **16.3 Team onboarding**: server bootstrap verb (first admin, repo
   create, grant issue), member add/list from the CLI, documented
   two-user quickstart that works start to finish
@@ -65,4 +69,4 @@ conflicts-as-data flow must complete without reading source code.
 
 ## Next Task
 
-Open batch card 16.2 (arrival ergonomics).
+Open batch card 16.3 (team onboarding).
