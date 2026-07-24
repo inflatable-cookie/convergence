@@ -63,7 +63,7 @@ impl LocalStore {
     }
 
     pub fn put_manifest(&self, manifest: &Manifest) -> Result<ObjectId> {
-        let bytes = serde_json::to_vec(manifest).context("serialize manifest")?;
+        let bytes = crate::model::encoding::encode_manifest(manifest);
         put_object(self, KIND_MANIFESTS, &bytes)
     }
 
@@ -81,11 +81,12 @@ impl LocalStore {
 
     pub fn get_manifest(&self, id: &ObjectId) -> Result<Manifest> {
         let bytes = self.get_manifest_bytes(id)?;
-        serde_json::from_slice(&bytes).with_context(|| format!("parse manifest {}", id.as_str()))
+        crate::model::encoding::decode_manifest(&bytes)
+            .with_context(|| format!("parse manifest {}", id.as_str()))
     }
 
     pub fn put_recipe(&self, recipe: &FileRecipe) -> Result<ObjectId> {
-        let bytes = serde_json::to_vec(recipe).context("serialize recipe")?;
+        let bytes = crate::model::encoding::encode_recipe(recipe);
         put_object(self, KIND_RECIPES, &bytes)
     }
 
@@ -103,6 +104,7 @@ impl LocalStore {
 
     pub fn get_recipe(&self, id: &ObjectId) -> Result<FileRecipe> {
         let bytes = self.get_recipe_bytes(id)?;
-        serde_json::from_slice(&bytes).with_context(|| format!("parse recipe {}", id.as_str()))
+        crate::model::encoding::decode_recipe(&bytes)
+            .with_context(|| format!("parse recipe {}", id.as_str()))
     }
 }

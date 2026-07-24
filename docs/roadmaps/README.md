@@ -33,7 +33,7 @@ records the closed state.
   roadmap of the improvement program.
 - `docs/specs/010-scale-and-transport.md` is the active strict planning
   lane.
-- ready card: `g02/batch-cards/034-canonical-binary-encoding.md`
+- ready card: `g02/batch-cards/035-batched-transport.md`
 
 ## Rollover guardrail
 
@@ -47,4 +47,4 @@ Before rollover:
 
 ## Next Task
 
-Execute the ready `g02.010` Batch 10.1 encoding card.
+Execute the ready `g02.010` Batch 10.2 batched-transport card.

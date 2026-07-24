@@ -30,5 +30,4 @@ last because none of them change product semantics.
 
 ## Next Task
 
-Execute the ready Batch 10.1 card
-(`batch-cards/034-canonical-binary-encoding.md`).
+Execute the ready Batch 10.2 card (`batch-cards/035-batched-transport.md`).

@@ -46,6 +46,6 @@ pub(super) fn chunk_file_to_recipe_id(
         );
     }
     let (recipe, _) = chunk_data(&data, policy.params);
-    let bytes = serde_json::to_vec(&recipe).context("serialize recipe")?;
+    let bytes = crate::model::encoding::encode_recipe(&recipe);
     Ok(hash_bytes(&bytes))
 }

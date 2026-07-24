@@ -75,8 +75,10 @@ fn put_tree(fx: &Fixture, files: &[(&str, &[u8])]) -> Result<ObjectId> {
         version: 1,
         entries,
     };
-    fx.objects
-        .put(ObjectKind::Manifest, &serde_json::to_vec(&manifest)?)
+    fx.objects.put(
+        ObjectKind::Manifest,
+        &converge_model::encoding::encode_manifest(&manifest),
+    )
 }
 
 fn test_snap_record(tag: &str, root: converge_model::ObjectId) -> converge_model::SnapRecord {
@@ -150,9 +152,7 @@ fn promote(fx: &Fixture, bundle_id: &str) -> Result<()> {
 
 fn manifest_of(fx: &Fixture, bundle: &StoredBundle) -> Result<Manifest> {
     let root = bundle.root_manifest.clone().expect("root");
-    Ok(serde_json::from_slice(
-        &fx.objects.get(ObjectKind::Manifest, &root)?,
-    )?)
+    converge_model::encoding::decode_manifest(&fx.objects.get(ObjectKind::Manifest, &root)?)
 }
 
 fn entry<'m>(manifest: &'m Manifest, name: &str) -> Option<&'m ManifestEntryKind> {

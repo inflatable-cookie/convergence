@@ -20,8 +20,9 @@ encoding change, no shims.
 
 ## Current State
 
-- Batch 10.1 has a ready card:
-  `docs/roadmaps/g02/batch-cards/034-canonical-binary-encoding.md`
+- Batch 10.1 (canonical binary encoding) complete.
+- Batch 10.2 has a ready card:
+  `docs/roadmaps/g02/batch-cards/035-batched-transport.md`
 
 ## Exit Condition
 
@@ -30,4 +31,4 @@ program closes.
 
 ## Next Task
 
-Execute the ready Batch 10.1 card.
+Execute the ready Batch 10.2 card.

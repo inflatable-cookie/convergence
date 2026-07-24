@@ -221,7 +221,7 @@ fn emit_tree(
                 emit_file(stream, &path, mode, &store.get_blob(&blob)?);
             }
             ManifestEntryKind::FileChunks { recipe, mode, .. } => {
-                let recipe: FileRecipe = serde_json::from_slice(&store.get_recipe_bytes(&recipe)?)?;
+                let recipe: FileRecipe = store.get_recipe(&recipe)?;
                 let mut content = Vec::with_capacity(recipe.size as usize);
                 for chunk in &recipe.chunks {
                     content.extend_from_slice(&store.get_blob(&chunk.blob)?);

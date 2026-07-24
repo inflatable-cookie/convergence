@@ -47,5 +47,5 @@ prefers `cargo nextest` when it is available on the machine.
 
 ## Next Task
 
-Execute the ready `g02.010` Batch 10.1 card
-(`roadmaps/g02/batch-cards/034-canonical-binary-encoding.md`).
+Execute the ready `g02.010` Batch 10.2 card
+(`roadmaps/g02/batch-cards/035-batched-transport.md`).

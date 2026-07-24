@@ -80,3 +80,39 @@ fn params_recorded_in_recipe_header() {
     assert_eq!(recipe.params, Some(params));
     assert_eq!(recipe.version, converge_model::chunk_recipe_version());
 }
+
+/// Dev-only comparison (run with `cargo test -- --ignored`): canonical
+/// CBOR vs JSON on a synthetic 10k-entry manifest.
+#[test]
+#[ignore]
+fn encoding_benchmark_10k_entries() {
+    use converge_model::{Manifest, ManifestEntry, ManifestEntryKind, ObjectId};
+    let manifest = Manifest {
+        version: 1,
+        entries: (0..10_000)
+            .map(|i| ManifestEntry {
+                name: format!("file-{i:05}.bin"),
+                kind: ManifestEntryKind::File {
+                    blob: ObjectId(format!("{i:064x}")),
+                    mode: 0o644,
+                    size: i as u64,
+                },
+            })
+            .collect(),
+    };
+    let start = std::time::Instant::now();
+    let cbor = converge_model::encoding::encode_manifest(&manifest);
+    let cbor_encode = start.elapsed();
+    let start = std::time::Instant::now();
+    let json = serde_json::to_vec(&manifest).unwrap();
+    let json_encode = start.elapsed();
+    let start = std::time::Instant::now();
+    let _ = converge_model::encoding::decode_manifest(&cbor).unwrap();
+    let cbor_decode = start.elapsed();
+    eprintln!(
+        "10k entries: cbor {} bytes ({cbor_encode:?} enc, {cbor_decode:?} dec) vs json {} bytes ({json_encode:?} enc)",
+        cbor.len(),
+        json.len()
+    );
+    assert!(cbor.len() < json.len(), "canonical form is smaller");
+}

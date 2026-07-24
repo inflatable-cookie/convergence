@@ -55,4 +55,4 @@ cargo nextest run -P ci
 
 ## Next task
 
-Execute the ready `g02.010` Batch 10.1 encoding card.002` Batch 2.4 rebuild-architecture card.
+Execute the ready `g02.010` Batch 10.2 batched-transport card.002` Batch 2.4 rebuild-architecture card.

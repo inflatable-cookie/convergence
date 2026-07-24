@@ -244,7 +244,7 @@ fn file_text(objects: &dyn ObjectStore, kind: &ManifestEntryKind) -> Result<Opti
         ManifestEntryKind::File { blob, .. } => objects.get(ObjectKind::Blob, blob)?,
         ManifestEntryKind::FileChunks { recipe, .. } => {
             let recipe: FileRecipe =
-                serde_json::from_slice(&objects.get(ObjectKind::Recipe, recipe)?)?;
+                converge_model::encoding::decode_recipe(&objects.get(ObjectKind::Recipe, recipe)?)?;
             let mut out = Vec::with_capacity(recipe.size as usize);
             for chunk in &recipe.chunks {
                 out.extend_from_slice(&objects.get(ObjectKind::Blob, &chunk.blob)?);
@@ -333,13 +333,14 @@ fn build_tree(
         version: 1,
         entries: leaves,
     };
-    let bytes = serde_json::to_vec(&manifest).context("serialize merged manifest")?;
+    let bytes = converge_model::encoding::encode_manifest(&manifest);
     objects.put(ObjectKind::Manifest, &bytes)
 }
 
 fn load_manifest(objects: &dyn ObjectStore, id: &ObjectId) -> Result<Manifest> {
     let bytes = objects.get(ObjectKind::Manifest, id)?;
-    serde_json::from_slice(&bytes).with_context(|| format!("parse manifest {}", id.as_str()))
+    converge_model::encoding::decode_manifest(&bytes)
+        .with_context(|| format!("parse manifest {}", id.as_str()))
 }
 
 fn to_variants(source: String, kind: ManifestEntryKind) -> Vec<SuperpositionVariant> {

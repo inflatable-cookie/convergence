@@ -57,8 +57,10 @@ fn put_file(fx: &Fixture, name: &str, content: &[u8]) -> Result<ObjectId> {
             },
         }],
     };
-    fx.objects
-        .put(ObjectKind::Manifest, &serde_json::to_vec(&manifest)?)
+    fx.objects.put(
+        ObjectKind::Manifest,
+        &converge_model::encoding::encode_manifest(&manifest),
+    )
 }
 
 fn test_snap_record(tag: &str, root: converge_model::ObjectId) -> converge_model::SnapRecord {
@@ -123,7 +125,8 @@ fn publish(
 
 fn file_bytes(fx: &Fixture, bundle: &StoredBundle, name: &str) -> Result<Vec<u8>> {
     let root = bundle.root_manifest.clone().expect("root");
-    let manifest: Manifest = serde_json::from_slice(&fx.objects.get(ObjectKind::Manifest, &root)?)?;
+    let manifest: Manifest =
+        converge_model::encoding::decode_manifest(&fx.objects.get(ObjectKind::Manifest, &root)?)?;
     match &manifest
         .entries
         .iter()
@@ -234,7 +237,8 @@ fn overlapping_edits_superpose_original_variants() -> Result<()> {
         "true conflict superposes"
     );
     let root = bundle.root_manifest.clone().expect("root");
-    let manifest: Manifest = serde_json::from_slice(&fx.objects.get(ObjectKind::Manifest, &root)?)?;
+    let manifest: Manifest =
+        converge_model::encoding::decode_manifest(&fx.objects.get(ObjectKind::Manifest, &root)?)?;
     match &manifest.entries[0].kind {
         ManifestEntryKind::Superposition { variants } => {
             assert_eq!(variants.len(), 2, "original variants preserved");

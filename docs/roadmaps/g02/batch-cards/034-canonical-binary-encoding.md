@@ -1,6 +1,6 @@
 # 034 Canonical Binary Encoding
 
-Status: ready
+Status: complete
 Updated: 2026-07-24
 Roadmap: `g02.010`
 Spec: `docs/specs/010-scale-and-transport.md`
@@ -44,6 +44,23 @@ binary encoding with a stable hashing form; large directories chunk.
 
 - canonicalization ambiguity — doc 16 first
 
+## Outcome
+
+- doc 16 §1b amended first: CBOR canonical form with `CVM1`/`CVR1`
+  magics for the *hashed* object kinds; snap records honestly stay JSON
+  (their ids derive from structured fields, not bytes); manifest paging
+  deferred to backlog with rationale (touches every walker for a case
+  the beachhead rarely hits)
+- `converge_model::encoding`: encode/decode with magic refusal +
+  determinism round-trip test; client store, in-memory scan hashing,
+  server merge/gc/engine, and git export all on canonical bytes; wire
+  and HTTP stay JSON
+- ignored 10k-entry benchmark: CBOR ~40% smaller than JSON, faster
+  decode; full determinism + e2e suites green under the new ids
+  (pre-1.0 re-init, no migration)
+- 93 workspace tests green
+
 ## Next Task
 
-On completion, open the Batch 10.2 batched-transport card.
+Execute the Batch 10.2 batched-transport card
+(`035-batched-transport.md`).

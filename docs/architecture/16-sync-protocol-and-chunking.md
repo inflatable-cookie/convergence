@@ -39,6 +39,26 @@ request missing objects → materialize. Edges serve steps 1-2 from cache.
 Versioning: protocol carries an explicit version; servers refuse unknown
 majors. No silent compatibility shims pre-1.0.
 
+## 1b. Canonical object encoding (g02.010)
+
+Hashed stored objects (manifests, recipes) use a canonical binary
+encoding; JSON remains the HTTP/API representation.
+
+- encoding: CBOR (`ciborium`) of the model structs — serde field order is
+  declaration order, collections are ordered types (Vec/BTreeMap), so the
+  byte form is deterministic for identical values
+- each object is prefixed with a 4-byte magic + version:
+  `CVM1` (manifest), `CVR1` (recipe); decoders refuse unknown magics.
+  Snap records keep JSON (their ids derive from structured fields via
+  `compute_snap_id`, not from stored bytes)
+- **hashing operates on the canonical bytes** (magic included), so object
+  ids change from the JSON era — pre-1.0, stores re-init, no migration
+- blobs remain raw bytes
+
+Manifest paging for very large directories (>4096 entries) is **deferred
+to backlog**: it touches every manifest walker for a case the beachhead
+rarely hits; revisit against real trees.
+
 ## 2. Content-defined chunking
 
 g01 used fixed 4 MB blocks (8 MB threshold) — weak dedup on inserts/edits.

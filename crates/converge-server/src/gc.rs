@@ -8,7 +8,7 @@
 
 use std::collections::HashSet;
 
-use anyhow::{Context, Result, bail};
+use anyhow::{Result, bail};
 use serde::{Deserialize, Serialize};
 
 use converge_model::{FileRecipe, Manifest, ManifestEntryKind, ObjectId, SuperpositionVariantKind};
@@ -179,7 +179,7 @@ impl Engine<'_> {
         let Ok(bytes) = self.objects.get(ObjectKind::Manifest, id) else {
             return Ok(());
         };
-        let manifest: Manifest = serde_json::from_slice(&bytes).context("parse manifest")?;
+        let manifest: Manifest = converge_model::encoding::decode_manifest(&bytes)?;
         for entry in manifest.entries {
             match entry.kind {
                 ManifestEntryKind::File { blob, .. } => {
@@ -219,7 +219,7 @@ impl Engine<'_> {
         let Ok(bytes) = self.objects.get(ObjectKind::Recipe, id) else {
             return Ok(());
         };
-        let recipe: FileRecipe = serde_json::from_slice(&bytes).context("parse recipe")?;
+        let recipe: FileRecipe = converge_model::encoding::decode_recipe(&bytes)?;
         for chunk in recipe.chunks {
             marked.insert((ObjectKind::Blob, chunk.blob.as_str().to_string()));
         }

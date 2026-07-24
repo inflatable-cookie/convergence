@@ -87,7 +87,7 @@ pub(super) fn build_manifest_in_memory_impl(
         version: 1,
         entries,
     };
-    let bytes = serde_json::to_vec(&manifest).context("serialize manifest")?;
+    let bytes = crate::model::encoding::encode_manifest(&manifest);
     let id = hash_bytes(&bytes);
     manifests.insert(id.clone(), manifest);
     Ok(id)

@@ -206,7 +206,7 @@ impl Engine<'_> {
         let bytes = self
             .objects
             .get(crate::storage::ObjectKind::Manifest, root)?;
-        let manifest: converge_model::Manifest = serde_json::from_slice(&bytes)?;
+        let manifest: converge_model::Manifest = converge_model::encoding::decode_manifest(&bytes)?;
         for entry in &manifest.entries {
             let nested = match &entry.kind {
                 converge_model::ManifestEntryKind::Superposition { .. } => true,
