@@ -17,12 +17,10 @@ repo needs tighter execution grammar than the roadmap alone provides.
 
 ## Active Spec Set
 
-There is no active spec; the lane is in planning awaiting operator intent.
+- [`005-convergence-semantics-revision.md`](./005-convergence-semantics-revision.md)
 
 Archived specs live in [`archive/`](./archive/).
 
 ## Next Task
 
-Intent checkpoint: pick the next `g02.005` owner (releases/retention/GC,
-external backends, identity, edge nodes, or workflow profiles); the lane is
-in planning with no ready card.002` Batch 2.4 rebuild-architecture card.
+Execute the ready `g02.005` Batch 5.1 semantics-architecture card.002` Batch 2.4 rebuild-architecture card.

@@ -55,6 +55,4 @@ cargo nextest run -P ci
 
 ## Next task
 
-Intent checkpoint: pick the next `g02.005` owner (releases/retention/GC,
-external backends, identity, edge nodes, or workflow profiles); the lane is
-in planning with no ready card.002` Batch 2.4 rebuild-architecture card.
+Execute the ready `g02.005` Batch 5.1 semantics-architecture card.002` Batch 2.4 rebuild-architecture card.

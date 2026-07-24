@@ -47,7 +47,6 @@ prefers `cargo nextest` when it is available on the machine.
 
 ## Next Task
 
-Intent checkpoint: pick the next `g02.005` owner (releases/retention/GC,
-external backends, identity, edge nodes, or workflow profiles); the lane is
-in planning with no ready card.002` Batch 2.4 rebuild-architecture card
+Execute the ready `g02.005` Batch 5.1 card
+(`roadmaps/g02/batch-cards/015-semantics-architecture-revision.md`).002` Batch 2.4 rebuild-architecture card
 (`roadmaps/g02/batch-cards/005-rebuild-architecture.md`).

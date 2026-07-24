@@ -16,7 +16,7 @@ Convergence roadmaps hold executable milestone work.
 ## Current generation
 
 - Active generation: `g02`
-- Next roadmap ID: `g02.005`
+- Next roadmap ID: `g02.011`
 
 ## Index
 
@@ -29,9 +29,10 @@ records the closed state.
 
 ## Active strict lane
 
-- `g02.004` (TUI rebuild) is complete; the lane is in planning for the
-  next owner.
-- no ready card: `g02.004` complete; planning awaits operator intent
+- `g02.005` (convergence semantics revision) is the active roadmap.
+- `docs/specs/005-convergence-semantics-revision.md` is the active strict
+  planning lane; `g02.006`-`g02.010` are planned and open in sequence.
+- ready card: `g02/batch-cards/015-semantics-architecture-revision.md`
 
 ## Rollover guardrail
 
@@ -45,6 +46,4 @@ Before rollover:
 
 ## Next Task
 
-Intent checkpoint: pick the next `g02.005` owner (releases/retention/GC,
-external backends, identity, edge nodes, or workflow profiles); the lane is
-in planning with no ready card.002` Batch 2.4 rebuild-architecture card.
+Execute the ready `g02.005` Batch 5.1 semantics-architecture card.002` Batch 2.4 rebuild-architecture card.

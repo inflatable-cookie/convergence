@@ -2,11 +2,14 @@
 
 - `g02`
   - Status: active
-  - Range: `001` to `004`
+  - Range: `001` to `010`
   - Notes: |
     Post-research planning gate (001, complete), archive-and-rebuild
     boundary (002, complete), rebuild implementation vertical slice
-    (003, complete), TUI rebuild (004, complete).
+    (003, complete), TUI rebuild (004, complete), convergence semantics
+    revision (005, active), then planned in sequence: continuous capture
+    and workspace UX (006), lanes and collaboration (007), releases/
+    retention/GC (008), git interop (009), scale and transport (010).
 
 - `g01`
   - Status: complete
