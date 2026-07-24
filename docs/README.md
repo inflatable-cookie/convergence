@@ -47,5 +47,5 @@ prefers `cargo nextest` when it is available on the machine.
 
 ## Next Task
 
-Execute the ready `g02.009` Batch 9.2 card
-(`roadmaps/g02/batch-cards/031-git-export.md`).
+Execute the ready `g02.009` Batch 9.3 card
+(`roadmaps/g02/batch-cards/032-git-import.md`).

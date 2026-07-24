@@ -21,6 +21,11 @@ pub(crate) fn hash_bytes(bytes: &[u8]) -> ObjectId {
 }
 
 impl LocalStore {
+    /// The `.converge` directory this store lives in.
+    pub fn root_dir(&self) -> &Path {
+        &self.root
+    }
+
     // Sharded fanout: objects/<kind>/ab/cd/<hash>. Flat g01 layouts are not
     // read — the archive is history, not a migration source (arch 14/16).
     fn object_path(&self, kind: &str, id: &ObjectId) -> PathBuf {

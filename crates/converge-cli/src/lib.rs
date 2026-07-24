@@ -147,6 +147,11 @@ enum Command {
     Releases,
     /// Replay a bundle from provenance and prove its identity.
     Verify { bundle_id: String },
+    /// Git interop.
+    Git {
+        #[command(subcommand)]
+        command: GitCommand,
+    },
     /// Run server garbage collection (dry-run unless --execute).
     Gc {
         #[arg(long)]
@@ -177,6 +182,16 @@ enum Command {
         /// Run a single check-capture-thin cycle and exit (for tests).
         #[arg(long)]
         once: bool,
+    },
+}
+
+#[derive(Subcommand)]
+enum GitCommand {
+    /// Mirror the workspace head's lineage to a git branch.
+    Export {
+        /// Target branch (mirror; force-moved on re-export).
+        #[arg(long, default_value = "converge/lane/local")]
+        branch: String,
     },
 }
 
@@ -507,6 +522,26 @@ fn run(cli: &Cli, mode: OutputMode) -> Result<serde_json::Value> {
                     );
                 }
             })
+        }
+        Command::Git { command } => {
+            let ws = open_workspace()?;
+            match command {
+                GitCommand::Export { branch } => {
+                    let head = ws
+                        .store
+                        .get_head()?
+                        .context("no head snap to export; run `converge snap` first")?;
+                    let report = converge_client::git_export::export_lineage(
+                        &ws.store, &ws.root, branch, &head,
+                    )?;
+                    emit(mode, report, |r| {
+                        println!(
+                            "exported {} commit(s) to {} ({} already mirrored)",
+                            r.exported_commits, r.branch, r.skipped_existing
+                        );
+                    })
+                }
+            }
         }
         Command::Verify { bundle_id } => {
             let ws = open_workspace()?;

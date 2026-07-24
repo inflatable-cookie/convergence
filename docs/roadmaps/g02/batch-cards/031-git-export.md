@@ -1,6 +1,6 @@
 # 031 Git Export
 
-Status: ready
+Status: complete
 Updated: 2026-07-24
 Roadmap: `g02.009`
 Spec: `docs/specs/009-git-interop.md`
@@ -44,6 +44,24 @@ fast-import, byte-fidelity proven.
 
 - mapping gap found — doc 18 first
 
+## Outcome
+
+- `git_export::export_lineage`: fast-import stream (marks, trailers,
+  full-tree emission with chunk reassembly, mode/symlink mapping),
+  oldest-first lineage with thinned-gap tolerance; mapping table
+  `.converge/git-map.json` makes re-export incremental (parents joined
+  by recorded sha); superposed trees refused with "resolve before
+  export"; `.converge/` auto-added to `.git/info/exclude`
+- CLI `converge git export [--branch]` (default `converge/lane/local`)
+  exporting the workspace head lineage — the card's lane/channel naming
+  arrives as sugar once import (9.3) and coexistence (9.4) land;
+  recorded as a simplification, mechanism unchanged
+- tests (git-on-PATH, graceful skip): 3-commit export with trailers,
+  clone-checkout byte-identical to workspace incl. binary file,
+  internals excluded, incremental re-export (0 then exactly 1 new),
+  superposed refusal
+- 88 workspace tests green
+
 ## Next Task
 
-On completion, open the Batch 9.3 import card.
+Execute the Batch 9.3 import card (`032-git-import.md`).

@@ -55,4 +55,4 @@ cargo nextest run -P ci
 
 ## Next task
 
-Execute the ready `g02.009` Batch 9.2 git-export card.002` Batch 2.4 rebuild-architecture card.
+Execute the ready `g02.009` Batch 9.3 git-import card.002` Batch 2.4 rebuild-architecture card.
