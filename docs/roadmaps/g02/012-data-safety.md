@@ -1,6 +1,6 @@
 # 012 Data Safety
 
-Status: in progress (12.1-12.2 complete)
+Status: in progress (12.1-12.3 complete)
 Owner: repo maintainers
 Updated: 2026-07-24
 
@@ -45,9 +45,10 @@ closes every audited loss path.
   pins protect not-yet-referenced objects independent of clock time,
   released when the tree is durably referenced; `upload_snap_record`
   verifies its root manifest object is present (audit M4)
-- **12.3 Honest sync failure**: `pull_lane` distinguishes 404 from
-  transient errors; `upload_tree` re-sorts child-first and re-verifies
-  leaf presence after interruption
+- **12.3 Honest sync failure** (complete, card 044): `pull_lane` treats
+  only 404 as a thinned gap and fails on transient errors; `upload_tree`
+  streams manifests child-first and negotiates leaves from all reachable
+  manifests so interrupted uploads heal on retry
 - **12.4 Durability details**: atomic + fsync'd writes for git-map,
   state, config, HEAD; git-map persisted before the ref moves; capture
   re-stats files to detect mid-write tears; `read_config` made pure
@@ -61,4 +62,4 @@ closes every audited loss path.
 
 ## Next Task
 
-Open batch card 12.3 (honest sync failure).
+Open batch card 12.4 (durability details).

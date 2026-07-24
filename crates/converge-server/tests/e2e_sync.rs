@@ -289,3 +289,185 @@ fn batch_cap_splitting_round_trips_a_larger_tree() -> Result<()> {
     );
     Ok(())
 }
+
+/// Server FS path for an object (mirrors FsObjectStore sharding).
+fn object_path(data_dir: &std::path::Path, kind_dir: &str, id: &str) -> std::path::PathBuf {
+    data_dir
+        .join("objects")
+        .join(kind_dir)
+        .join(&id[..2])
+        .join(&id[2..4])
+        .join(id)
+}
+
+/// Audit C4: a torn upload can leave leaf holes under manifests the
+/// server already has. Re-upload must detect and heal them instead of
+/// pruning on "server has manifest ⇒ has subtree".
+#[test]
+fn torn_server_tree_heals_on_reupload() -> Result<()> {
+    let server_dir = tempfile::tempdir()?;
+    let base_url = start_server(server_dir.path())?;
+    let client = RemoteClient::new(&base_url, "token-a");
+
+    let ws_dir = tempfile::tempdir()?;
+    let ws = Workspace::init(ws_dir.path(), false)?;
+    std::fs::write(ws_dir.path().join("top.txt"), "top content")?;
+    std::fs::create_dir(ws_dir.path().join("sub"))?;
+    std::fs::write(ws_dir.path().join("sub/inner.txt"), "inner content")?;
+    let snap = ws.create_snap(None)?;
+
+    let (bundle, _) = client.publish(
+        &ws.store,
+        "repo",
+        "scope",
+        "intake",
+        &snap,
+        None,
+        Some("lane-a".into()),
+        None,
+    )?;
+
+    // Simulate the tear: a leaf blob under the still-present root
+    // manifest, plus a child manifest, vanish server-side.
+    let root = ws.store.get_manifest(&snap.root_manifest)?;
+    let top_blob = root
+        .entries
+        .iter()
+        .find_map(|e| match &e.kind {
+            ManifestEntryKind::File { blob, .. } if e.name == "top.txt" => Some(blob.clone()),
+            _ => None,
+        })
+        .expect("top.txt blob");
+    let sub_manifest = root
+        .entries
+        .iter()
+        .find_map(|e| match &e.kind {
+            ManifestEntryKind::Dir { manifest } => Some(manifest.clone()),
+            _ => None,
+        })
+        .expect("sub manifest");
+    for (kind, id) in [("blobs", &top_blob), ("manifests", &sub_manifest)] {
+        let path = object_path(server_dir.path(), kind, id.as_str());
+        assert!(path.exists(), "{kind} object present before tear");
+        std::fs::remove_file(path)?;
+    }
+
+    // Re-upload heals both holes.
+    let stats = client.upload_tree(&ws.store, "repo", &snap.root_manifest)?;
+    assert!(
+        stats.uploaded >= 2,
+        "holes re-uploaded, got {}",
+        stats.uploaded
+    );
+
+    // Full tree fetches and materializes from a fresh store.
+    let ws_b_dir = tempfile::tempdir()?;
+    let ws_b = Workspace::init(ws_b_dir.path(), false)?;
+    let root_id = client.fetch_bundle(&ws_b.store, "repo", &bundle.bundle_id)?;
+    let out = tempfile::tempdir()?;
+    ws_b.materialize_manifest_to(&root_id, out.path(), true)?;
+    assert_eq!(
+        std::fs::read_to_string(out.path().join("top.txt"))?,
+        "top content"
+    );
+    assert_eq!(
+        std::fs::read_to_string(out.path().join("sub/inner.txt"))?,
+        "inner content"
+    );
+    Ok(())
+}
+
+/// A thinned ancestor (absent server-side, 404) is a legitimate gap:
+/// the pull succeeds and stops the walk there.
+#[test]
+fn pull_lane_tolerates_thinned_ancestor() -> Result<()> {
+    let server_dir = tempfile::tempdir()?;
+    let base_url = start_server(server_dir.path())?;
+    let client = RemoteClient::new(&base_url, "token-a");
+
+    let ws_dir = tempfile::tempdir()?;
+    let ws = Workspace::init(ws_dir.path(), false)?;
+    std::fs::write(ws_dir.path().join("f.txt"), "v1")?;
+    let snap1 = ws.create_snap(None)?;
+    std::fs::write(ws_dir.path().join("f.txt"), "v2")?;
+    let snap2 = ws.create_snap(None)?;
+    assert_eq!(snap2.parents, vec![snap1.id.clone()]);
+
+    // Upload only the head: its tree, its record, the lane head — the
+    // parent record never reaches the server (thinned).
+    client.upload_tree(&ws.store, "repo", &snap2.root_manifest)?;
+    let http = reqwest::blocking::Client::new();
+    let response = http
+        .put(format!("{base_url}/api/repos/repo/snaps/{}", snap2.id))
+        .bearer_auth("token-a")
+        .json(&snap2)
+        .send()?;
+    assert!(response.status().is_success(), "{}", response.text()?);
+    let response = http
+        .post(format!("{base_url}/api/repos/repo/lane-head"))
+        .bearer_auth("token-a")
+        .json(&serde_json::json!({
+            "lane_id": "lane-a",
+            "snap_id": snap2.id,
+            "force": false,
+        }))
+        .send()?;
+    assert!(response.status().is_success(), "{}", response.text()?);
+
+    let ws_b_dir = tempfile::tempdir()?;
+    let ws_b = Workspace::init(ws_b_dir.path(), false)?;
+    let pulled = client.pull_lane(&ws_b.store, "repo", "lane-a")?;
+    assert_eq!(pulled, snap2.id);
+    assert!(ws_b.store.has_snap(&snap2.id));
+    assert!(
+        !ws_b.store.has_snap(&snap1.id),
+        "thinned parent stays absent"
+    );
+    Ok(())
+}
+
+/// Audit C5: a non-404 failure mid-walk must fail the pull, not
+/// masquerade as a thinned gap.
+#[test]
+fn pull_lane_fails_loudly_on_server_error() -> Result<()> {
+    // Stub server: healthy lane head, 500 on every snap record.
+    let listener = std::net::TcpListener::bind("127.0.0.1:0")?;
+    let addr = listener.local_addr()?;
+    listener.set_nonblocking(true)?;
+    std::thread::spawn(move || {
+        let runtime = tokio::runtime::Runtime::new().expect("test runtime");
+        runtime.block_on(async {
+            let app = axum::Router::new()
+                .route(
+                    "/api/repos/:repo/lane-head/:lane",
+                    axum::routing::get(|| async {
+                        axum::Json(serde_json::json!({
+                            "lane_id": "lane-a",
+                            "snap_id": "deadbeef",
+                            "updated_at": "2026-07-24T00:00:00Z",
+                        }))
+                    }),
+                )
+                .route(
+                    "/api/repos/:repo/snaps/:id",
+                    axum::routing::get(|| async {
+                        (axum::http::StatusCode::INTERNAL_SERVER_ERROR, "boom")
+                    }),
+                );
+            let listener = tokio::net::TcpListener::from_std(listener).expect("adopt listener");
+            axum::serve(listener, app).await.expect("serve");
+        });
+    });
+
+    let client = RemoteClient::new(&format!("http://{addr}"), "token-a");
+    let ws_dir = tempfile::tempdir()?;
+    let ws = Workspace::init(ws_dir.path(), false)?;
+    let err = client
+        .pull_lane(&ws.store, "repo", "lane-a")
+        .expect_err("500 mid-walk must fail the pull");
+    assert!(
+        err.to_string().contains("500"),
+        "error names the status: {err}"
+    );
+    Ok(())
+}

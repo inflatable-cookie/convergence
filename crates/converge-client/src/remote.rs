@@ -131,7 +131,7 @@ impl RemoteClient {
         root_manifest: &ObjectId,
     ) -> Result<UploadStats> {
         let manifests = collect_manifests(store, root_manifest)?;
-        let missing_manifests = self
+        let missing_set: BTreeSet<ObjectId> = self
             .negotiate(
                 repo_id,
                 ObjectSet {
@@ -139,12 +139,25 @@ impl RemoteClient {
                     ..Default::default()
                 },
             )?
-            .manifests;
+            .manifests
+            .into_iter()
+            .collect();
+        // Child-first: `collect_manifests` walks parent-first, so the
+        // reverse never streams a parent before its children — a torn
+        // batch stream cannot leave a parent without its subtree.
+        let missing_manifests: Vec<ObjectId> = manifests
+            .iter()
+            .rev()
+            .filter(|id| missing_set.contains(*id))
+            .cloned()
+            .collect();
 
-        // Only missing manifests' direct entries can name missing content.
+        // Negotiate leaves from every reachable manifest, not only the
+        // missing ones: a previously interrupted upload can have left
+        // leaf holes under manifests the server already has.
         let mut blobs = BTreeSet::new();
         let mut recipes = BTreeSet::new();
-        for manifest_id in &missing_manifests {
+        for manifest_id in &manifests {
             let manifest = store.get_manifest(manifest_id)?;
             collect_entry_objects(store, &manifest, &mut blobs, &mut recipes)?;
         }
@@ -173,7 +186,7 @@ impl RemoteClient {
             });
         }
         // Manifests last so a present root implies a complete subtree.
-        for id in missing_manifests.iter().rev() {
+        for id in &missing_manifests {
             frames.push(ObjectFrame {
                 kind: "manifests".into(),
                 id: id.clone(),
@@ -439,16 +452,19 @@ impl RemoteClient {
             if !seen.insert(id.clone()) || store.has_snap(&id) {
                 continue;
             }
-            let response = Self::check(
-                self.http
-                    .get(self.url(&format!("/api/repos/{repo_id}/snaps/{id}")))
-                    .bearer_auth(&self.token)
-                    .send()
-                    .context("get snap record")?,
-            );
-            // Thinned ancestors are absent server-side too: stop the walk
-            // at gaps instead of failing the pull.
-            let Ok(response) = response else { continue };
+            let response = self
+                .http
+                .get(self.url(&format!("/api/repos/{repo_id}/snaps/{id}")))
+                .bearer_auth(&self.token)
+                .send()
+                .context("get snap record")?;
+            // Thinned ancestors are absent server-side too: only a 404 is
+            // a gap. Anything else (5xx, auth, transport) fails the pull —
+            // a truncated lineage must not present as authoritative.
+            if response.status() == reqwest::StatusCode::NOT_FOUND {
+                continue;
+            }
+            let response = Self::check(response)?;
             let snap: SnapRecord = response.json().context("parse snap record")?;
             self.fetch_manifest_tree(store, repo_id, &snap.root_manifest)?;
             stack.extend(snap.parents.iter().cloned());
