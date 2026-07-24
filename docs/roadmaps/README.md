@@ -46,4 +46,4 @@ Before rollover:
 
 ## Next Task
 
-Execute the ready `g02.008` Batch 8.4 verify card.002` Batch 2.4 rebuild-architecture card.
+Execute the ready `g02.008` Batch 8.4 verify card.

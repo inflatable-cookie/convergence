@@ -4,26 +4,18 @@
 
 ## Context
 
-`g01` is complete as the foundational implementation, Northstar alignment, and
-research generation. `g02.001` held the post-research pause until a real
-boundary was named.
+`g01` closed as the foundational/research generation (archived on
+`archive/g01`). `g02` carried the archive-and-rebuild boundary and now
+runs the rebuild improvement program.
 
 ## Current State
 
 `g02.008` (releases, retention, and GC) is active. `g02.007` closed:
 lane registry with ACLs, unpublished sync, inbox, verified provenance.
-`g02.009`-`g02.010` remain planned.
+`g02.009`-`g02.010` remain planned and open in sequence.
 
 Ready batch card:
 [`batch-cards/029-provenance-verify.md`](./batch-cards/029-provenance-verify.md)
-
-The paused posture is over. The lane is capture → archive cut → docs spine
-restructure → rebuild architecture definition. Batch 2.1 (capture) is
-complete; artifacts live in `docs/rebuild/`.
-
-Batch 2.2 (archive cut) complete: `v0-legacy` tag, `archive/g01` branch,
-`main` stripped to docs + salvaged lib crate. Batch 2.3 (docs spine
-restructure) complete: docs tree reduced to the keeper spine.
 
 ## Lanes
 
@@ -40,4 +32,4 @@ restructure) complete: docs tree reduced to the keeper spine.
 
 ## Next Task
 
-Execute the ready `g02.008` Batch 8.4 verify card.002` Batch 2.4 rebuild-architecture card.
+Execute the ready `g02.008` Batch 8.4 verify card.
