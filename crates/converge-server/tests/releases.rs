@@ -133,7 +133,7 @@ fn release_policy_channel_heads_and_fetch() -> Result<()> {
     // Fetch by channel into a fresh workspace.
     let ws_b_dir = tempfile::tempdir()?;
     let ws_b = Workspace::init(ws_b_dir.path(), false)?;
-    let root = bob.fetch_bundle(&ws_b.store, &head.bundle_id)?;
+    let root = bob.fetch_bundle(&ws_b.store, "repo", &head.bundle_id)?;
     let out = tempfile::tempdir()?;
     ws_b.materialize_manifest_to(&root, out.path(), true)?;
     assert_eq!(std::fs::read_to_string(out.path().join("app.txt"))?, "v2");
@@ -247,7 +247,7 @@ fn gc_reclaims_unreachable_and_never_touches_reachable() -> Result<()> {
     let head = alice.get_channel_head("repo", "stable")?;
     let ws_b_dir = tempfile::tempdir()?;
     let ws_b = Workspace::init(ws_b_dir.path(), false)?;
-    let root = alice.fetch_bundle(&ws_b.store, &head.bundle_id)?;
+    let root = alice.fetch_bundle(&ws_b.store, "repo", &head.bundle_id)?;
     let out = tempfile::tempdir()?;
     ws_b.materialize_manifest_to(&root, out.path(), true)?;
     assert_eq!(

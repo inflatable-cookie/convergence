@@ -64,14 +64,32 @@ rarely hits; revisit against real trees.
 Object transfer moves in batches; the per-object routes remain valid
 within the same wire version (additive change).
 
-- `POST /api/objects/batch` — body: canonical CBOR sequence of
-  `ObjectFrame { kind, id, bytes }`; server verifies each frame's hash on
-  write (unchanged discipline); response reports the stored count
-- `POST /api/objects/batch-get` — body: JSON `ObjectSet`; response:
-  CBOR `ObjectFrame` sequence
+- `POST /api/repos/{repo}/objects/batch` — body: canonical CBOR sequence
+  of `ObjectFrame { kind, id, bytes }`; server verifies each frame's hash
+  on write (unchanged discipline); response reports the stored count
+- `POST /api/repos/{repo}/objects/batch-get` — body: JSON `ObjectSet`;
+  response: CBOR `ObjectFrame` sequence
 - batches are size-capped (default 8 MiB); clients split
 - resumability is unchanged: batches are idempotent puts, and a failed
   batch is simply renegotiated
+
+## 1d. Repo-scoped object access (g02.011)
+
+Objects are content-addressed and deduped across repos, so possession of
+a hash must not grant read access. All object and negotiate routes are
+repo-scoped (`/api/repos/{repo}/…`) and authorized against that repo;
+every server-side object write also records an object→repo association
+in metadata.
+
+- reads require the association: an object another repo uploaded is 404,
+  indistinguishable from absent
+- `negotiate` reports present-but-unassociated objects as **missing**;
+  the client's idempotent re-put is cheap and repairs the association —
+  cross-repo dedup still avoids re-storing bytes, never re-transfer
+- bundle-id-keyed reads (`/api/bundles/{id}`, provenance, verify)
+  resolve the bundle's repo and require `read` there; unauthorized and
+  absent are both 404 so bundle ids are not an existence oracle
+- GC sweep removes an object's associations with the object
 
 ## 2. Content-defined chunking
 

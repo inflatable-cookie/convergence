@@ -38,7 +38,7 @@ impl RemoteClient {
     }
 
     /// Upload frames in cap-split batches (doc 16 §1c).
-    fn put_frames(&self, frames: Vec<ObjectFrame>) -> Result<()> {
+    fn put_frames(&self, repo_id: &str, frames: Vec<ObjectFrame>) -> Result<()> {
         let mut batch: Vec<ObjectFrame> = Vec::new();
         let mut batch_bytes = 0usize;
         let flush = |batch: &mut Vec<ObjectFrame>| -> Result<()> {
@@ -49,7 +49,7 @@ impl RemoteClient {
             ciborium::into_writer(&batch, &mut body).context("encode batch")?;
             Self::check(
                 self.http
-                    .post(self.url("/api/objects/batch"))
+                    .post(self.url(&format!("/api/repos/{repo_id}/objects/batch")))
                     .bearer_auth(&self.token)
                     .body(body)
                     .send()
@@ -71,13 +71,13 @@ impl RemoteClient {
 
     /// Download a set of objects as CBOR frames (single batch request;
     /// callers keep requests bounded by walking in waves).
-    fn get_frames(&self, request: &ObjectSet) -> Result<Vec<ObjectFrame>> {
+    fn get_frames(&self, repo_id: &str, request: &ObjectSet) -> Result<Vec<ObjectFrame>> {
         if request.is_empty() {
             return Ok(Vec::new());
         }
         let response = Self::check(
             self.http
-                .post(self.url("/api/objects/batch-get"))
+                .post(self.url(&format!("/api/repos/{repo_id}/objects/batch-get")))
                 .bearer_auth(&self.token)
                 .json(request)
                 .send()
@@ -100,10 +100,10 @@ impl RemoteClient {
         bail!("server returned {status}: {body}")
     }
 
-    pub fn negotiate(&self, objects: ObjectSet) -> Result<ObjectSet> {
+    pub fn negotiate(&self, repo_id: &str, objects: ObjectSet) -> Result<ObjectSet> {
         let response = Self::check(
             self.http
-                .post(self.url("/api/negotiate"))
+                .post(self.url(&format!("/api/repos/{repo_id}/negotiate")))
                 .bearer_auth(&self.token)
                 .json(&NegotiateRequest {
                     wire_version: WIRE_VERSION,
@@ -119,13 +119,21 @@ impl RemoteClient {
     /// Upload everything reachable from `root_manifest` that the server does
     /// not have. Negotiates manifests first and prunes blob/recipe collection
     /// to the subtrees the server is missing (Merkle prune).
-    pub fn upload_tree(&self, store: &LocalStore, root_manifest: &ObjectId) -> Result<UploadStats> {
+    pub fn upload_tree(
+        &self,
+        store: &LocalStore,
+        repo_id: &str,
+        root_manifest: &ObjectId,
+    ) -> Result<UploadStats> {
         let manifests = collect_manifests(store, root_manifest)?;
         let missing_manifests = self
-            .negotiate(ObjectSet {
-                manifests: manifests.to_vec(),
-                ..Default::default()
-            })?
+            .negotiate(
+                repo_id,
+                ObjectSet {
+                    manifests: manifests.to_vec(),
+                    ..Default::default()
+                },
+            )?
             .manifests;
 
         // Only missing manifests' direct entries can name missing content.
@@ -135,11 +143,14 @@ impl RemoteClient {
             let manifest = store.get_manifest(manifest_id)?;
             collect_entry_objects(store, &manifest, &mut blobs, &mut recipes)?;
         }
-        let missing = self.negotiate(ObjectSet {
-            blobs: blobs.into_iter().collect(),
-            recipes: recipes.into_iter().collect(),
-            ..Default::default()
-        })?;
+        let missing = self.negotiate(
+            repo_id,
+            ObjectSet {
+                blobs: blobs.into_iter().collect(),
+                recipes: recipes.into_iter().collect(),
+                ..Default::default()
+            },
+        )?;
 
         let mut frames: Vec<ObjectFrame> = Vec::new();
         for id in &missing.recipes {
@@ -165,7 +176,7 @@ impl RemoteClient {
             });
         }
         let uploaded = frames.len();
-        self.put_frames(frames)?;
+        self.put_frames(repo_id, frames)?;
         Ok(UploadStats {
             negotiated_manifests: manifests.len(),
             uploaded,
@@ -184,7 +195,7 @@ impl RemoteClient {
         lane_id: Option<String>,
         notes: Option<String>,
     ) -> Result<(BundleRecord, UploadStats)> {
-        let stats = self.upload_tree(store, &snap.root_manifest)?;
+        let stats = self.upload_tree(store, repo_id, &snap.root_manifest)?;
         let response = Self::check(
             self.http
                 .post(self.url("/api/publish"))
@@ -218,18 +229,28 @@ impl RemoteClient {
     }
 
     /// Download a bundle's tree into the local store; returns the root.
-    pub fn fetch_bundle(&self, store: &LocalStore, bundle_id: &str) -> Result<ObjectId> {
+    pub fn fetch_bundle(
+        &self,
+        store: &LocalStore,
+        repo_id: &str,
+        bundle_id: &str,
+    ) -> Result<ObjectId> {
         let bundle = self.get_bundle(bundle_id)?;
         let root = bundle
             .root_manifest
             .context("bundle has no root manifest")?;
-        self.fetch_manifest_tree(store, &root)?;
+        self.fetch_manifest_tree(store, repo_id, &root)?;
         Ok(root)
     }
 
     /// Batched wave walk (doc 16 §1c): fetch manifests level by level,
     /// then their recipes, then all missing blobs in one request per wave.
-    fn fetch_manifest_tree(&self, store: &LocalStore, manifest_id: &ObjectId) -> Result<()> {
+    fn fetch_manifest_tree(
+        &self,
+        store: &LocalStore,
+        repo_id: &str,
+        manifest_id: &ObjectId,
+    ) -> Result<()> {
         let mut manifest_wave: Vec<ObjectId> = vec![manifest_id.clone()];
         let mut blobs = BTreeSet::new();
         let mut recipes = BTreeSet::new();
@@ -240,10 +261,13 @@ impl RemoteClient {
                 .filter(|id| !store.has_manifest(id))
                 .cloned()
                 .collect();
-            for frame in self.get_frames(&ObjectSet {
-                manifests: need,
-                ..Default::default()
-            })? {
+            for frame in self.get_frames(
+                repo_id,
+                &ObjectSet {
+                    manifests: need,
+                    ..Default::default()
+                },
+            )? {
                 store.put_manifest_bytes(&frame.id, &frame.bytes)?;
             }
             let mut next = Vec::new();
@@ -259,10 +283,13 @@ impl RemoteClient {
             .filter(|id| !store.has_recipe(id))
             .cloned()
             .collect();
-        for frame in self.get_frames(&ObjectSet {
-            recipes: need_recipes,
-            ..Default::default()
-        })? {
+        for frame in self.get_frames(
+            repo_id,
+            &ObjectSet {
+                recipes: need_recipes,
+                ..Default::default()
+            },
+        )? {
             store.put_recipe_bytes(&frame.id, &frame.bytes)?;
         }
         for id in &recipes {
@@ -277,10 +304,13 @@ impl RemoteClient {
             .filter(|id| !store.has_blob(id))
             .cloned()
             .collect();
-        for frame in self.get_frames(&ObjectSet {
-            blobs: need_blobs,
-            ..Default::default()
-        })? {
+        for frame in self.get_frames(
+            repo_id,
+            &ObjectSet {
+                blobs: need_blobs,
+                ..Default::default()
+            },
+        )? {
             store.put_blob(&frame.bytes)?;
         }
         Ok(())
@@ -360,7 +390,7 @@ impl RemoteClient {
         }
         // Deepest first so ancestry exists before descendants.
         for snap in chain.iter().rev() {
-            self.upload_tree(store, &snap.root_manifest)?;
+            self.upload_tree(store, repo_id, &snap.root_manifest)?;
             Self::check(
                 self.http
                     .put(self.url(&format!("/api/repos/{repo_id}/snaps/{}", snap.id)))
@@ -415,7 +445,7 @@ impl RemoteClient {
             // at gaps instead of failing the pull.
             let Ok(response) = response else { continue };
             let snap: SnapRecord = response.json().context("parse snap record")?;
-            self.fetch_manifest_tree(store, &snap.root_manifest)?;
+            self.fetch_manifest_tree(store, repo_id, &snap.root_manifest)?;
             stack.extend(snap.parents.iter().cloned());
             store.put_snap(&snap)?;
         }

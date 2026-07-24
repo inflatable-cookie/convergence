@@ -129,11 +129,11 @@ fn full_vertical_slice_over_http() -> Result<()> {
     assert_eq!(bundle_b.status, BundleStatus::Ready { promotable: false });
 
     // Re-upload is idempotent and negotiates to zero (resume behavior).
-    let stats_again = client_a.upload_tree(&ws_a.store, &snap_a.root_manifest)?;
+    let stats_again = client_a.upload_tree(&ws_a.store, "repo", &snap_a.root_manifest)?;
     assert_eq!(stats_again.uploaded, 0, "everything already on server");
 
     // Fetch the superposed bundle into A's store and resolve locally.
-    let root = client_a.fetch_bundle(&ws_a.store, &bundle_b.bundle_id)?;
+    let root = client_a.fetch_bundle(&ws_a.store, "repo", &bundle_b.bundle_id)?;
     let manifest = ws_a.store.get_manifest(&root)?;
     let superposed = manifest
         .entries
@@ -197,7 +197,8 @@ fn full_vertical_slice_over_http() -> Result<()> {
     // Fetch resolved bundle into a fresh workspace and materialize.
     let ws_c_dir = tempfile::tempdir()?;
     let ws_c = Workspace::init(ws_c_dir.path(), false)?;
-    let fetched_root: ObjectId = client_b.fetch_bundle(&ws_c.store, &resolved_bundle.bundle_id)?;
+    let fetched_root: ObjectId =
+        client_b.fetch_bundle(&ws_c.store, "repo", &resolved_bundle.bundle_id)?;
     let out = tempfile::tempdir()?;
     ws_c.materialize_manifest_to(&fetched_root, out.path(), true)?;
     assert_eq!(
@@ -217,7 +218,7 @@ fn wrong_wire_version_refused() -> Result<()> {
     let base_url = start_server(server_dir.path())?;
     let http = reqwest::blocking::Client::new();
     let response = http
-        .post(format!("{base_url}/api/negotiate"))
+        .post(format!("{base_url}/api/repos/repo/negotiate"))
         .bearer_auth("token-a")
         .json(&serde_json::json!({"wire_version": 999, "objects": {}}))
         .send()?;
@@ -232,7 +233,7 @@ fn unknown_token_unauthorized() -> Result<()> {
     let base_url = start_server(server_dir.path())?;
     let http = reqwest::blocking::Client::new();
     let response = http
-        .post(format!("{base_url}/api/negotiate"))
+        .post(format!("{base_url}/api/repos/repo/negotiate"))
         .bearer_auth("nope")
         .json(&serde_json::json!({"wire_version": 1, "objects": {}}))
         .send()?;
@@ -275,7 +276,7 @@ fn batch_cap_splitting_round_trips_a_larger_tree() -> Result<()> {
     // Fetch into a fresh store via batch-get waves and materialize.
     let ws_b_dir = tempfile::tempdir()?;
     let ws_b = Workspace::init(ws_b_dir.path(), false)?;
-    let root = client.fetch_bundle(&ws_b.store, &bundle.bundle_id)?;
+    let root = client.fetch_bundle(&ws_b.store, "repo", &bundle.bundle_id)?;
     let out = tempfile::tempdir()?;
     ws_b.materialize_manifest_to(&root, out.path(), true)?;
     assert_eq!(

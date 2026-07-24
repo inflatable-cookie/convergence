@@ -16,9 +16,9 @@ use converge_model::{
     ReleaseRequest, RetentionPolicy, SetLaneHeadRequest, SnapRecord, VerifyReport, WIRE_VERSION,
 };
 
-use crate::authz::{Capability, authorize};
+use crate::authz::{AuthzContext, Capability, authorize};
 use crate::engine::{Engine, PublishInput};
-use crate::storage::{MetadataStore, ObjectKind, ObjectStore, StoredBundle};
+use crate::storage::{AssociatingObjects, MetadataStore, ObjectKind, ObjectStore, StoredBundle};
 
 pub struct AppState {
     pub meta: Arc<dyn MetadataStore>,
@@ -33,10 +33,13 @@ type SharedState = Arc<AppState>;
 pub fn router(state: AppState) -> Router {
     Router::new()
         .route("/api/healthz", get(healthz))
-        .route("/api/negotiate", post(negotiate))
-        .route("/api/objects/:kind/:id", put(put_object).get(get_object))
-        .route("/api/objects/batch", post(put_batch))
-        .route("/api/objects/batch-get", post(get_batch))
+        .route("/api/repos/:repo/negotiate", post(negotiate))
+        .route(
+            "/api/repos/:repo/objects/:kind/:id",
+            put(put_object).get(get_object),
+        )
+        .route("/api/repos/:repo/objects/batch", post(put_batch))
+        .route("/api/repos/:repo/objects/batch-get", post(get_batch))
         .route("/api/publish", post(publish))
         .route("/api/bundles/:id", get(get_bundle))
         .route("/api/bundles/:id/provenance", get(get_provenance))
@@ -130,16 +133,41 @@ async fn healthz() -> Json<serde_json::Value> {
     Json(json!({"ok": true}))
 }
 
+/// Repo-scoped object view (batch 11.1): writes record the object→repo
+/// association; `has` answers for this repo only.
+fn scoped_objects<'a>(state: &'a AppState, repo: &str) -> AssociatingObjects<'a> {
+    AssociatingObjects {
+        inner: state.objects.as_ref(),
+        meta: state.meta.as_ref(),
+        repo_id: repo.to_string(),
+    }
+}
+
+fn authorize_repo(
+    state: &AppState,
+    headers: &HeaderMap,
+    repo: &str,
+    capability: Capability,
+) -> Result<AuthzContext, ApiError> {
+    let subject = subject(state, headers)?;
+    authorize(state.meta.as_ref(), &subject, repo, "*", capability)
+        .map_err(|err| forbidden(format!("{err:#}")))
+}
+
 async fn negotiate(
     State(state): State<SharedState>,
+    Path(repo): Path<String>,
     headers: HeaderMap,
     Json(request): Json<NegotiateRequest>,
 ) -> Result<Json<NegotiateResponse>, ApiError> {
-    subject(&state, &headers)?;
+    authorize_repo(&state, &headers, &repo, Capability::Publish)?;
     check_wire_version(request.wire_version)?;
+    // Present-but-unassociated counts as missing: the client's idempotent
+    // re-put is cheap and repairs the association for this repo.
+    let scoped = scoped_objects(&state, &repo);
     let missing_of = |kind: ObjectKind, ids: &[ObjectId]| -> Vec<ObjectId> {
         ids.iter()
-            .filter(|id| !state.objects.has(kind, id))
+            .filter(|id| !scoped.has(kind, id))
             .cloned()
             .collect()
     };
@@ -154,14 +182,13 @@ async fn negotiate(
 
 async fn put_object(
     State(state): State<SharedState>,
-    Path((kind, id)): Path<(String, String)>,
+    Path((repo, kind, id)): Path<(String, String, String)>,
     headers: HeaderMap,
     body: Bytes,
 ) -> Result<Json<serde_json::Value>, ApiError> {
-    subject(&state, &headers)?;
+    authorize_repo(&state, &headers, &repo, Capability::Publish)?;
     let kind = parse_kind(&kind)?;
-    state
-        .objects
+    scoped_objects(&state, &repo)
         .put_bytes(kind, &ObjectId(id), &body)
         .map_err(|err| bad_request(format!("{err:#}")))?;
     Ok(Json(json!({"ok": true})))
@@ -169,32 +196,50 @@ async fn put_object(
 
 async fn get_object(
     State(state): State<SharedState>,
-    Path((kind, id)): Path<(String, String)>,
+    Path((repo, kind, id)): Path<(String, String, String)>,
     headers: HeaderMap,
 ) -> Result<Bytes, ApiError> {
-    subject(&state, &headers)?;
+    authorize_repo(&state, &headers, &repo, Capability::Read)?;
     let kind = parse_kind(&kind)?;
+    let id = ObjectId(id);
+    // Membership check before content: an object another repo uploaded is
+    // 404 here, indistinguishable from absent.
+    if !state
+        .meta
+        .object_in_repo(&repo, kind, &id)
+        .map_err(|err| bad_request(format!("{err:#}")))?
+    {
+        return Err(not_found_object(kind, &id));
+    }
     state
         .objects
-        .get(kind, &ObjectId(id))
+        .get(kind, &id)
         .map(Bytes::from)
-        .map_err(|err| ApiError(StatusCode::NOT_FOUND, format!("{err:#}")))
+        .map_err(|_| not_found_object(kind, &id))
+}
+
+fn not_found_object(kind: ObjectKind, id: &ObjectId) -> ApiError {
+    ApiError(
+        StatusCode::NOT_FOUND,
+        format!("no {} {}", kind.dir(), id.as_str()),
+    )
 }
 
 /// Doc 16 §1c: CBOR frame batch upload.
 async fn put_batch(
     State(state): State<SharedState>,
+    Path(repo): Path<String>,
     headers: HeaderMap,
     body: Bytes,
 ) -> Result<Json<serde_json::Value>, ApiError> {
-    subject(&state, &headers)?;
+    authorize_repo(&state, &headers, &repo, Capability::Publish)?;
     let frames: Vec<ObjectFrame> = ciborium::from_reader(body.as_ref())
         .map_err(|err| bad_request(format!("decode batch: {err}")))?;
+    let scoped = scoped_objects(&state, &repo);
     let mut stored = 0u64;
     for frame in frames {
         let kind = parse_kind(&frame.kind)?;
-        state
-            .objects
+        scoped
             .put_bytes(kind, &frame.id, &frame.bytes)
             .map_err(|err| bad_request(format!("{err:#}")))?;
         stored += 1;
@@ -205,17 +250,25 @@ async fn put_batch(
 /// Doc 16 §1c: batch download as CBOR frames.
 async fn get_batch(
     State(state): State<SharedState>,
+    Path(repo): Path<String>,
     headers: HeaderMap,
     Json(request): Json<ObjectSet>,
 ) -> Result<Bytes, ApiError> {
-    subject(&state, &headers)?;
+    authorize_repo(&state, &headers, &repo, Capability::Read)?;
     let mut frames: Vec<ObjectFrame> = Vec::new();
     let mut collect = |kind: ObjectKind, name: &str, ids: &[ObjectId]| -> Result<(), ApiError> {
         for id in ids {
+            if !state
+                .meta
+                .object_in_repo(&repo, kind, id)
+                .map_err(|err| bad_request(format!("{err:#}")))?
+            {
+                return Err(not_found_object(kind, id));
+            }
             let bytes = state
                 .objects
                 .get(kind, id)
-                .map_err(|err| ApiError(StatusCode::NOT_FOUND, format!("{err:#}")))?;
+                .map_err(|_| not_found_object(kind, id))?;
             frames.push(ObjectFrame {
                 kind: name.to_string(),
                 id: id.clone(),
@@ -248,9 +301,10 @@ async fn publish(
         Capability::Publish,
     )
     .map_err(|err| forbidden(format!("{err:#}")))?;
+    let scoped = scoped_objects(&state, &request.repo_id);
     let engine = Engine {
         meta: state.meta.as_ref(),
-        objects: state.objects.as_ref(),
+        objects: &scoped,
     };
     let bundle = engine
         .publish(
@@ -490,16 +544,34 @@ async fn list_events(
     Ok(Json(events))
 }
 
+/// Resolve a bundle-id-keyed read: the bundle names its repo, the caller
+/// must hold `read` there. Unauthorized and absent are both 404 so bundle
+/// ids cannot be used as a cross-repo existence oracle.
+fn readable_bundle(
+    state: &AppState,
+    headers: &HeaderMap,
+    bundle_id: &str,
+) -> Result<StoredBundle, ApiError> {
+    let subject = subject(state, headers)?;
+    let missing = || ApiError(StatusCode::NOT_FOUND, format!("no bundle {bundle_id}"));
+    let bundle = state.meta.get_bundle(bundle_id).map_err(|_| missing())?;
+    authorize(
+        state.meta.as_ref(),
+        &subject,
+        &bundle.repo_id,
+        &bundle.scope_id,
+        Capability::Read,
+    )
+    .map_err(|_| missing())?;
+    Ok(bundle)
+}
+
 async fn get_bundle(
     State(state): State<SharedState>,
     Path(id): Path<String>,
     headers: HeaderMap,
 ) -> Result<Json<BundleRecord>, ApiError> {
-    subject(&state, &headers)?;
-    let bundle = state
-        .meta
-        .get_bundle(&id)
-        .map_err(|err| ApiError(StatusCode::NOT_FOUND, format!("{err:#}")))?;
+    let bundle = readable_bundle(&state, &headers, &id)?;
     Ok(Json(bundle_record(&bundle)))
 }
 
@@ -508,11 +580,7 @@ async fn get_provenance(
     Path(id): Path<String>,
     headers: HeaderMap,
 ) -> Result<Json<BundleProvenance>, ApiError> {
-    subject(&state, &headers)?;
-    let bundle = state
-        .meta
-        .get_bundle(&id)
-        .map_err(|err| ApiError(StatusCode::NOT_FOUND, format!("{err:#}")))?;
+    let bundle = readable_bundle(&state, &headers, &id)?;
     let mut inputs = Vec::new();
     for publication_id in &bundle.inputs {
         if let Some(publication) = state
@@ -534,10 +602,13 @@ async fn verify_bundle(
     Path(id): Path<String>,
     headers: HeaderMap,
 ) -> Result<Json<VerifyReport>, ApiError> {
-    subject(&state, &headers)?;
+    let bundle = readable_bundle(&state, &headers, &id)?;
+    // Replay writes intermediate objects (until 11.3 gives verify a
+    // throwaway store); scope them to the bundle's own repo.
+    let scoped = scoped_objects(&state, &bundle.repo_id);
     let engine = Engine {
         meta: state.meta.as_ref(),
-        objects: state.objects.as_ref(),
+        objects: &scoped,
     };
     let report = engine
         .verify(&id)

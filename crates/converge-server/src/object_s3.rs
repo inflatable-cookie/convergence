@@ -115,7 +115,7 @@ impl ObjectStore for S3ObjectStore {
                     &object.last_modified,
                     &time::format_description::well_known::Rfc3339,
                 )
-                .map(|t| std::time::SystemTime::from(t))
+                .map(std::time::SystemTime::from)
                 .unwrap_or(std::time::SystemTime::UNIX_EPOCH);
                 out.push((ObjectId(name.to_string()), object.size, mtime));
             }

@@ -128,6 +128,12 @@ impl SqliteMetadataStore {
                 to_gate TEXT NOT NULL,
                 promoted_at TEXT NOT NULL
             );
+            CREATE TABLE IF NOT EXISTS object_repos (
+                repo_id TEXT NOT NULL,
+                kind TEXT NOT NULL,
+                object_id TEXT NOT NULL,
+                PRIMARY KEY (repo_id, kind, object_id)
+            );
             ",
         )
         .context("init metadata schema")?;
@@ -765,5 +771,48 @@ impl MetadataStore for SqliteMetadataStore {
             out.push(row?);
         }
         Ok(out)
+    }
+
+    fn associate_object(
+        &self,
+        repo_id: &str,
+        kind: crate::storage::ObjectKind,
+        id: &ObjectId,
+    ) -> Result<()> {
+        let conn = self.conn.lock().expect("meta lock");
+        conn.execute(
+            "INSERT OR IGNORE INTO object_repos (repo_id, kind, object_id) VALUES (?1, ?2, ?3)",
+            params![repo_id, kind.dir(), id.as_str()],
+        )?;
+        Ok(())
+    }
+
+    fn object_in_repo(
+        &self,
+        repo_id: &str,
+        kind: crate::storage::ObjectKind,
+        id: &ObjectId,
+    ) -> Result<bool> {
+        let conn = self.conn.lock().expect("meta lock");
+        let n: u32 = conn.query_row(
+            "SELECT COUNT(*) FROM object_repos
+             WHERE repo_id = ?1 AND kind = ?2 AND object_id = ?3",
+            params![repo_id, kind.dir(), id.as_str()],
+            |row| row.get(0),
+        )?;
+        Ok(n > 0)
+    }
+
+    fn remove_object_associations(
+        &self,
+        kind: crate::storage::ObjectKind,
+        id: &ObjectId,
+    ) -> Result<()> {
+        let conn = self.conn.lock().expect("meta lock");
+        conn.execute(
+            "DELETE FROM object_repos WHERE kind = ?1 AND object_id = ?2",
+            params![kind.dir(), id.as_str()],
+        )?;
+        Ok(())
     }
 }

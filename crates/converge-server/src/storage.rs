@@ -163,4 +163,54 @@ pub trait MetadataStore: Send + Sync {
         at: &str,
     ) -> Result<()>;
     fn list_promotions(&self, bundle_id: &str) -> Result<Vec<(String, String, String)>>;
+
+    // object→repo association (g02.011 batch 11.1): objects are deduped
+    // across repos, so repo membership lives here, not in the object store.
+    fn associate_object(&self, repo_id: &str, kind: ObjectKind, id: &ObjectId) -> Result<()>;
+    fn object_in_repo(&self, repo_id: &str, kind: ObjectKind, id: &ObjectId) -> Result<bool>;
+    /// Drop every repo's association for an object (GC sweep only).
+    fn remove_object_associations(&self, kind: ObjectKind, id: &ObjectId) -> Result<()>;
+}
+
+/// Repo-scoped view over the shared object store: every write also records
+/// an object→repo association, and `has` answers for this repo only. Read
+/// endpoints enforce the association; `negotiate` reports present-but-
+/// unassociated objects as missing so an idempotent re-put repairs the row.
+pub struct AssociatingObjects<'a> {
+    pub inner: &'a dyn ObjectStore,
+    pub meta: &'a dyn MetadataStore,
+    pub repo_id: String,
+}
+
+impl ObjectStore for AssociatingObjects<'_> {
+    fn put(&self, kind: ObjectKind, bytes: &[u8]) -> Result<ObjectId> {
+        let id = self.inner.put(kind, bytes)?;
+        self.meta.associate_object(&self.repo_id, kind, &id)?;
+        Ok(id)
+    }
+
+    fn put_bytes(&self, kind: ObjectKind, id: &ObjectId, bytes: &[u8]) -> Result<()> {
+        self.inner.put_bytes(kind, id, bytes)?;
+        self.meta.associate_object(&self.repo_id, kind, id)
+    }
+
+    fn get(&self, kind: ObjectKind, id: &ObjectId) -> Result<Vec<u8>> {
+        self.inner.get(kind, id)
+    }
+
+    fn has(&self, kind: ObjectKind, id: &ObjectId) -> bool {
+        self.inner.has(kind, id)
+            && self
+                .meta
+                .object_in_repo(&self.repo_id, kind, id)
+                .unwrap_or(false)
+    }
+
+    fn list(&self, kind: ObjectKind) -> Result<Vec<(ObjectId, u64, std::time::SystemTime)>> {
+        self.inner.list(kind)
+    }
+
+    fn delete(&self, kind: ObjectKind, id: &ObjectId) -> Result<()> {
+        self.inner.delete(kind, id)
+    }
 }

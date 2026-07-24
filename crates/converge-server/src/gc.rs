@@ -160,6 +160,7 @@ impl Engine<'_> {
                 report.swept_bytes += bytes;
                 if !dry_run {
                     self.objects.delete(kind, &id)?;
+                    self.meta.remove_object_associations(kind, &id)?;
                 }
             }
         }

@@ -17,12 +17,11 @@ repo needs tighter execution grammar than the roadmap alone provides.
 
 ## Active Spec Set
 
-There is no active spec; the `g02.011`-`g02.018` hardening program is
-open and roadmap-driven. Specs/batch cards open per batch as work
-starts.
+Active spec: [`011-server-trust-boundaries.md`](./011-server-trust-boundaries.md)
+(`g02.011` hardening program).
 
 Archived specs live in [`archive/`](./archive/).
 
 ## Next Task
 
-Open batch card 11.1 (read authorization) under `g02.011`.
+Open batch card 11.2 (namespace and capability integrity) under `g02.011`.

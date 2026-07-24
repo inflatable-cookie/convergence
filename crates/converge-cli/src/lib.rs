@@ -665,7 +665,7 @@ fn run(cli: &Cli, mode: OutputMode) -> Result<serde_json::Value> {
             };
             let bundle_id = &bundle_id;
             let bundle = client.get_bundle(bundle_id)?;
-            let root = client.fetch_bundle(&ws.store, bundle_id)?;
+            let root = client.fetch_bundle(&ws.store, &remote.repo_id, bundle_id)?;
             // A fetched bundle for the configured target becomes the new
             // publish base (doc 17 §2).
             if bundle.scope_id == remote.scope {

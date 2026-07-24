@@ -419,7 +419,7 @@ fn provenance_chain_is_complete_and_variant_sources_are_lanes() -> Result<()> {
         .pull_lane(&ws_check.store, "repo", "personal/alice")
         .ok();
     // Fetch the bundle tree and inspect variants.
-    alice.fetch_bundle(&ws_check.store, &bundle.bundle_id)?;
+    alice.fetch_bundle(&ws_check.store, "repo", &bundle.bundle_id)?;
     let manifest = ws_check.store.get_manifest(&root)?;
     for entry in &manifest.entries {
         if let converge_client::model::ManifestEntryKind::Superposition { variants } = &entry.kind {

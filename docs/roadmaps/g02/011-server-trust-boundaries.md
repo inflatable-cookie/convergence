@@ -1,6 +1,6 @@
 # 011 Server Trust Boundaries
 
-Status: planned
+Status: in progress (11.1 complete)
 Owner: repo maintainers
 Updated: 2026-07-24
 
@@ -32,10 +32,10 @@ in the audit program matters while they stand.
 
 ## Execution Plan (batch details in cards)
 
-- **11.1 Read authorization**: repo-scoped authorization on all bundle,
-  provenance, and verify reads; object reads gated by a
-  reachability/ownership check (objects are not repo-tagged, so the
-  check must derive repo membership from referencing roots)
+- **11.1 Read authorization** (complete, card 038): repo-scoped object
+  and negotiate routes with an object→repo association recorded on
+  every server-side write; bundle-id-keyed reads resolve the bundle's
+  repo and require `read` there; doc 16 §1d records the contract
 - **11.2 Namespace and capability integrity**: reserve `personal/*`
   server-side; add `snap-sync` capability and regate snap upload +
   lane-head push; bring `add_lane_member` inside `authorize`
@@ -56,4 +56,4 @@ in the audit program matters while they stand.
 
 ## Next Task
 
-Open batch card 11.1.
+Open batch card 11.2 (namespace and capability integrity).

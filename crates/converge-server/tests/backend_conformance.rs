@@ -61,6 +61,16 @@ fn conform_metadata(meta: &dyn MetadataStore) -> Result<()> {
     meta.add_approval("b1", "alice")?;
     meta.add_approval("b1", "alice")?;
     assert_eq!(meta.count_approvals("b1")?, 1, "approvals dedupe");
+
+    // object→repo association (batch 11.1)
+    let oid = ObjectId("aa".repeat(32));
+    meta.associate_object("conf", ObjectKind::Blob, &oid)?;
+    meta.associate_object("conf", ObjectKind::Blob, &oid)?; // idempotent
+    assert!(meta.object_in_repo("conf", ObjectKind::Blob, &oid)?);
+    assert!(!meta.object_in_repo("other", ObjectKind::Blob, &oid)?);
+    assert!(!meta.object_in_repo("conf", ObjectKind::Manifest, &oid)?);
+    meta.remove_object_associations(ObjectKind::Blob, &oid)?;
+    assert!(!meta.object_in_repo("conf", ObjectKind::Blob, &oid)?);
     Ok(())
 }
 

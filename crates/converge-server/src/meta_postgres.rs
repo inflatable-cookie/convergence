@@ -74,6 +74,10 @@ impl PostgresMetadataStore {
             CREATE TABLE IF NOT EXISTS promotions (
                 bundle_id TEXT NOT NULL, from_gate TEXT NOT NULL,
                 to_gate TEXT NOT NULL, promoted_at TEXT NOT NULL);
+            CREATE TABLE IF NOT EXISTS object_repos (
+                repo_id TEXT NOT NULL, kind TEXT NOT NULL,
+                object_id TEXT NOT NULL,
+                PRIMARY KEY (repo_id, kind, object_id));
             ",
             )
             .context("init postgres schema")?;
@@ -476,6 +480,50 @@ impl MetadataStore for PostgresMetadataStore {
             .iter()
             .map(|r| (r.get(0), r.get(1), r.get(2)))
             .collect())
+    }
+
+    fn associate_object(
+        &self,
+        repo_id: &str,
+        kind: crate::storage::ObjectKind,
+        id: &ObjectId,
+    ) -> Result<()> {
+        let mut c = self.client.lock().expect("pg lock");
+        c.execute(
+            "INSERT INTO object_repos (repo_id, kind, object_id)
+             VALUES ($1, $2, $3) ON CONFLICT DO NOTHING",
+            &[&repo_id, &kind.dir(), &id.as_str()],
+        )?;
+        Ok(())
+    }
+
+    fn object_in_repo(
+        &self,
+        repo_id: &str,
+        kind: crate::storage::ObjectKind,
+        id: &ObjectId,
+    ) -> Result<bool> {
+        let mut c = self.client.lock().expect("pg lock");
+        let row = c.query_one(
+            "SELECT COUNT(*) FROM object_repos
+             WHERE repo_id = $1 AND kind = $2 AND object_id = $3",
+            &[&repo_id, &kind.dir(), &id.as_str()],
+        )?;
+        let n: i64 = row.get(0);
+        Ok(n > 0)
+    }
+
+    fn remove_object_associations(
+        &self,
+        kind: crate::storage::ObjectKind,
+        id: &ObjectId,
+    ) -> Result<()> {
+        let mut c = self.client.lock().expect("pg lock");
+        c.execute(
+            "DELETE FROM object_repos WHERE kind = $1 AND object_id = $2",
+            &[&kind.dir(), &id.as_str()],
+        )?;
+        Ok(())
     }
 
     fn put_bundle(&self, bundle: &StoredBundle) -> Result<()> {
