@@ -26,6 +26,9 @@ Rebuild architecture (g02.002 Batch 2.4, 2026-07-23):
   as thin front-end per the captured UX spec
 - `16-sync-protocol-and-chunking.md` — wire contract and FastCDC
   content-defined chunking
+- `17-lineage-and-merge-semantics.md` — snap DAG and identity, base-aware
+  3-way merge with tombstones, bundle windows, per-gate coalesce
+  strategies (g02.005; authoritative over 14/16 where they overlap)
 
 The g01-era architecture set (repo/gates/lanes/scopes detail, operations,
 policy, storage, client/server, security, CLI/TUI, interop, gate-graph schema)

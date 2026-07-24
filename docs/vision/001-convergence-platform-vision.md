@@ -22,8 +22,18 @@ Git remains strong at source history, but it treats many modern workflows as awk
 
 ## Product posture
 
-- Large-organization workflows are the primary design target.
-- Solo and small-team use should reuse the same model through lighter deployments rather than a separate product mode.
+- The architecture is designed for large-organization workflows; the same
+  model serves solo and small teams through lighter deployments rather than
+  a separate product mode.
+- **Adoption beachhead: binary-heavy small teams** (DAW, game assets, VFX)
+  where git is weakest and Perforce is the incumbent. Large-org gated
+  convergence is the growth story, not the entry story.
+- **Git interop is first-class.** Nobody migrates cold: Convergence must
+  import existing git history, export mirror branches git tooling can
+  consume, and coexist with `.git` in one tree.
+- **Determinism is a product feature.** Bundle identities derive from their
+  inputs; provenance replay can re-derive a bundle and verify its hash —
+  the audit and compliance story for the org market.
 - CLI and TUI should share one deterministic semantic contract.
 
 ## Constraints
@@ -34,4 +44,6 @@ Git remains strong at source history, but it treats many modern workflows as awk
 
 ## Next Task
 
-Use the architecture set and `g01` roadmap sequence to keep turning the object model, gate policy, remote workflow, and UX work into executable milestones without reintroducing Git-shaped assumptions.
+Use the architecture set and the active `g02` roadmap sequence to keep
+turning the object model, gate policy, remote workflow, and UX work into
+executable milestones without reintroducing Git-shaped assumptions.

@@ -95,16 +95,19 @@ data-plane handler.
 ## 5. Bundle coalescing at scale
 
 g01 stubbed the core operation (bundle = input list, no computed manifest).
-Rebuild design:
+Semantics live in doc 17; the scale posture:
 
-- A gate's bundle build is a **manifest merge** over its ordered input set:
-  walk input root manifests, path-by-path; identical entries pass through;
-  divergent entries become `Superposition` nodes with per-variant provenance
-  (model already supports this).
-- Merge cost is bounded by *changed* paths: manifests are Merkle trees, so
-  identical subtree hashes short-circuit whole directories. Input sets are
-  totally ordered (see §3), so bundle builds are deterministic and
-  reproducible from provenance.
+- A bundle build is a **base-aware 3-way merge** folded onto W (the last
+  promoted bundle) over the partition's current **window** of publications
+  (doc 17 §2-3). Windows keep input sets small by construction; promotion
+  advances the window floor.
+- Merge cost is bounded by *changed* paths: deltas are computed against
+  each publication's declared base with Merkle short-circuit. Window
+  publications are totally ordered (see §3), so bundle builds are
+  deterministic: `bundle_id = hash(gate, W root, window ids, strategy,
+  merged root)`.
+- Divergence resolution is the gate's **coalesce strategy** (doc 17 §4),
+  recorded in bundle provenance.
 - Bundle builds run in the partition's worker, async from publish intake;
   a publication is accepted fast, coalescing follows. Status is visible
   (`building` → `ready`/`failed`) — no silent stubs.
@@ -122,10 +125,9 @@ Rebuild design:
 ## Open questions carried forward (deferred, with rationale)
 
 - Exact partition-worker mechanism (DB row locks vs dedicated workers):
-  decide in the first server implementation roadmap against real write
-  patterns; both fit the model above.
-- Superposition merge policy per entry kind (file vs dir vs symlink edge
-  cases): specify alongside the coalescing implementation, driven by tests.
+  decide against real write patterns; both fit the model above.
+- ~~Superposition merge policy per entry kind~~ — resolved by doc 17
+  (decision table + per-gate strategies).
 
 ## Next Task
 

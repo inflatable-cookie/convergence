@@ -45,12 +45,12 @@ provenance replay as the enterprise feature.
 
 ### Batch 5.1 - Architecture and Vision Revision
 
-- [ ] new `docs/architecture/17-lineage-and-merge-semantics.md`: snap DAG,
+- [x] new `docs/architecture/17-lineage-and-merge-semantics.md`: snap DAG,
       identity derivation, base-aware 3-way merge, tombstone semantics,
       bundle windowing, per-gate strategy contract
-- [ ] revise docs 14/16 where the above changes them (partition build loop,
+- [x] revise docs 14/16 where the above changes them (partition build loop,
       wire DTOs)
-- [ ] vision update: beachhead positioning, git interop as first-class,
+- [x] vision update: beachhead positioning, git interop as first-class,
       determinism/provenance-replay as a named product feature
 
 ### Batch 5.2 - Snap Lineage
@@ -87,5 +87,4 @@ provenance replay as the enterprise feature.
 
 ## Next Task
 
-Execute the ready Batch 5.1 card
-(`batch-cards/015-semantics-architecture-revision.md`).
+Execute the ready Batch 5.2 card (`batch-cards/016-snap-lineage.md`).

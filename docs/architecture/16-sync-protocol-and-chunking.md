@@ -23,8 +23,15 @@ Publish/sync sequence (carried shape):
    record. All writes idempotent (`write_if_absent`); interrupted uploads
    resume by re-negotiating.
 3. **Commit intent** — client creates the publication (or lane-head update)
-   naming `(repo, scope, gate)`; server authz-checks and enqueues bundle
-   coalescing (doc 14 §4-5).
+   naming `(repo, scope, gate)` and carrying `base_bundle_id`, the last
+   bundle it saw for that target (doc 17 §2; the client records it from
+   publish responses and fetches). Server authz-checks, validates the base
+   against partition history, and enqueues bundle coalescing (doc 14 §4-5).
+
+Wire deltas from doc 17 §5: `SnapRecord` v2 (`parents`,
+`derived_from_bundle`, lineage-derived identity), `base_bundle_id` on
+publish/publication, `window` + `strategy` + `base_bundle_id` on
+`BundleRecord`, `strategy` on `GateNode`.
 
 Fetch is the mirror: resolve a bundle/release/lane ref → walk manifest →
 request missing objects → materialize. Edges serve steps 1-2 from cache.

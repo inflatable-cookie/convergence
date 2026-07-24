@@ -1,6 +1,6 @@
 # 015 Semantics Architecture Revision
 
-Status: ready
+Status: complete
 Updated: 2026-07-24
 Roadmap: `g02.005`
 Spec: `docs/specs/005-convergence-semantics-revision.md`
@@ -52,6 +52,22 @@ operator-agreed positioning.
 - a semantics question needs operator intent (e.g. lineage identity edge
   cases with multiple parents) — ask, do not guess
 
+## Outcome
+
+- `docs/architecture/17-lineage-and-merge-semantics.md` promoted:
+  snap DAG with lineage-derived identity (idempotent recapture, editable
+  messages), base-aware 3-way decision table with "unchanged expresses no
+  opinion" and tombstone-only-as-variant rules, window model with
+  promotion advancing the floor, determinism contract, `whole-file` +
+  `text-line-merge` strategies (no conflict markers ever)
+- multi-parent edge case decided without operator escalation: parents are
+  snap-only, ordered, first = primary lineage; bundle incorporation is a
+  hashed `derived_from_bundle` provenance edge, not a parent
+- doc 14 §5 rewritten to window/base/strategy model; per-entry-kind open
+  question closed; doc 16 commit-intent step + wire deltas updated
+- vision: beachhead (binary-heavy small teams / Perforce displacement),
+  git interop first-class, determinism as named feature
+
 ## Next Task
 
-On completion, open the Batch 5.2 snap-lineage card.
+Execute the Batch 5.2 snap-lineage card (`016-snap-lineage.md`).

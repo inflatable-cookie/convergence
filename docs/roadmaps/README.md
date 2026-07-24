@@ -32,7 +32,7 @@ records the closed state.
 - `g02.005` (convergence semantics revision) is the active roadmap.
 - `docs/specs/005-convergence-semantics-revision.md` is the active strict
   planning lane; `g02.006`-`g02.010` are planned and open in sequence.
-- ready card: `g02/batch-cards/015-semantics-architecture-revision.md`
+- ready card: `g02/batch-cards/016-snap-lineage.md`
 
 ## Rollover guardrail
 
@@ -46,4 +46,4 @@ Before rollover:
 
 ## Next Task
 
-Execute the ready `g02.005` Batch 5.1 semantics-architecture card.002` Batch 2.4 rebuild-architecture card.
+Execute the ready `g02.005` Batch 5.2 snap-lineage card.002` Batch 2.4 rebuild-architecture card.
