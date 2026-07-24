@@ -729,7 +729,36 @@ impl Engine<'_> {
         let partition =
             self.meta
                 .get_partition_state(authz.repo_id(), authz.scope_id(), &bundle.gate_id)?;
-        let ops = [
+
+        // Monotonicity guards (batch 13.2, audit H1, doc 14 §3): promote
+        // only advances the window. A bundle that already is the current W
+        // re-promotes to another downstream gate without touching state
+        // (fan-out); anything stale is refused instead of rewinding the
+        // floor and re-opening consumed publications.
+        let is_current_w = partition.base_bundle_id.as_deref() == Some(bundle_id)
+            && partition.window_floor == bundle.window.1;
+        if !is_current_w {
+            if bundle.window.1 <= partition.window_floor {
+                bail!(
+                    "stale bundle {bundle_id}: its window ends at seq {} but the \
+                     partition floor is already {} — a newer bundle was promoted; \
+                     republish against the current W and promote that",
+                    bundle.window.1,
+                    partition.window_floor
+                );
+            }
+            if bundle.base_bundle_id != partition.base_bundle_id {
+                bail!(
+                    "bundle {bundle_id} was built on base {:?} but the partition's \
+                     current W is {:?} — promote would fork promoted history; \
+                     republish against the current W",
+                    bundle.base_bundle_id,
+                    partition.base_bundle_id
+                );
+            }
+        }
+
+        let mut ops = vec![
             MetaOp::AssertPartitionState {
                 repo_id: authz.repo_id().to_string(),
                 scope_id: authz.scope_id().to_string(),
@@ -742,9 +771,11 @@ impl Engine<'_> {
                 to_gate: to_gate.to_string(),
                 at: now(),
             },
+        ];
+        if !is_current_w {
             // Promotion advances the window (doc 17 §3): the promoted bundle
             // becomes W and its window's publications leave the pool.
-            MetaOp::SetPartitionState {
+            ops.push(MetaOp::SetPartitionState {
                 repo_id: authz.repo_id().to_string(),
                 scope_id: authz.scope_id().to_string(),
                 gate_id: bundle.gate_id.clone(),
@@ -752,8 +783,8 @@ impl Engine<'_> {
                     window_floor: bundle.window.1,
                     base_bundle_id: Some(bundle.bundle_id.clone()),
                 },
-            },
-        ];
+            });
+        }
         self.meta.apply_batch(&ops).map_err(|err| {
             if err.is::<BatchConflict>() {
                 anyhow::anyhow!(

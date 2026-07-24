@@ -68,10 +68,23 @@ never a global stop-the-world pass.
 - **Control plane: linearizable.** Identity, ACL, and gate-graph changes are
   serialized per repo. Volume is low; correctness is the product.
 - **Partition `(repo, scope, gate)`: serialized writes.** All mutations to
-  one partition (publish intake, bundle production, promotion) go through a
-  single writer — a DB transaction with a partition row lock, or a
-  per-partition worker. Publications to the same gate from many clients
-  therefore have a total order, which makes bundle input sets deterministic.
+  one partition (publish intake, bundle production, promotion) commit as one
+  guarded transactional batch: the writer reads partition state, computes in
+  memory, then commits writes together with assertions that the partition and
+  its publication window are unchanged (`AssertPartitionState`,
+  `AssertPublicationCount`). A tripped assertion rolls the whole batch back;
+  publish re-reads and rebuilds under a bounded retry, promote surfaces the
+  conflict. This optimistic scheme — not a row-lock single writer — is the
+  serialization mechanism in both backends (SQLite `BEGIN IMMEDIATE`,
+  Postgres explicit transactions). Publications to the same gate from many
+  clients therefore have a total order, which makes bundle input sets
+  deterministic.
+- **Promotion is monotonic.** Promote only advances the window: it requires
+  `bundle.window.last > floor` and that the bundle's base equals the
+  partition's current W. A stale bundle — built before the current W was
+  promoted — is refused instead of rewinding the floor and re-opening
+  consumed publications. Re-promoting the current W to a further downstream
+  gate records the promotion without touching partition state (fan-out).
 - **Cross-partition: eventually consistent, converged by gates.** A promotion
   from gate A to gate B is an atomic write in B's partition referencing an
   immutable bundle from A's. No transaction spans partitions; immutability of

@@ -1,6 +1,6 @@
 # 013 Transactional and Merge Correctness
 
-Status: in progress (13.1 complete)
+Status: in progress (13.1-13.2 complete)
 Owner: repo maintainers
 Updated: 2026-07-24
 
@@ -41,8 +41,9 @@ These corrupt promoted history silently — worse than crashing.
   with guard ops in both backends (SQLite `BEGIN IMMEDIATE`, Postgres
   explicit transactions); publish and promote each one atomic guarded
   batch, publish retries on conflict, floor-aware publication seq
-- **13.2 Promotion guards**: monotonic window floor, base-must-match-W
-  check; doc 14 §3 amended to state the actual serialization mechanism
+- **13.2 Promotion guards** (complete, card 047): monotonic window
+  floor and base-must-match-W checks with fan-out re-promotion; doc 14
+  §3 states the actual serialization mechanism (guarded batches)
 - **13.3 Merge decision-table fix**: modify-vs-delete superposes per
   doc 17; doc first, then `merge_window`; regression tests for every
   cell of the table
@@ -62,4 +63,4 @@ These corrupt promoted history silently — worse than crashing.
 
 ## Next Task
 
-Open batch card 13.2 (promotion guards).
+Open batch card 13.3 (merge decision-table fix).
