@@ -1,6 +1,6 @@
 # 010 Scale and Transport
 
-Status: active
+Status: complete
 Owner: repo maintainers
 Updated: 2026-07-24
 
@@ -28,7 +28,14 @@ last because none of them change product semantics.
 - large-tree benchmarks demonstrate the wins; embedded deployments remain
   the default and unchanged
 
+## Outcome
+
+All four batches complete; exit criteria met — canonical encoding with a
+demonstrated size win, batched transport across all sync paths, a
+durable event feed replacing polling refresh, and pluggable external
+backends with embedded defaults unchanged.
+
 ## Next Task
 
-Execute the ready Batch 10.4 card (`batch-cards/037-external-backends.md`)
-— the improvement program's final batch.
+The g02.005-g02.010 improvement program is complete. Ask operator intent
+for the next boundary.

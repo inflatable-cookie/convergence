@@ -3,7 +3,14 @@ name = "converge-server"
 version.workspace = true
 edition.workspace = true
 
+[features]
+default = []
+backend-postgres = ["dep:postgres"]
+backend-s3 = ["dep:rust-s3"]
+
 [dependencies]
+postgres = { workspace = true, optional = true }
+rust-s3 = { workspace = true, optional = true }
 anyhow.workspace = true
 axum.workspace = true
 blake3.workspace = true

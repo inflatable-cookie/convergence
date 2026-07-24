@@ -1,6 +1,6 @@
 # 010 Scale and Transport
 
-Status: active
+Status: complete
 Updated: 2026-07-24
 Roadmap: `g02.010`
 
@@ -23,8 +23,8 @@ encoding change, no shims.
 - Batch 10.1 (canonical binary encoding) complete.
 - Batch 10.2 (batched transport) complete.
 - Batch 10.3 (event push) complete.
-- Batch 10.4 has a ready card:
-  `docs/roadmaps/g02/batch-cards/037-external-backends.md`
+- All four batches complete; roadmap `g02.010` and the improvement
+  program closed.
 
 ## Exit Condition
 

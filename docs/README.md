@@ -47,6 +47,7 @@ prefers `cargo nextest` when it is available on the machine.
 
 ## Next Task
 
-Execute the ready `g02.010` Batch 10.4 card
-(`roadmaps/g02/batch-cards/037-external-backends.md`) — the final batch
-of the improvement program.
+Intent checkpoint: the g02.005-g02.010 improvement program is complete
+and there is no ready card. Candidate next boundaries (operator's call):
+backlog items (manifest paging, workflow profiles, edge nodes, real
+identity, SSE transport), or a v1.0 hardening/release boundary.

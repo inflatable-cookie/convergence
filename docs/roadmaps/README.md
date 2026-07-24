@@ -29,11 +29,9 @@ records the closed state.
 
 ## Active strict lane
 
-- `g02.010` (scale and transport) is the active roadmap — the final
-  roadmap of the improvement program.
-- `docs/specs/010-scale-and-transport.md` is the active strict planning
-  lane.
-- ready card: `g02/batch-cards/037-external-backends.md`
+- The g02.005-g02.010 improvement program is complete; every g02
+  roadmap is closed. The lane is in planning awaiting operator intent.
+- no ready card
 
 ## Rollover guardrail
 
@@ -47,4 +45,7 @@ Before rollover:
 
 ## Next Task
 
-Execute the ready `g02.010` Batch 10.4 external-backends card (final).
+Intent checkpoint: the g02.005-g02.010 improvement program is complete
+and there is no ready card. Candidate next boundaries (operator's call):
+backlog items (manifest paging, workflow profiles, edge nodes, real
+identity, SSE transport), or a v1.0 hardening/release boundary.

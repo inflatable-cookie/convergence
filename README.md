@@ -55,4 +55,7 @@ cargo nextest run -P ci
 
 ## Next task
 
-Execute the ready `g02.010` Batch 10.4 external-backends card (final).002` Batch 2.4 rebuild-architecture card.
+Intent checkpoint: the g02.005-g02.010 improvement program is complete
+and there is no ready card. Candidate next boundaries (operator's call):
+backlog items (manifest paging, workflow profiles, edge nodes, real
+identity, SSE transport), or a v1.0 hardening/release boundary.002` Batch 2.4 rebuild-architecture card.

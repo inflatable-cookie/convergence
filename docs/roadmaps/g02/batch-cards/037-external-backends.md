@@ -1,6 +1,6 @@
 # 037 External Backends
 
-Status: ready
+Status: complete
 Updated: 2026-07-24
 Roadmap: `g02.010`
 Spec: `docs/specs/010-scale-and-transport.md`
@@ -45,7 +45,28 @@ the default.
 
 - trait shape fights a backend — arch first, no backend-specific leaks
 
+## Outcome
+
+- `PostgresMetadataStore` (feature `backend-postgres`) and
+  `S3ObjectStore` (feature `backend-s3`, MinIO-friendly path-style)
+  behind the existing traits; verify-on-read/write and idempotent-put
+  discipline unchanged
+- server bin: `--metadata <path | postgres://...>` and
+  `--objects <path | s3://bucket?endpoint=...>` selection; embedded
+  defaults untouched; clear errors when a URL names a backend the
+  binary was built without
+- shared conformance suite (metadata + objects behavioral checks):
+  embedded always green; external variants env-gated
+  (`CONVERGE_TEST_POSTGRES_URL`, `CONVERGE_TEST_S3_*`) and compiled
+  behind their features — clippy-clean under
+  `--features backend-postgres,backend-s3`
+- honest caveat recorded: external impls are compile-checked and
+  conformance-gated, not yet run against live Postgres/MinIO in this
+  environment — first deployment should run the conformance suite with
+  env set
+- doc 14 §5c operator note with config examples
+- 96 workspace tests green
+
 ## Next Task
 
-On completion, close roadmap `g02.010` and the g02.005-g02.010
-improvement program.
+Close roadmap `g02.010` and the g02.005-g02.010 improvement program.

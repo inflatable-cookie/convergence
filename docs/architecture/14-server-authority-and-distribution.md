@@ -126,6 +126,25 @@ The server records convergence events (`bundle` built, `lane` head moved,
   backends land (the feed contract — seq cursor + reconcile-on-gap —
   does not change).
 
+## 5c. Backend selection (operators)
+
+One binary, backends by flag (embedded defaults when omitted):
+
+```bash
+# embedded (default): SQLite + local FS under --data-dir
+converge-server --addr 0.0.0.0:8080 --data-dir ./data
+
+# external (requires backend-postgres / backend-s3 build features)
+converge-server \
+  --metadata postgres://user:pass@db:5432/converge \
+  --objects  "s3://converge-objects?endpoint=http://minio:9000&region=us-east-1"
+```
+
+S3 credentials come from the standard AWS environment variables. The
+backend conformance test suite runs against embedded stores always and
+against external backends when `CONVERGE_TEST_POSTGRES_URL` /
+`CONVERGE_TEST_S3_*` are set.
+
 ## 6. Failure and scale posture
 
 - Control plane HA via the metadata backend (Postgres replication /

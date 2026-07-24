@@ -10,12 +10,11 @@ runs the rebuild improvement program.
 
 ## Current State
 
-`g02.010` (scale and transport) is active — the final roadmap of the
-improvement program. `g02.009` closed: git repos import with lineage,
-work under Convergence, and mirror back to plain git.
+The g02.005-g02.010 improvement program is **complete** — all ten g02
+roadmaps are closed. The lane is in planning awaiting the next operator
+boundary.
 
-Ready batch card:
-[`batch-cards/037-external-backends.md`](./batch-cards/037-external-backends.md)
+There is no ready card.
 
 ## Lanes
 
@@ -28,8 +27,11 @@ Ready batch card:
 - [`007-lanes-and-collaboration.md`](./007-lanes-and-collaboration.md) — complete
 - [`008-releases-retention-and-gc.md`](./008-releases-retention-and-gc.md) — complete
 - [`009-git-interop.md`](./009-git-interop.md) — complete
-- [`010-scale-and-transport.md`](./010-scale-and-transport.md) — active
+- [`010-scale-and-transport.md`](./010-scale-and-transport.md) — complete
 
 ## Next Task
 
-Execute the ready `g02.010` Batch 10.4 external-backends card (final).
+Intent checkpoint: the g02.005-g02.010 improvement program is complete
+and there is no ready card. Candidate next boundaries (operator's call):
+backlog items (manifest paging, workflow profiles, edge nodes, real
+identity, SSE transport), or a v1.0 hardening/release boundary.

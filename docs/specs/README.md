@@ -17,10 +17,13 @@ repo needs tighter execution grammar than the roadmap alone provides.
 
 ## Active Spec Set
 
-- [`010-scale-and-transport.md`](./010-scale-and-transport.md)
+There is no active spec; the lane is in planning awaiting operator intent.
 
 Archived specs live in [`archive/`](./archive/).
 
 ## Next Task
 
-Execute the ready `g02.010` Batch 10.4 external-backends card (final).
+Intent checkpoint: the g02.005-g02.010 improvement program is complete
+and there is no ready card. Candidate next boundaries (operator's call):
+backlog items (manifest paging, workflow profiles, edge nodes, real
+identity, SSE transport), or a v1.0 hardening/release boundary.
