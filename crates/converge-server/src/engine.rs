@@ -161,42 +161,43 @@ impl Engine<'_> {
             hasher.finalize().to_hex().to_string()
         };
 
-        let bundle =
-            match inputs.and_then(|inputs| merge_window(self.objects, w_root.as_ref(), &inputs)) {
-                Ok(root) => {
-                    let has_superpositions = self.manifest_has_superpositions(&root)?;
-                    StoredBundle {
-                        bundle_id: hash_id(Some(&root)),
-                        repo_id: authz.repo_id().to_string(),
-                        scope_id: authz.scope_id().to_string(),
-                        gate_id: gate_id.to_string(),
-                        inputs: input_ids,
-                        root_manifest: Some(root),
-                        base_bundle_id: partition.base_bundle_id.clone(),
-                        window: window_range,
-                        strategy,
-                        status: BundleStatus::Ready {
-                            promotable: !has_superpositions,
-                        },
-                        created_at: now(),
-                    }
-                }
-                Err(err) => StoredBundle {
-                    bundle_id: hash_id(None),
+        let bundle = match inputs
+            .and_then(|inputs| merge_window(self.objects, w_root.as_ref(), &inputs, &strategy))
+        {
+            Ok(root) => {
+                let has_superpositions = self.manifest_has_superpositions(&root)?;
+                StoredBundle {
+                    bundle_id: hash_id(Some(&root)),
                     repo_id: authz.repo_id().to_string(),
                     scope_id: authz.scope_id().to_string(),
                     gate_id: gate_id.to_string(),
                     inputs: input_ids,
-                    root_manifest: None,
+                    root_manifest: Some(root),
                     base_bundle_id: partition.base_bundle_id.clone(),
                     window: window_range,
                     strategy,
-                    status: BundleStatus::Failed {
-                        reason: format!("{err:#}"),
+                    status: BundleStatus::Ready {
+                        promotable: !has_superpositions,
                     },
                     created_at: now(),
+                }
+            }
+            Err(err) => StoredBundle {
+                bundle_id: hash_id(None),
+                repo_id: authz.repo_id().to_string(),
+                scope_id: authz.scope_id().to_string(),
+                gate_id: gate_id.to_string(),
+                inputs: input_ids,
+                root_manifest: None,
+                base_bundle_id: partition.base_bundle_id.clone(),
+                window: window_range,
+                strategy,
+                status: BundleStatus::Failed {
+                    reason: format!("{err:#}"),
                 },
-            };
+                created_at: now(),
+            },
+        };
         self.meta.put_bundle(&bundle)?;
         Ok(bundle)
     }

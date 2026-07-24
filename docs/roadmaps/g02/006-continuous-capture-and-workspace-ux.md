@@ -1,10 +1,10 @@
 # 006 Continuous Capture and Workspace UX
 
-Status: planned
+Status: active
 Owner: repo maintainers
 Updated: 2026-07-24
 
-Opens after `g02.005`.
+
 
 ## Context
 
@@ -25,6 +25,28 @@ finishes the workspace UX the rebuild left read-only.
   restore/diff against selection), snap message editing after capture,
   resolution view keyed by variant keys not indexes
 
+## Execution Plan
+
+### Batch 6.1 - Auto-Capture
+
+- [ ] `converge watch` verb: filesystem watcher with debounce, auto-snap on
+      quiet periods, `trigger` metadata (automatic vs explicit)
+- [ ] thinning retention for automatic snaps (keep-last + age tiers);
+      explicit snaps never thinned
+- [ ] TUI toggle + watcher status surfaced
+
+### Batch 6.2 - Workspace Status
+
+- [ ] one status verb: pending changes, head/lineage position, sync state,
+      publish target, remote reachability; bundle status moves to
+      `bundle <id>`
+- [ ] TUI root consumes it wholesale
+
+### Batch 6.3 - Interactive Views
+
+- [ ] history selection verbs (Enter on a snap -> restore/diff), snap
+      message editing, resolution by variant key
+
 ## Exit Criteria
 
 - a workspace left alone accumulates thinned automatic snaps; nothing else
@@ -32,4 +54,4 @@ finishes the workspace UX the rebuild left read-only.
 
 ## Next Task
 
-Compile into batches with a ready card when `g02.005` closes.
+Execute the ready Batch 6.1 card (`batch-cards/019-auto-capture.md`).

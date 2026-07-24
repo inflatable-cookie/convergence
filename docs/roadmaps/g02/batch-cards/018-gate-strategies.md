@@ -1,6 +1,6 @@
 # 018 Gate Coalesce Strategies
 
-Status: ready
+Status: complete
 Updated: 2026-07-24
 Roadmap: `g02.005`
 Spec: `docs/specs/005-convergence-semantics-revision.md`
@@ -44,6 +44,20 @@ Implement doc 17 §4: per-gate strategy dispatch with `text-line-merge`.
 
 - semantics gap in doc 17 — revise the doc first
 
+## Outcome
+
+- strategy dispatch in the fold; `text-line-merge` via diff3 (`diffy`):
+  clean merges become new `File` entries, overlapping hunks superpose the
+  original variants, binary/non-UTF-8 falls back per path; conflict
+  markers never written (asserted)
+- one doc 17 amendment via stop-condition: the diff3 ancestor is the
+  divergent opinions' **shared declared-base value** (W is irrelevant to
+  intra-window divergence), falling back to W, then empty; opinions now
+  carry their own base value to make that computable
+- 4 strategy tests: disjoint-line clean merge, overlapping-conflict
+  superposition, binary fallback, determinism across fresh stores;
+  57 workspace tests green
+
 ## Next Task
 
-On completion, close roadmap `g02.005` against its exit criteria.
+Close roadmap `g02.005`; open `g02.006`.

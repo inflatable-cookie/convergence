@@ -1,6 +1,6 @@
 # 005 Convergence Semantics Revision
 
-Status: active
+Status: complete
 Updated: 2026-07-24
 Roadmap: `g02.005`
 
@@ -35,8 +35,7 @@ each opens with its own spec and ready card at the previous close.
 - Batch 5.1 (architecture and vision revision) complete; doc 17 promoted.
 - Batch 5.2 (snap lineage) complete.
 - Batch 5.3 (base-aware merge and windows) complete.
-- Batch 5.4 has a ready card:
-  `docs/roadmaps/g02/batch-cards/018-gate-strategies.md`
+- All four batches complete; roadmap `g02.005` closed.
 
 ## Exit Condition
 
@@ -44,4 +43,4 @@ Roadmap `g02.005` exit criteria met; `g02.006` opens.
 
 ## Next Task
 
-Execute the ready Batch 5.4 card.
+Superseded by `docs/specs/006-continuous-capture-and-workspace-ux.md`.

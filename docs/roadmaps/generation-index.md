@@ -7,8 +7,8 @@
     Post-research planning gate (001, complete), archive-and-rebuild
     boundary (002, complete), rebuild implementation vertical slice
     (003, complete), TUI rebuild (004, complete), convergence semantics
-    revision (005, active), then planned in sequence: continuous capture
-    and workspace UX (006), lanes and collaboration (007), releases/
+    revision (005, complete), continuous capture and workspace UX
+    (006, active), then planned in sequence: lanes and collaboration (007), releases/
     retention/GC (008), git interop (009), scale and transport (010).
 
 - `g01`

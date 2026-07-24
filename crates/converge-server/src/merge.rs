@@ -3,7 +3,7 @@ use std::collections::BTreeMap;
 use anyhow::{Context, Result};
 
 use converge_model::{
-    Manifest, ManifestEntry, ManifestEntryKind, ObjectId, SuperpositionVariant,
+    FileRecipe, Manifest, ManifestEntry, ManifestEntryKind, ObjectId, SuperpositionVariant,
     SuperpositionVariantKind,
 };
 
@@ -21,7 +21,9 @@ pub struct MergeInput {
 /// A publisher's opinion about one path.
 #[derive(Clone, Debug, PartialEq, Eq)]
 enum Op {
-    Set(ManifestEntryKind),
+    /// New value plus the value this publisher's own base held there
+    /// (diff3 ancestor material).
+    Set(ManifestEntryKind, Option<ManifestEntryKind>),
     Delete,
 }
 
@@ -33,6 +35,7 @@ pub fn merge_window(
     objects: &dyn ObjectStore,
     w_root: Option<&ObjectId>,
     inputs: &[MergeInput],
+    strategy: &str,
 ) -> Result<ObjectId> {
     let mut result: BTreeMap<String, ManifestEntryKind> = match w_root {
         Some(root) => flatten(objects, root)?,
@@ -52,10 +55,10 @@ pub fn merge_window(
         for (path, kind) in &tree {
             match base.get(path) {
                 Some(base_kind) if base_kind == kind => {} // no opinion
-                _ => opinions
-                    .entry(path.clone())
-                    .or_default()
-                    .push((input.lane.clone(), Op::Set(kind.clone()))),
+                base_kind => opinions.entry(path.clone()).or_default().push((
+                    input.lane.clone(),
+                    Op::Set(kind.clone(), base_kind.cloned()),
+                )),
             }
         }
         for path in base.keys() {
@@ -79,13 +82,14 @@ pub fn merge_window(
             .iter()
             .filter(|(lane, op)| match op {
                 Op::Delete => true,
-                Op::Set(kind) => {
+                Op::Set(kind, _) => {
                     let superseded = base_flats.iter().zip(inputs).any(|(base, input)| {
                         input.lane != *lane
                             && base.get(&path) == Some(kind)
                             && (result.get(&path) == Some(kind)
                                 || ops.iter().any(|(other_lane, other_op)| {
-                                    *other_lane == input.lane && *other_op != Op::Set(kind.clone())
+                                    *other_lane == input.lane
+                                        && !matches!(other_op, Op::Set(k, _) if k == kind)
                                 }))
                     });
                     !superseded
@@ -100,12 +104,14 @@ pub fn merge_window(
     for (path, ops) in opinions {
         // Distinct sets (dedup identical content, keep first source).
         let mut sets: Vec<(String, ManifestEntryKind)> = Vec::new();
+        let mut set_bases: Vec<Option<ManifestEntryKind>> = Vec::new();
         let mut deleters: Vec<String> = Vec::new();
         for (lane, op) in ops {
             match op {
-                Op::Set(kind) => {
+                Op::Set(kind, base_kind) => {
                     if !sets.iter().any(|(_, k)| *k == kind) {
                         sets.push((lane, kind));
+                        set_bases.push(base_kind);
                     }
                 }
                 Op::Delete => deleters.push(lane),
@@ -113,8 +119,15 @@ pub fn merge_window(
         }
 
         // Drop sets that merely restate what W already holds.
-        let current = result.get(&path);
-        sets.retain(|(_, k)| current != Some(k));
+        let current = result.get(&path).cloned();
+        let kept: Vec<(usize, (String, ManifestEntryKind))> = sets
+            .into_iter()
+            .enumerate()
+            .filter(|(_, (_, k))| current.as_ref() != Some(k))
+            .collect();
+        let set_bases: Vec<Option<ManifestEntryKind>> =
+            kept.iter().map(|(i, _)| set_bases[*i].clone()).collect();
+        let sets: Vec<(String, ManifestEntryKind)> = kept.into_iter().map(|(_, s)| s).collect();
 
         match (sets.len(), deleters.is_empty()) {
             (0, true) => {} // all opinions collapsed into W's value
@@ -126,7 +139,24 @@ pub fn merge_window(
                 result.insert(path, kind);
             }
             _ => {
-                // True divergence (and/or delete-vs-modify).
+                // True divergence: dispatch to the gate's strategy first
+                // (doc 17 §4); unresolved divergence superposes.
+                // Diff3 ancestor (doc 17 §4): shared declared-base value if
+                // the divergent opinions agree on one, else W's value.
+                let ancestor = if !set_bases.is_empty()
+                    && set_bases.iter().all(|b| b.is_some() && *b == set_bases[0])
+                {
+                    set_bases[0].clone()
+                } else {
+                    current.clone()
+                };
+                if strategy == "text-line-merge"
+                    && deleters.is_empty()
+                    && let Some(merged) = try_text_line_merge(objects, ancestor.as_ref(), &sets)?
+                {
+                    result.insert(path, merged);
+                    continue;
+                }
                 let mut variants: Vec<SuperpositionVariant> = sets
                     .into_iter()
                     .flat_map(|(lane, kind)| to_variants(lane, kind))
@@ -143,6 +173,88 @@ pub fn merge_window(
     }
 
     build_tree(objects, &result)
+}
+
+/// `text-line-merge` (doc 17 §4): diff3 the divergent variants against the
+/// fold's current value, pairwise in input order. Clean merge -> a new
+/// `File` entry; any overlapping hunk -> `None` (the caller superposes the
+/// original variants — conflict markers are never written). Non-text
+/// content -> `None` (per-path fallback to whole-file behavior).
+fn try_text_line_merge(
+    objects: &dyn ObjectStore,
+    base: Option<&ManifestEntryKind>,
+    sets: &[(String, ManifestEntryKind)],
+) -> Result<Option<ManifestEntryKind>> {
+    let base_text = match base {
+        Some(kind) => match file_text(objects, kind)? {
+            Some(text) => text,
+            None => return Ok(None),
+        },
+        None => String::new(),
+    };
+
+    let mut variant_texts = Vec::new();
+    let mut modes = Vec::new();
+    for (_, kind) in sets {
+        match file_text(objects, kind)? {
+            Some(text) => variant_texts.push(text),
+            None => return Ok(None),
+        }
+        modes.push(match kind {
+            ManifestEntryKind::File { mode, .. } | ManifestEntryKind::FileChunks { mode, .. } => {
+                *mode
+            }
+            _ => return Ok(None),
+        });
+    }
+
+    let mut merged = variant_texts[0].clone();
+    for variant in &variant_texts[1..] {
+        match diffy::merge(&base_text, &merged, variant) {
+            Ok(clean) => merged = clean,
+            // Overlapping hunks: conflicts stay data, never markers.
+            Err(_) => return Ok(None),
+        }
+    }
+
+    let mode = if modes.iter().all(|m| *m == modes[0]) {
+        modes[0]
+    } else {
+        match base {
+            Some(ManifestEntryKind::File { mode, .. })
+            | Some(ManifestEntryKind::FileChunks { mode, .. }) => *mode,
+            _ => 0o644,
+        }
+    };
+    let bytes = merged.into_bytes();
+    let blob = objects.put(ObjectKind::Blob, &bytes)?;
+    Ok(Some(ManifestEntryKind::File {
+        blob,
+        mode,
+        size: bytes.len() as u64,
+    }))
+}
+
+/// Load file-like content and admit it as text: File or FileChunks, no NUL
+/// byte in the first 8 KiB, valid UTF-8.
+fn file_text(objects: &dyn ObjectStore, kind: &ManifestEntryKind) -> Result<Option<String>> {
+    let bytes = match kind {
+        ManifestEntryKind::File { blob, .. } => objects.get(ObjectKind::Blob, blob)?,
+        ManifestEntryKind::FileChunks { recipe, .. } => {
+            let recipe: FileRecipe =
+                serde_json::from_slice(&objects.get(ObjectKind::Recipe, recipe)?)?;
+            let mut out = Vec::with_capacity(recipe.size as usize);
+            for chunk in &recipe.chunks {
+                out.extend_from_slice(&objects.get(ObjectKind::Blob, &chunk.blob)?);
+            }
+            out
+        }
+        _ => return Ok(None),
+    };
+    if bytes.iter().take(8192).any(|b| *b == 0) {
+        return Ok(None);
+    }
+    Ok(String::from_utf8(bytes).ok())
 }
 
 /// Leaf entries by path; directories recursed, superpositions kept as

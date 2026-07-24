@@ -10,14 +10,12 @@ boundary was named.
 
 ## Current State
 
-`g02.005` (convergence semantics revision) is active: snap lineage,
-base-aware merge, bundle windows, per-gate coalesce strategies —
-architecture first. `g02.006`-`g02.010` are planned and open in sequence:
-continuous capture and workspace UX, lanes and collaboration, releases/
-retention/GC, git interop, scale and transport.
+`g02.006` (continuous capture and workspace UX) is active. `g02.005`
+closed: lineage, base-aware merge with supersession, windows, and gate
+strategies are live. `g02.007`-`g02.010` remain planned in sequence.
 
 Ready batch card:
-[`batch-cards/018-gate-strategies.md`](./batch-cards/018-gate-strategies.md)
+[`batch-cards/019-auto-capture.md`](./batch-cards/019-auto-capture.md)
 
 The paused posture is over. The lane is capture → archive cut → docs spine
 restructure → rebuild architecture definition. Batch 2.1 (capture) is
@@ -33,8 +31,8 @@ restructure) complete: docs tree reduced to the keeper spine.
 - [`002-archive-and-rebuild-boundary.md`](./002-archive-and-rebuild-boundary.md) — complete
 - [`003-rebuild-implementation-vertical-slice.md`](./003-rebuild-implementation-vertical-slice.md) — complete
 - [`004-tui-rebuild.md`](./004-tui-rebuild.md) — complete
-- [`005-convergence-semantics-revision.md`](./005-convergence-semantics-revision.md) — active
-- [`006-continuous-capture-and-workspace-ux.md`](./006-continuous-capture-and-workspace-ux.md) — planned
+- [`005-convergence-semantics-revision.md`](./005-convergence-semantics-revision.md) — complete
+- [`006-continuous-capture-and-workspace-ux.md`](./006-continuous-capture-and-workspace-ux.md) — active
 - [`007-lanes-and-collaboration.md`](./007-lanes-and-collaboration.md) — planned
 - [`008-releases-retention-and-gc.md`](./008-releases-retention-and-gc.md) — planned
 - [`009-git-interop.md`](./009-git-interop.md) — planned
@@ -42,4 +40,4 @@ restructure) complete: docs tree reduced to the keeper spine.
 
 ## Next Task
 
-Execute the ready `g02.005` Batch 5.4 gate-strategies card.002` Batch 2.4 rebuild-architecture card.
+Execute the ready `g02.006` Batch 6.1 auto-capture card.002` Batch 2.4 rebuild-architecture card.

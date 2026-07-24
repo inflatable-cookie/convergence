@@ -29,10 +29,11 @@ records the closed state.
 
 ## Active strict lane
 
-- `g02.005` (convergence semantics revision) is the active roadmap.
-- `docs/specs/005-convergence-semantics-revision.md` is the active strict
-  planning lane; `g02.006`-`g02.010` are planned and open in sequence.
-- ready card: `g02/batch-cards/018-gate-strategies.md`
+- `g02.006` (continuous capture and workspace UX) is the active roadmap.
+- `docs/specs/006-continuous-capture-and-workspace-ux.md` is the active
+  strict planning lane; `g02.007`-`g02.010` are planned and open in
+  sequence.
+- ready card: `g02/batch-cards/019-auto-capture.md`
 
 ## Rollover guardrail
 
@@ -46,4 +47,4 @@ Before rollover:
 
 ## Next Task
 
-Execute the ready `g02.005` Batch 5.4 gate-strategies card.002` Batch 2.4 rebuild-architecture card.
+Execute the ready `g02.006` Batch 6.1 auto-capture card.002` Batch 2.4 rebuild-architecture card.

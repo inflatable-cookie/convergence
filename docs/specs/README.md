@@ -17,10 +17,10 @@ repo needs tighter execution grammar than the roadmap alone provides.
 
 ## Active Spec Set
 
-- [`005-convergence-semantics-revision.md`](./005-convergence-semantics-revision.md)
+- [`006-continuous-capture-and-workspace-ux.md`](./006-continuous-capture-and-workspace-ux.md)
 
 Archived specs live in [`archive/`](./archive/).
 
 ## Next Task
 
-Execute the ready `g02.005` Batch 5.4 gate-strategies card.002` Batch 2.4 rebuild-architecture card.
+Execute the ready `g02.006` Batch 6.1 auto-capture card.002` Batch 2.4 rebuild-architecture card.

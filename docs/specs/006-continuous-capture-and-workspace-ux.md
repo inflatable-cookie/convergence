@@ -1,0 +1,32 @@
+# 006 Continuous Capture and Workspace UX
+
+Status: active
+Updated: 2026-07-24
+Roadmap: `g02.006`
+
+## Governing Refs
+
+- `docs/roadmaps/g02/006-continuous-capture-and-workspace-ux.md`
+- `docs/architecture/17-lineage-and-merge-semantics.md` (lineage rules the
+  watcher must respect: idempotent recapture, head parenting)
+- `docs/rebuild/002-tui-ux-spec.md`
+- `docs/contracts/001-working-rules.md`
+
+## Lane Focus
+
+The core product bet lands here: capture becomes continuous and invisible.
+Auto-capture must never block the user's editor or corrupt lineage; when in
+doubt the watcher skips a capture rather than guessing.
+
+## Current State
+
+- Batch 6.1 has a ready card:
+  `docs/roadmaps/g02/batch-cards/019-auto-capture.md`
+
+## Exit Condition
+
+Roadmap `g02.006` exit criteria met.
+
+## Next Task
+
+Execute the ready Batch 6.1 card.

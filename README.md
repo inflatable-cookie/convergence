@@ -55,4 +55,4 @@ cargo nextest run -P ci
 
 ## Next task
 
-Execute the ready `g02.005` Batch 5.4 gate-strategies card.002` Batch 2.4 rebuild-architecture card.
+Execute the ready `g02.006` Batch 6.1 auto-capture card.002` Batch 2.4 rebuild-architecture card.

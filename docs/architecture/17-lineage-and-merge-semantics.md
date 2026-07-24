@@ -149,8 +149,11 @@ for binaries and unknown formats.
 For divergent `File`/`FileChunks` entries where base and all variants are
 text (heuristic: no NUL byte in the first 8 KiB, valid UTF-8):
 
-- three-way line merge (diff3) of base content vs each variant, folded
-  pairwise in input order
+- three-way line merge (diff3) of the ancestor content vs each variant,
+  folded pairwise in input order. The ancestor is the divergent opinions'
+  shared declared-base value when they agree (the common content they all
+  diverged from — W is irrelevant to intra-window divergence); otherwise
+  the fold's current W value; otherwise empty.
 - clean merge → a new blob; the merged entry is a normal `File` (mode: from
   the variants if they agree, else the base's; size recomputed)
 - any overlapping-hunk conflict → fall back to a superposition of the

@@ -1,6 +1,6 @@
 # 005 Convergence Semantics Revision
 
-Status: active
+Status: complete
 Owner: repo maintainers
 Updated: 2026-07-24
 
@@ -71,10 +71,10 @@ provenance replay as the enterprise feature.
 
 ### Batch 5.4 - Gate Coalesce Strategies
 
-- [ ] strategy contract on `GateNode` (e.g. `text-line-merge`,
+- [x] strategy contract on `GateNode` (e.g. `text-line-merge`,
       `whole-file`); engine dispatches per entry
-- [ ] line-merge for text blobs with true-conflict-only superpositions
-- [ ] strategy + inputs recorded in bundle provenance; determinism tests
+- [x] line-merge for text blobs with true-conflict-only superpositions
+- [x] strategy + inputs recorded in bundle provenance; determinism tests
       extended per strategy
 
 ## Exit Criteria
@@ -85,6 +85,14 @@ provenance replay as the enterprise feature.
   vs a true conflict producing one
 - deterministic bundle ids under windows + strategies
 
+## Outcome
+
+All four batches complete; exit criteria met (docs revised before code;
+e2e green under the new semantics including deletion propagation and the
+line-merge-vs-true-conflict pair; deterministic bundle ids under windows
+and strategies). Doc 17 absorbed four test-driven amendments through the
+stop-condition path, all recorded in batch outcomes.
+
 ## Next Task
 
-Execute the ready Batch 5.4 card (`batch-cards/018-gate-strategies.md`).
+Open `g02.006` (continuous capture and workspace UX).
