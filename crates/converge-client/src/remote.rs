@@ -501,7 +501,10 @@ impl RemoteClient {
     }
 
     /// Poll the event feed after `since` (doc 14 §5b: hints, not truth).
-    pub fn events(&self, repo_id: &str, since: u64) -> Result<Vec<EventRecord>> {
+    /// One page of the event feed. `EventPage::gap` is true when pruning
+    /// removed events this cursor never saw — reconcile via inbox/status
+    /// rather than assuming the page is complete.
+    pub fn event_page(&self, repo_id: &str, since: u64) -> Result<crate::model::EventPage> {
         let response = Self::check(
             self.http
                 .get(self.url(&format!("/api/repos/{repo_id}/events")))
@@ -510,7 +513,12 @@ impl RemoteClient {
                 .send()
                 .context("events")?,
         )?;
-        response.json().context("parse events")
+        response.json().context("parse event page")
+    }
+
+    /// Events only, for callers that already know their cursor is fresh.
+    pub fn events(&self, repo_id: &str, since: u64) -> Result<Vec<EventRecord>> {
+        Ok(self.event_page(repo_id, since)?.events)
     }
 
     pub fn inbox(&self, repo_id: &str, scope_id: &str, since: Option<&str>) -> Result<InboxReport> {

@@ -63,6 +63,7 @@ fn start_server(data_dir: &std::path::Path) -> Result<String> {
             ("token-a".to_string(), "alice".to_string()),
             ("token-b".to_string(), "bob".to_string()),
         ]),
+        gc_running: Default::default(),
     };
 
     let listener = std::net::TcpListener::bind("127.0.0.1:0")?;

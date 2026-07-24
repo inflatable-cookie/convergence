@@ -95,6 +95,7 @@ fn main() -> Result<()> {
         meta,
         objects,
         tokens,
+        gc_running: Default::default(),
     };
 
     let runtime = tokio::runtime::Runtime::new().context("start tokio runtime")?;

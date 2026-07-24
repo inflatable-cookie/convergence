@@ -11,9 +11,9 @@ use serde_json::json;
 
 use converge_model::{
     AddLaneMemberRequest, ApproveRequest, BundleProvenance, BundleRecord, CreateLaneRequest,
-    EventRecord, InboxReport, LaneHead, LaneRecord, NegotiateRequest, NegotiateResponse,
-    ObjectFrame, ObjectId, ObjectSet, PromoteRequest, PublishRequest, ReleaseRecord,
-    ReleaseRequest, RetentionPolicy, SetLaneHeadRequest, SnapRecord, VerifyReport, WIRE_VERSION,
+    InboxReport, LaneHead, LaneRecord, NegotiateRequest, NegotiateResponse, ObjectFrame, ObjectId,
+    ObjectSet, PromoteRequest, PublishRequest, ReleaseRecord, ReleaseRequest, RetentionPolicy,
+    SetLaneHeadRequest, SnapRecord, VerifyReport, WIRE_VERSION,
 };
 
 use crate::authz::{AuthzContext, Capability, authorize};
@@ -26,6 +26,9 @@ pub struct AppState {
     /// token -> subject. Slice-grade identity (arch 14 notes MVP tokens);
     /// real identity arrives with a later roadmap.
     pub tokens: HashMap<String, String>,
+    /// Held for the duration of a GC run so a second one is refused
+    /// rather than repeating the walk (batch 14.4).
+    pub gc_running: Arc<tokio::sync::Mutex<()>>,
 }
 
 type SharedState = Arc<AppState>;
@@ -594,15 +597,22 @@ async fn list_events(
     Path(repo): Path<String>,
     Query(params): Query<EventsParams>,
     headers: HeaderMap,
-) -> Result<Json<Vec<EventRecord>>, ApiError> {
+) -> Result<Json<converge_model::EventPage>, ApiError> {
     let subject = subject(&state, &headers)?;
     authorize(state.meta.as_ref(), &subject, &repo, "*", Capability::Read)
         .map_err(|err| forbidden(format!("{err:#}")))?;
+    let floor = state.meta.event_floor(&repo).map_err(internal_error)?;
     let events = state
         .meta
         .list_events(&repo, params.since)
         .map_err(internal_error)?;
-    Ok(Json(events))
+    Ok(Json(converge_model::EventPage {
+        events,
+        floor,
+        // A cursor at or below the floor missed pruned events. Hints, so
+        // this costs freshness — but the client must be told (batch 14.4).
+        gap: params.since < floor,
+    }))
 }
 
 /// Resolve a bundle-id-keyed read: the bundle names its repo, the caller
@@ -808,21 +818,31 @@ async fn run_gc(
     let subject = subject(&state, &headers)?;
     let authz = authorize(state.meta.as_ref(), &subject, &repo, "*", Capability::Admin)
         .map_err(|err| forbidden(format!("{err:#}")))?;
-    let engine = Engine {
-        meta: state.meta.as_ref(),
-        objects: state.objects.as_ref(),
-    };
+    // Single-flight (batch 14.4): a second concurrent GC would repeat the
+    // whole-store walk for nothing.
+    let _running = state
+        .gc_running
+        .try_lock()
+        .map_err(|_| bad_request("a garbage collection is already running for this server"))?;
     let now = time::OffsetDateTime::now_utc()
         .format(&time::format_description::well_known::Rfc3339)
         .unwrap_or_default();
-    let report = engine
-        .gc(
-            &authz,
-            params.dry_run,
-            &now,
-            std::time::Duration::from_secs(300),
-        )
-        .map_err(|err| bad_request(format!("{err:#}")))?;
+
+    // GC walks the whole object store; running it inline blocks a runtime
+    // worker and stalls every other request's futures on that thread.
+    let meta = state.meta.clone();
+    let objects = state.objects.clone();
+    let dry_run = params.dry_run;
+    let report = tokio::task::spawn_blocking(move || {
+        let engine = Engine {
+            meta: meta.as_ref(),
+            objects: objects.as_ref(),
+        };
+        engine.gc(&authz, dry_run, &now, std::time::Duration::from_secs(300))
+    })
+    .await
+    .map_err(|err| internal_error(anyhow::anyhow!("gc task: {err}")))?
+    .map_err(|err| bad_request(format!("{err:#}")))?;
     Ok(Json(report))
 }
 

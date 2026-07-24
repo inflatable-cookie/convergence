@@ -24,6 +24,7 @@ pub struct GcReport {
     pub dropped_releases: u64,
     pub dropped_bundles: u64,
     pub dropped_publications: u64,
+    pub pruned_events: u64,
     pub reachable_objects: u64,
     pub swept_objects: u64,
     pub swept_bytes: u64,
@@ -100,9 +101,18 @@ impl Engine<'_> {
                 .delete_bundles(authz.repo_id(), &dropped_bundles)?;
             self.meta
                 .delete_publications(authz.repo_id(), &dropped_publications)?;
+            // Events are hints, so they prune on count alone (batch 14.4);
+            // pruning raises the repo's event floor so a stale cursor is
+            // told it has a gap rather than silently missing history.
+            if let Some(keep) = policy.keep_events {
+                report.pruned_events = self.meta.prune_events(authz.repo_id(), keep)?;
+            }
         }
 
         // --- mark: every repo's surviving roots ---
+        // Global by necessity: the object store is deduplicated across
+        // repos, so marking only this repo's roots would sweep another
+        // repo's live content (doc 14 §2).
         let mut marked: HashSet<(ObjectKind, String)> = HashSet::new();
         let dropped_bundle_set: HashSet<&String> = dropped_bundles.iter().collect();
         let dropped_publication_set: HashSet<&String> = dropped_publications.iter().collect();

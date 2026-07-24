@@ -49,6 +49,7 @@ fn start_server(data_dir: &std::path::Path, users: usize) -> Result<(String, Vec
         meta: Arc::new(meta),
         objects: Arc::new(FsObjectStore::new(data_dir)),
         tokens,
+        gc_running: Default::default(),
     };
     let listener = std::net::TcpListener::bind("127.0.0.1:0")?;
     let addr = listener.local_addr()?;

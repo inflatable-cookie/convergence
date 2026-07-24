@@ -32,7 +32,7 @@ fn start_server(data_dir: &std::path::Path, seed_events: u64) -> Result<String> 
         },
     )?;
     meta.upsert_user("alice")?;
-    for capability in ["read", "publish"] {
+    for capability in ["read", "publish", "admin"] {
         meta.add_grant("alice", "repo", "*", capability)?;
     }
     for i in 0..seed_events {
@@ -48,6 +48,7 @@ fn start_server(data_dir: &std::path::Path, seed_events: u64) -> Result<String> 
         meta: Arc::new(meta),
         objects: Arc::new(FsObjectStore::new(data_dir)),
         tokens: HashMap::from([("token-a".to_string(), "alice".to_string())]),
+        gc_running: Default::default(),
     };
     let listener = std::net::TcpListener::bind("127.0.0.1:0")?;
     let addr = listener.local_addr()?;
@@ -163,5 +164,40 @@ fn event_listing_is_paged_with_a_continuing_cursor() -> Result<()> {
     let cursor = first.last().expect("page").seq;
     let rest = alice.events("repo", cursor)?;
     assert_eq!(rest.len(), 5, "cursor continues past the page");
+    Ok(())
+}
+
+/// Batch 14.4: pruning must not silently truncate a client's view — a
+/// cursor below the floor is told it has a gap.
+#[test]
+fn stale_cursor_is_told_about_pruned_events() -> Result<()> {
+    let server_dir = tempfile::tempdir()?;
+    let base_url = start_server(server_dir.path(), 40)?;
+    let alice = RemoteClient::new(&base_url, "token-a");
+
+    // A fresh cursor over an unpruned feed reports no gap.
+    let page = alice.event_page("repo", 0)?;
+    assert_eq!(page.floor, 0);
+    assert!(!page.gap, "nothing pruned yet");
+    assert_eq!(page.events.len(), 40);
+
+    // Prune to the newest 10, then poll from the old cursor.
+    alice.set_retention(
+        "repo",
+        &converge_model::RetentionPolicy {
+            keep_events: Some(10),
+            ..Default::default()
+        },
+    )?;
+    alice.gc("repo", false)?;
+
+    let stale = alice.event_page("repo", 0)?;
+    assert!(stale.gap, "cursor 0 missed pruned events");
+    assert_eq!(stale.floor, 30);
+    assert_eq!(stale.events.len(), 10, "only survivors are delivered");
+
+    // A cursor at or above the floor is complete again.
+    let fresh = alice.event_page("repo", stale.floor)?;
+    assert!(!fresh.gap);
     Ok(())
 }

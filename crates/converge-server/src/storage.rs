@@ -207,6 +207,12 @@ pub trait MetadataStore: Send + Sync {
         created_at: &str,
     ) -> Result<u64>;
     fn list_events(&self, repo_id: &str, since: u64) -> Result<Vec<EventRecord>>;
+    /// Prune all but the newest `keep` events, raising the repo's event
+    /// floor to the highest pruned seq (g02.014 batch 14.4). Returns the
+    /// number pruned.
+    fn prune_events(&self, repo_id: &str, keep: u32) -> Result<u64>;
+    /// Highest pruned event seq: cursors at or below it have a gap.
+    fn event_floor(&self, repo_id: &str) -> Result<u64>;
 
     // retention (g02.008)
     fn set_retention(&self, repo_id: &str, policy: &RetentionPolicy) -> Result<()>;

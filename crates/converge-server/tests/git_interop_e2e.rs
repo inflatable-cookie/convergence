@@ -68,6 +68,7 @@ fn start_server(data_dir: &std::path::Path) -> Result<String> {
         meta: Arc::new(meta),
         objects: Arc::new(FsObjectStore::new(data_dir)),
         tokens: HashMap::from([("token-a".to_string(), "alice".to_string())]),
+        gc_running: Default::default(),
     };
     let listener = std::net::TcpListener::bind("127.0.0.1:0")?;
     let addr = listener.local_addr()?;

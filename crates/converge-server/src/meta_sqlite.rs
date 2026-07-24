@@ -122,6 +122,10 @@ impl SqliteMetadataStore {
                 repo_id TEXT PRIMARY KEY,
                 policy_json TEXT NOT NULL
             );
+            CREATE TABLE IF NOT EXISTS event_floors (
+                repo_id TEXT PRIMARY KEY,
+                floor INTEGER NOT NULL
+            );
             CREATE TABLE IF NOT EXISTS releases (
                 repo_id TEXT NOT NULL,
                 channel TEXT NOT NULL,
@@ -637,6 +641,45 @@ impl MetadataStore for SqliteMetadataStore {
             out.push(row?);
         }
         Ok(out)
+    }
+
+    fn prune_events(&self, repo_id: &str, keep: u32) -> Result<u64> {
+        let conn = self.conn.lock().expect("meta lock");
+        // The cut is the highest seq that will no longer exist; recording
+        // it as the floor is what lets a stale cursor learn it has a gap.
+        let cut: Option<i64> = conn
+            .query_row(
+                "SELECT seq FROM events WHERE repo_id = ?1
+                 ORDER BY seq DESC LIMIT 1 OFFSET ?2",
+                params![repo_id, keep as i64],
+                |row| row.get(0),
+            )
+            .ok();
+        let Some(cut) = cut else {
+            return Ok(0);
+        };
+        let pruned = conn.execute(
+            "DELETE FROM events WHERE repo_id = ?1 AND seq <= ?2",
+            params![repo_id, cut],
+        )? as u64;
+        conn.execute(
+            "INSERT INTO event_floors (repo_id, floor) VALUES (?1, ?2)
+             ON CONFLICT(repo_id) DO UPDATE SET floor = MAX(floor, excluded.floor)",
+            params![repo_id, cut],
+        )?;
+        Ok(pruned)
+    }
+
+    fn event_floor(&self, repo_id: &str) -> Result<u64> {
+        let conn = self.conn.lock().expect("meta lock");
+        let floor: Option<i64> = conn
+            .query_row(
+                "SELECT floor FROM event_floors WHERE repo_id = ?1",
+                params![repo_id],
+                |row| row.get(0),
+            )
+            .ok();
+        Ok(floor.unwrap_or(0) as u64)
     }
 
     fn set_retention(&self, repo_id: &str, policy: &RetentionPolicy) -> Result<()> {

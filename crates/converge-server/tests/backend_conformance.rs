@@ -73,6 +73,15 @@ fn conform_metadata(meta: &dyn MetadataStore) -> Result<()> {
     assert!(seq2 > seq1);
     assert_eq!(meta.list_events("conf", seq1)?.len(), 1);
 
+    // event retention + floor (batch 14.4)
+    assert_eq!(meta.event_floor("conf")?, 0);
+    assert_eq!(meta.prune_events("conf", 10)?, 0, "nothing beyond horizon");
+    assert_eq!(meta.prune_events("conf", 1)?, 1, "oldest pruned");
+    assert_eq!(meta.event_floor("conf")?, seq1);
+    assert_eq!(meta.list_events("conf", 0)?.len(), 1);
+    assert_eq!(meta.prune_events("conf", 1)?, 0, "idempotent at horizon");
+    assert_eq!(meta.event_floor("conf")?, seq1, "floor never rewinds");
+
     let policy = RetentionPolicy {
         keep_releases_per_channel: Some(3),
         ..Default::default()

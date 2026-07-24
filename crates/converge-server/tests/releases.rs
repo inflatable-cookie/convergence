@@ -58,6 +58,7 @@ fn start_server(data_dir: &std::path::Path) -> Result<String> {
             ("token-a".to_string(), "alice".to_string()),
             ("token-b".to_string(), "bob".to_string()),
         ]),
+        gc_running: Default::default(),
     };
     let listener = std::net::TcpListener::bind("127.0.0.1:0")?;
     let addr = listener.local_addr()?;
@@ -185,6 +186,7 @@ fn retention_config_round_trips_with_admin_gate() -> Result<()> {
         keep_releases_per_channel: Some(5),
         keep_bundles_per_gate: Some(10),
         keep_publication_days: Some(30),
+        keep_events: Some(1000),
     };
     alice.set_retention("repo", &policy)?;
     assert_eq!(alice.get_retention("repo")?, policy);

@@ -72,6 +72,8 @@ impl PostgresMetadataStore {
                 created_at TEXT NOT NULL);
             CREATE TABLE IF NOT EXISTS retention (
                 repo_id TEXT PRIMARY KEY, policy_json TEXT NOT NULL);
+            CREATE TABLE IF NOT EXISTS event_floors (
+                repo_id TEXT PRIMARY KEY, floor BIGINT NOT NULL);
             CREATE TABLE IF NOT EXISTS releases (
                 seq BIGSERIAL PRIMARY KEY, repo_id TEXT NOT NULL,
                 channel TEXT NOT NULL, record_json TEXT NOT NULL);
@@ -393,6 +395,42 @@ impl MetadataStore for PostgresMetadataStore {
                 created_at: r.get(3),
             })
             .collect())
+    }
+
+    fn prune_events(&self, repo_id: &str, keep: u32) -> Result<u64> {
+        let mut c = self.client.lock().expect("pg lock");
+        // The cut is the highest seq that will no longer exist; recording
+        // it as the floor is what lets a stale cursor learn it has a gap.
+        let cut: Option<i64> = c
+            .query_opt(
+                "SELECT seq FROM events WHERE repo_id = $1
+                 ORDER BY seq DESC LIMIT 1 OFFSET $2",
+                &[&repo_id, &(keep as i64)],
+            )?
+            .map(|row| row.get(0));
+        let Some(cut) = cut else {
+            return Ok(0);
+        };
+        let pruned = c.execute(
+            "DELETE FROM events WHERE repo_id = $1 AND seq <= $2",
+            &[&repo_id, &cut],
+        )?;
+        c.execute(
+            "INSERT INTO event_floors (repo_id, floor) VALUES ($1, $2)
+             ON CONFLICT (repo_id) DO UPDATE SET
+               floor = GREATEST(event_floors.floor, EXCLUDED.floor)",
+            &[&repo_id, &cut],
+        )?;
+        Ok(pruned)
+    }
+
+    fn event_floor(&self, repo_id: &str) -> Result<u64> {
+        let mut c = self.client.lock().expect("pg lock");
+        let row = c.query_opt(
+            "SELECT floor FROM event_floors WHERE repo_id = $1",
+            &[&repo_id],
+        )?;
+        Ok(row.map(|r| r.get::<_, i64>(0)).unwrap_or(0) as u64)
     }
 
     fn set_retention(&self, repo_id: &str, policy: &RetentionPolicy) -> Result<()> {

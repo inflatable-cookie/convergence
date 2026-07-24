@@ -224,6 +224,9 @@ enum RetentionCommand {
         keep_bundles: Option<u32>,
         #[arg(long)]
         keep_publication_days: Option<u32>,
+        /// Keep the newest N events; older ones prune on GC.
+        #[arg(long)]
+        keep_events: Option<u32>,
     },
 }
 
@@ -639,10 +642,11 @@ fn run(cli: &Cli, mode: OutputMode) -> Result<serde_json::Value> {
                     let policy = client.get_retention(&remote.repo_id)?;
                     emit(mode, policy, |p| {
                         println!(
-                            "releases/channel: {:?}  bundles/gate: {:?}  publication days: {:?}",
+                            "releases/channel: {:?}  bundles/gate: {:?}  publication days: {:?}  events: {:?}",
                             p.keep_releases_per_channel,
                             p.keep_bundles_per_gate,
-                            p.keep_publication_days
+                            p.keep_publication_days,
+                            p.keep_events
                         );
                     })
                 }
@@ -650,11 +654,13 @@ fn run(cli: &Cli, mode: OutputMode) -> Result<serde_json::Value> {
                     keep_releases,
                     keep_bundles,
                     keep_publication_days,
+                    keep_events,
                 } => {
                     let policy = converge_client::model::RetentionPolicy {
                         keep_releases_per_channel: *keep_releases,
                         keep_bundles_per_gate: *keep_bundles,
                         keep_publication_days: *keep_publication_days,
+                        keep_events: *keep_events,
                     };
                     client.set_retention(&remote.repo_id, &policy)?;
                     emit(mode, policy, |_| {

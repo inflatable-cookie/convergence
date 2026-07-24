@@ -105,10 +105,16 @@ grace window (roadmap `g02.012`).
 
 Retention decisions are scoped to the triggering repo, but **the mark
 phase walks every repo's roots and the sweep lists the whole object
-store** — the object store is shared and deduplicated across repos, so a
-narrower mark would sweep another repo's live content. GC also runs
-inline on the request thread. Partition-scoped, off-thread GC is
-**deferred** to roadmap `g02.014` batch 14.4.
+store**. This is not a shortcut to be narrowed later: the object store
+is shared and deduplicated across repos, so marking only the triggering
+repo's roots would sweep a neighbour's live content. Global marking is
+the correct consequence of cross-repo dedup, and a test pins it.
+
+GC runs on a blocking pool rather than a runtime worker, so a
+whole-store walk does not stall other requests' futures, and a
+single-flight guard refuses a second concurrent run instead of
+repeating the walk. It stays admin-triggered and synchronous from the
+caller's point of view.
 
 ## 3. Consistency model
 
@@ -210,9 +216,14 @@ The server records convergence events (`bundle` built, `lane` head moved,
   Poll is the v1 transport; an SSE stream over the same feed is
   deliberate follow-up once external backends land (the feed contract —
   seq cursor + reconcile-on-gap — does not change).
-- The events table is **append-only and unbounded**: nothing prunes it,
-  so it grows with repo activity forever. Retention with cursor-gap
-  signalling is **deferred** to roadmap `g02.014` batch 14.4.
+- Retention: `RetentionPolicy::keep_events` bounds the table; GC prunes
+  everything beyond the newest N and raises the repo's **event floor**
+  to the highest pruned seq. Absent the setting, events are kept.
+- Cursor honesty: the feed returns `{events, floor, gap}`. `gap` is
+  true when the caller's cursor sits at or below the floor — pruned
+  events it never saw. Because events are hints, a gap costs freshness
+  and the client reconciles through inbox/status; what it must never do
+  is believe a truncated page was complete.
 
 ## 5c. Backend selection (operators)
 
@@ -260,15 +271,19 @@ trigger building it, so the list stays a plan rather than a wish.
 | Property | State | Owner / trigger |
 | --- | --- | --- |
 | Async bundle builds, partition workers | not built; publish merges inline | backlog; trigger = measured publish-latency pain (see note below) |
-| Event retention, off-thread partition-scoped GC | not built; unbounded events, global inline GC | roadmap `g02.014` batch 14.4 |
 | Horizontal scaling across partitions | not built; one process, one metadata connection | backlog; trigger = measured write ceiling from the scale-walls roadmap |
 | Edge nodes (read-through cache, upload buffering) | not built | backlog; trigger = a real multi-site customer with locality pain |
 | Short-lived capability-scoped tokens, revocation | not built; static startup token map | backlog; trigger = any deployment outside a trusted network |
 
 The pluggable-backend seam, the partition key, the scope registry,
-guarded transactional writes, and enforced authz are deliberately *not*
-on this list: they ship today, and they are what make the deferred
-items additive rather than rewrites.
+event retention, guarded transactional writes, and enforced authz are
+deliberately *not* on this list: they ship today, and they are what
+make the deferred items additive rather than rewrites.
+
+Publish's merge runs on a runtime worker like any other handler. If
+that ever shows up as head-of-line blocking, the fix is the same
+`spawn_blocking` move GC already made — a smaller change than the async
+worker design below, and worth trying first.
 
 **Why async builds are deferred rather than next.** Publish currently
 commits its publication, its bundle, and its event in a *single* guarded

@@ -212,6 +212,23 @@ pub struct RetentionPolicy {
     /// Drop consumed publications older than N days (None = keep all).
     #[serde(default)]
     pub keep_publication_days: Option<u32>,
+    /// Keep the newest N events per repo (None = keep all). Pruning
+    /// raises the repo's event floor; cursors below it get `gap: true`.
+    #[serde(default)]
+    pub keep_events: Option<u32>,
+}
+
+/// One page of the event feed plus the cursor honesty a client needs
+/// (g02.014 batch 14.4). Events are hints, so a gap costs freshness,
+/// not correctness — but the client must be told it has one.
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+pub struct EventPage {
+    pub events: Vec<EventRecord>,
+    /// Highest pruned seq for this repo; events at or below are gone.
+    pub floor: u64,
+    /// The requested cursor sat below `floor`: pruned events were never
+    /// delivered to this caller. Reconcile via inbox/status.
+    pub gap: bool,
 }
 
 /// A release: a bundle designated for consumption on a named channel.

@@ -1,6 +1,6 @@
 # 014 Architecture Honesty
 
-Status: in progress (14.1, 14.3 complete; 14.2 deferred)
+Status: complete (14.1, 14.3, 14.4 done; 14.2 deferred to backlog)
 Owner: repo maintainers
 Updated: 2026-07-24
 
@@ -49,20 +49,23 @@ so the docs are true again.
   repo with a `default` registered at repo creation; every operation
   naming an unregistered scope is refused before touching state; grant
   patterns implemented as `*` / literal / `prefix/*`
-- **14.4 Operational hygiene**: event retention (prune beyond a
-  configured horizon with cursor-gap signalling), GC moved off the
-  request thread, per-repo GC marking where the shared store allows
+- **14.4 Operational hygiene** (complete, card 052): `keep_events`
+  retention with an event floor and `gap` signalling on the feed; GC
+  moved onto a blocking pool with a single-flight guard; per-repo
+  marking resolved as impossible under cross-repo dedup and pinned by
+  a test rather than left as an intention
 
-## Exit Criteria
+## Exit Criteria (all met)
 
 - every claim in docs 14/16/17 is either implemented or explicitly
-  marked deferred; `effigy qa:docs` clean
+  marked deferred; `effigy qa:docs` clean (14.1)
 - ~~publish returns before merge completes; bundle status observable
   through the event feed~~ — dropped with the 14.2 deferral; the
   honesty requirement it served is met by doc 14 §5 stating that builds
   are synchronous and `Building` is never constructed
-- unknown scope refused; events table bounded under sustained load
+- unknown scope refused (14.3); events table bounded by `keep_events`
+  with stale cursors told about the gap (14.4)
 
 ## Next Task
 
-Open batch card 14.4 (operational hygiene).
+Roadmap complete. Open `g02.015` (scale walls).
