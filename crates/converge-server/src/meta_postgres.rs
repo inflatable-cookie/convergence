@@ -304,6 +304,78 @@ impl MetadataStore for PostgresMetadataStore {
             .collect()
     }
 
+    fn list_scopes_page(
+        &self,
+        repo_id: &str,
+        after: Option<&str>,
+        limit: usize,
+    ) -> Result<Vec<String>> {
+        let mut c = self.client.lock().expect("pg lock");
+        let rows = c.query(
+            "SELECT scope_id FROM scopes
+             WHERE repo_id = $1 AND scope_id > $2
+             ORDER BY scope_id ASC LIMIT $3",
+            &[&repo_id, &after.unwrap_or(""), &(limit as i64)],
+        )?;
+        Ok(rows.iter().map(|r| r.get(0)).collect())
+    }
+
+    fn list_lanes_page(
+        &self,
+        repo_id: &str,
+        after: Option<&str>,
+        limit: usize,
+    ) -> Result<Vec<LaneRecord>> {
+        let mut c = self.client.lock().expect("pg lock");
+        let rows = c.query(
+            "SELECT record_json FROM lanes
+             WHERE repo_id = $1 AND lane_id > $2
+             ORDER BY lane_id ASC LIMIT $3",
+            &[&repo_id, &after.unwrap_or(""), &(limit as i64)],
+        )?;
+        rows.iter()
+            .map(|r| serde_json::from_str(r.get(0)).context("parse lane"))
+            .collect()
+    }
+
+    fn list_releases_page(
+        &self,
+        repo_id: &str,
+        after_seq: Option<u64>,
+        limit: usize,
+    ) -> Result<Vec<(u64, ReleaseRecord)>> {
+        let mut c = self.client.lock().expect("pg lock");
+        let rows = c.query(
+            "SELECT seq, record_json FROM releases
+             WHERE repo_id = $1 AND seq > $2
+             ORDER BY seq ASC LIMIT $3",
+            &[&repo_id, &(after_seq.unwrap_or(0) as i64), &(limit as i64)],
+        )?;
+        rows.iter()
+            .map(|r| {
+                Ok((
+                    r.get::<_, i64>(0) as u64,
+                    serde_json::from_str(r.get(1)).context("parse release")?,
+                ))
+            })
+            .collect()
+    }
+
+    fn latest_bundles_per_gate(&self, repo_id: &str, scope_id: &str) -> Result<Vec<StoredBundle>> {
+        let ids: Vec<String> = {
+            let mut c = self.client.lock().expect("pg lock");
+            // One row per gate: the newest bundle by (created_at, id).
+            let rows = c.query(
+                "SELECT DISTINCT ON (gate_id) bundle_id FROM bundles
+                 WHERE repo_id = $1 AND scope_id = $2
+                 ORDER BY gate_id, created_at DESC, bundle_id DESC",
+                &[&repo_id, &scope_id],
+            )?;
+            rows.iter().map(|r| r.get(0)).collect()
+        };
+        ids.iter().map(|id| self.get_bundle(id)).collect()
+    }
+
     fn add_lane_member(&self, repo_id: &str, lane_id: &str, member: &str) -> Result<()> {
         let mut lane = self
             .get_lane(repo_id, lane_id)?

@@ -350,15 +350,61 @@ impl RemoteClient {
         Ok(())
     }
 
+    /// One page of a cursor listing (batch 15.2). `after` is the
+    /// `next_cursor` of the previous page.
+    fn page<T: serde::de::DeserializeOwned>(
+        &self,
+        path: &str,
+        after: Option<&str>,
+        limit: Option<usize>,
+        what: &'static str,
+    ) -> Result<crate::model::Page<T>> {
+        let mut request = self.http.get(self.url(path)).bearer_auth(&self.token);
+        if let Some(after) = after {
+            request = request.query(&[("after", after)]);
+        }
+        if let Some(limit) = limit {
+            request = request.query(&[("limit", limit.to_string())]);
+        }
+        let response = Self::check(request.send().context(what)?)?;
+        response.json().context(what)
+    }
+
+    /// Follow a cursor listing to exhaustion. Pages are capped
+    /// server-side, so this is a loop, not a single unbounded request.
+    fn all_pages<T: serde::de::DeserializeOwned>(
+        &self,
+        path: &str,
+        what: &'static str,
+    ) -> Result<Vec<T>> {
+        let mut out = Vec::new();
+        let mut cursor: Option<String> = None;
+        loop {
+            let page: crate::model::Page<T> = self.page(path, cursor.as_deref(), None, what)?;
+            out.extend(page.items);
+            match page.next_cursor {
+                Some(next) => cursor = Some(next),
+                None => return Ok(out),
+            }
+        }
+    }
+
     pub fn list_scopes(&self, repo_id: &str) -> Result<Vec<String>> {
-        let response = Self::check(
-            self.http
-                .get(self.url(&format!("/api/repos/{repo_id}/scopes")))
-                .bearer_auth(&self.token)
-                .send()
-                .context("list scopes")?,
-        )?;
-        response.json().context("parse scopes")
+        self.all_pages(&format!("/api/repos/{repo_id}/scopes"), "list scopes")
+    }
+
+    pub fn list_scopes_page(
+        &self,
+        repo_id: &str,
+        after: Option<&str>,
+        limit: Option<usize>,
+    ) -> Result<crate::model::Page<String>> {
+        self.page(
+            &format!("/api/repos/{repo_id}/scopes"),
+            after,
+            limit,
+            "list scopes",
+        )
     }
 
     pub fn create_lane(
@@ -382,14 +428,21 @@ impl RemoteClient {
     }
 
     pub fn list_lanes(&self, repo_id: &str) -> Result<Vec<LaneRecord>> {
-        let response = Self::check(
-            self.http
-                .get(self.url(&format!("/api/repos/{repo_id}/lanes")))
-                .bearer_auth(&self.token)
-                .send()
-                .context("list lanes")?,
-        )?;
-        response.json().context("parse lanes")
+        self.all_pages(&format!("/api/repos/{repo_id}/lanes"), "list lanes")
+    }
+
+    pub fn list_lanes_page(
+        &self,
+        repo_id: &str,
+        after: Option<&str>,
+        limit: Option<usize>,
+    ) -> Result<crate::model::Page<LaneRecord>> {
+        self.page(
+            &format!("/api/repos/{repo_id}/lanes"),
+            after,
+            limit,
+            "list lanes",
+        )
     }
 
     pub fn add_lane_member(&self, repo_id: &str, lane_id: &str, member: &str) -> Result<()> {
@@ -596,14 +649,21 @@ impl RemoteClient {
     }
 
     pub fn list_releases(&self, repo_id: &str) -> Result<Vec<ReleaseRecord>> {
-        let response = Self::check(
-            self.http
-                .get(self.url(&format!("/api/repos/{repo_id}/releases")))
-                .bearer_auth(&self.token)
-                .send()
-                .context("list releases")?,
-        )?;
-        response.json().context("parse releases")
+        self.all_pages(&format!("/api/repos/{repo_id}/releases"), "list releases")
+    }
+
+    pub fn list_releases_page(
+        &self,
+        repo_id: &str,
+        after: Option<&str>,
+        limit: Option<usize>,
+    ) -> Result<crate::model::Page<ReleaseRecord>> {
+        self.page(
+            &format!("/api/repos/{repo_id}/releases"),
+            after,
+            limit,
+            "list releases",
+        )
     }
 
     pub fn get_channel_head(&self, repo_id: &str, channel: &str) -> Result<ReleaseRecord> {

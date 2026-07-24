@@ -80,6 +80,28 @@ within the same wire version (additive change).
 - resumability is unchanged: batches are idempotent puts, and a failed
   batch is simply renegotiated
 
+## 1e. Paged listings (g02.015)
+
+Every listing endpoint is a cursor page, so no response is unbounded:
+
+- request: `?after=<cursor>&limit=<n>`; response:
+  `{ items: [...], next_cursor: "<cursor>" | absent }`
+- `limit` is clamped server-side to 1000 whether or not the client sends
+  it — an old client cannot pull an unbounded set
+- ordering is by a stable key (lane id, scope id, release seq), so a
+  cursor never skips or repeats an item when rows are inserted
+  concurrently
+- a page that fills exactly still carries a cursor: the server does not
+  spend a second query proving the listing ended, so a follower learns
+  it from the next short or empty page
+- the event feed predates this shape and keeps its own
+  (`{events, floor, gap}`, doc 14 §5b) because it carries pruning
+  information a plain cursor page has no place for
+
+The inbox is a composite report, not a listing: each section is capped
+and the report sets `truncated` when a cap cut it. It reads at most one
+bundle per gate rather than scanning the scope.
+
 ## 1d. Repo-scoped object access (g02.011)
 
 Objects are content-addressed and deduped across repos, so possession of

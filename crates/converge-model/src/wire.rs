@@ -171,6 +171,11 @@ pub struct InboxReport {
     pub lanes: Vec<InboxLane>,
     pub publications: Vec<InboxPublication>,
     pub bundles: Vec<InboxBundle>,
+    /// A section hit its cap and was cut (g02.015 batch 15.2). The report
+    /// stays bounded on a large repo; this says so rather than passing a
+    /// partial list off as the whole picture.
+    #[serde(default)]
+    pub truncated: bool,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -216,6 +221,17 @@ pub struct RetentionPolicy {
     /// raises the repo's event floor; cursors below it get `gap: true`.
     #[serde(default)]
     pub keep_events: Option<u32>,
+}
+
+/// One page of a listing (g02.015 batch 15.2). `next_cursor` is the
+/// value to pass as `after` for the following page; `None` means the
+/// listing is exhausted. Pages are capped server-side, so an old client
+/// that sends no `limit` still cannot pull an unbounded response.
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+pub struct Page<T> {
+    pub items: Vec<T>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub next_cursor: Option<String>,
 }
 
 /// One page of the event feed plus the cursor honesty a client needs

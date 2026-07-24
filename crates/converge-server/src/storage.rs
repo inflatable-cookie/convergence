@@ -154,6 +154,32 @@ pub trait MetadataStore: Send + Sync {
     fn list_scopes(&self, repo_id: &str) -> Result<Vec<String>>;
     fn scope_exists(&self, repo_id: &str, scope_id: &str) -> Result<bool>;
 
+    // paged listings (g02.015 batch 15.2): `after` is the last key the
+    // caller saw, ordered by a stable key so a cursor cannot skip or
+    // repeat under concurrent inserts.
+    fn list_scopes_page(
+        &self,
+        repo_id: &str,
+        after: Option<&str>,
+        limit: usize,
+    ) -> Result<Vec<String>>;
+    fn list_lanes_page(
+        &self,
+        repo_id: &str,
+        after: Option<&str>,
+        limit: usize,
+    ) -> Result<Vec<LaneRecord>>;
+    /// Releases after `after_seq`, oldest first, paired with their seq.
+    fn list_releases_page(
+        &self,
+        repo_id: &str,
+        after_seq: Option<u64>,
+        limit: usize,
+    ) -> Result<Vec<(u64, ReleaseRecord)>>;
+    /// The newest bundle per gate in a scope — at most one row per gate,
+    /// so the inbox stops scanning every bundle ever built there.
+    fn latest_bundles_per_gate(&self, repo_id: &str, scope_id: &str) -> Result<Vec<StoredBundle>>;
+
     // lanes (g02.007)
     fn create_lane(&self, lane: &LaneRecord) -> Result<()>;
     fn get_lane(&self, repo_id: &str, lane_id: &str) -> Result<Option<LaneRecord>>;

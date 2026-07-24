@@ -1,6 +1,6 @@
 # 015 Scale Walls
 
-Status: in progress (15.1 complete)
+Status: in progress (15.1-15.2 complete)
 Owner: repo maintainers
 Updated: 2026-07-24
 
@@ -34,8 +34,11 @@ and removes the unbounded surfaces.
   write (doc 17 §2 made true); superposition flag from the fold instead
   of a second walk. Incremental fold across successive publishes was
   split out as its own follow-up rather than bundled here
-- **15.2 Pagination**: cursor + limit on every list endpoint and the
-  inbox; client/TUI paging support; wire DTO changes in doc 16
+- **15.2 Pagination** (complete, card 054): cursor + server-clamped
+  limit on lanes, scopes, and releases (events were already paged); the
+  inbox capped with a `truncated` flag and reading one bundle per gate
+  instead of scanning the scope; client follows pages internally; doc
+  16 §1e carries the contract
 - **15.3 TUI refresh economics**: long-lived client/workspace handle in
   the TUI runtime; refresh reuses it and skips rescan when the
   workspace is unchanged (mtime/dirstamp check); event-driven refresh
@@ -53,4 +56,4 @@ and removes the unbounded surfaces.
 
 ## Next Task
 
-Open batch card 15.2 (pagination).
+Open batch card 15.3 (TUI refresh economics).

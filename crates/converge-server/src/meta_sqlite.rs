@@ -388,6 +388,91 @@ impl MetadataStore for SqliteMetadataStore {
         Ok(out)
     }
 
+    fn list_scopes_page(
+        &self,
+        repo_id: &str,
+        after: Option<&str>,
+        limit: usize,
+    ) -> Result<Vec<String>> {
+        let conn = self.conn.lock().expect("meta lock");
+        let mut stmt = conn.prepare(
+            "SELECT scope_id FROM scopes
+             WHERE repo_id = ?1 AND scope_id > ?2
+             ORDER BY scope_id ASC LIMIT ?3",
+        )?;
+        let rows = stmt.query_map(params![repo_id, after.unwrap_or(""), limit as i64], |row| {
+            row.get(0)
+        })?;
+        rows.collect::<std::result::Result<_, _>>()
+            .context("list scopes page")
+    }
+
+    fn list_lanes_page(
+        &self,
+        repo_id: &str,
+        after: Option<&str>,
+        limit: usize,
+    ) -> Result<Vec<LaneRecord>> {
+        let conn = self.conn.lock().expect("meta lock");
+        let mut stmt = conn.prepare(
+            "SELECT record_json FROM lanes
+             WHERE repo_id = ?1 AND lane_id > ?2
+             ORDER BY lane_id ASC LIMIT ?3",
+        )?;
+        let rows = stmt.query_map(params![repo_id, after.unwrap_or(""), limit as i64], |row| {
+            row.get::<_, String>(0)
+        })?;
+        let mut out = Vec::new();
+        for row in rows {
+            out.push(serde_json::from_str(&row?).context("parse lane")?);
+        }
+        Ok(out)
+    }
+
+    fn list_releases_page(
+        &self,
+        repo_id: &str,
+        after_seq: Option<u64>,
+        limit: usize,
+    ) -> Result<Vec<(u64, ReleaseRecord)>> {
+        let conn = self.conn.lock().expect("meta lock");
+        let mut stmt = conn.prepare(
+            "SELECT seq, record_json FROM releases
+             WHERE repo_id = ?1 AND seq > ?2
+             ORDER BY seq ASC LIMIT ?3",
+        )?;
+        let rows = stmt.query_map(
+            params![repo_id, after_seq.unwrap_or(0) as i64, limit as i64],
+            |row| Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?)),
+        )?;
+        let mut out = Vec::new();
+        for row in rows {
+            let (seq, json) = row?;
+            out.push((
+                seq as u64,
+                serde_json::from_str(&json).context("parse release")?,
+            ));
+        }
+        Ok(out)
+    }
+
+    fn latest_bundles_per_gate(&self, repo_id: &str, scope_id: &str) -> Result<Vec<StoredBundle>> {
+        let ids: Vec<String> = {
+            let conn = self.conn.lock().expect("meta lock");
+            // One row per gate: the newest bundle by (created_at, id).
+            let mut stmt = conn.prepare(
+                "SELECT bundle_id FROM bundles b
+                 WHERE repo_id = ?1 AND scope_id = ?2
+                   AND created_at || bundle_id = (
+                     SELECT MAX(created_at || bundle_id) FROM bundles
+                      WHERE repo_id = ?1 AND scope_id = ?2 AND gate_id = b.gate_id)",
+            )?;
+            let rows = stmt.query_map(params![repo_id, scope_id], |row| row.get(0))?;
+            rows.collect::<std::result::Result<_, _>>()?
+        };
+        ids.iter().map(|id| self.get_bundle(id)).collect()
+    }
+
     fn add_lane_member(&self, repo_id: &str, lane_id: &str, member: &str) -> Result<()> {
         let mut lane = self
             .get_lane(repo_id, lane_id)?

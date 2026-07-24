@@ -73,6 +73,24 @@ fn conform_metadata(meta: &dyn MetadataStore) -> Result<()> {
     assert!(seq2 > seq1);
     assert_eq!(meta.list_events("conf", seq1)?.len(), 1);
 
+    // cursor listings (batch 15.2): stable key order, limit honored
+    for name in ["s-a", "s-b", "s-c"] {
+        meta.create_scope("conf", name, "t")?;
+    }
+    let first = meta.list_scopes_page("conf", None, 2)?;
+    assert_eq!(first, vec!["default".to_string(), "s-a".to_string()]);
+    let next = meta.list_scopes_page("conf", first.last().map(|s| s.as_str()), 2)?;
+    assert_eq!(next, vec!["s-b".to_string(), "s-c".to_string()]);
+    // `team/web` was registered above, so the listing continues past s-c.
+    assert_eq!(
+        meta.list_scopes_page("conf", Some("s-c"), 2)?,
+        vec!["team/web".to_string()]
+    );
+    assert!(
+        meta.list_scopes_page("conf", Some("zzz"), 2)?.is_empty(),
+        "cursor past the end yields nothing"
+    );
+
     // event retention + floor (batch 14.4)
     assert_eq!(meta.event_floor("conf")?, 0);
     assert_eq!(meta.prune_events("conf", 10)?, 0, "nothing beyond horizon");

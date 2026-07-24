@@ -494,24 +494,43 @@ impl Engine<'_> {
         require(authz, Capability::Read)?;
         let mut report = InboxReport::default();
 
-        for lane in self.meta.list_lanes(authz.repo_id())? {
-            if self.check_lane_readable(authz, &lane.lane_id).is_err() {
-                continue;
+        // Each section is capped so a large repo cannot produce an
+        // unbounded report (batch 15.2); `truncated` says when a cut
+        // happened rather than passing a partial list off as complete.
+        const SECTION_CAP: usize = 200;
+
+        let mut lane_cursor: Option<String> = None;
+        'lanes: loop {
+            let page =
+                self.meta
+                    .list_lanes_page(authz.repo_id(), lane_cursor.as_deref(), SECTION_CAP)?;
+            if page.is_empty() {
+                break;
             }
-            if let Some(head) = self.meta.get_lane_head(authz.repo_id(), &lane.lane_id)? {
-                if since.is_some_and(|s| head.updated_at.as_str() <= s) {
+            lane_cursor = page.last().map(|l| l.lane_id.clone());
+            for lane in page {
+                if self.check_lane_readable(authz, &lane.lane_id).is_err() {
                     continue;
                 }
-                report.lanes.push(InboxLane {
-                    lane_id: lane.lane_id,
-                    head_snap_id: head.snap_id,
-                    updated_at: head.updated_at,
-                });
+                if let Some(head) = self.meta.get_lane_head(authz.repo_id(), &lane.lane_id)? {
+                    if since.is_some_and(|s| head.updated_at.as_str() <= s) {
+                        continue;
+                    }
+                    if report.lanes.len() >= SECTION_CAP {
+                        report.truncated = true;
+                        break 'lanes;
+                    }
+                    report.lanes.push(InboxLane {
+                        lane_id: lane.lane_id,
+                        head_snap_id: head.snap_id,
+                        updated_at: head.updated_at,
+                    });
+                }
             }
         }
 
         let graph = self.meta.get_gate_graph(authz.repo_id())?;
-        for gate in &graph.gates {
+        'publications: for gate in &graph.gates {
             let partition =
                 self.meta
                     .get_partition_state(authz.repo_id(), authz.scope_id(), &gate.gate_id)?;
@@ -521,6 +540,10 @@ impl Engine<'_> {
                 &gate.gate_id,
                 partition.window_floor,
             )? {
+                if report.publications.len() >= SECTION_CAP {
+                    report.truncated = true;
+                    break 'publications;
+                }
                 report.publications.push(InboxPublication {
                     gate_id: gate.gate_id.clone(),
                     publication_id: publication.publication_id,
@@ -531,12 +554,15 @@ impl Engine<'_> {
             }
         }
 
-        // Latest bundle per gate that still needs someone.
-        let mut latest: std::collections::BTreeMap<String, crate::storage::StoredBundle> =
-            Default::default();
-        for bundle in self.meta.list_bundles(authz.repo_id(), authz.scope_id())? {
-            latest.insert(bundle.gate_id.clone(), bundle);
-        }
+        // At most one bundle per gate, straight from the store: the old
+        // full-scope scan read every bundle ever built here to answer a
+        // question about a handful of gates (audit 4.4 / L6).
+        let latest: std::collections::BTreeMap<String, crate::storage::StoredBundle> = self
+            .meta
+            .latest_bundles_per_gate(authz.repo_id(), authz.scope_id())?
+            .into_iter()
+            .map(|bundle| (bundle.gate_id.clone(), bundle))
+            .collect();
         for (gate_id, bundle) in latest {
             let required = graph
                 .gates

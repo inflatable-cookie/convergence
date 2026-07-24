@@ -12,8 +12,8 @@ use serde_json::json;
 use converge_model::{
     AddLaneMemberRequest, ApproveRequest, BundleProvenance, BundleRecord, CreateLaneRequest,
     InboxReport, LaneHead, LaneRecord, NegotiateRequest, NegotiateResponse, ObjectFrame, ObjectId,
-    ObjectSet, PromoteRequest, PublishRequest, ReleaseRecord, ReleaseRequest, RetentionPolicy,
-    SetLaneHeadRequest, SnapRecord, VerifyReport, WIRE_VERSION,
+    ObjectSet, Page, PromoteRequest, PublishRequest, ReleaseRecord, ReleaseRequest,
+    RetentionPolicy, SetLaneHeadRequest, SnapRecord, VerifyReport, WIRE_VERSION,
 };
 
 use crate::authz::{AuthzContext, Capability, authorize};
@@ -37,6 +37,8 @@ type SharedState = Arc<AppState>;
 const MAX_BATCH_FRAMES: usize = 4096;
 const MAX_BATCH_IDS: usize = 4096;
 const MAX_BODY_BYTES: usize = 64 * 1024 * 1024;
+/// Page cap for cursor listings (batch 15.2), matching the event feed's.
+const MAX_PAGE_ITEMS: usize = 1000;
 
 pub fn router(state: AppState) -> Router {
     Router::new()
@@ -431,25 +433,62 @@ async fn create_scope(
 async fn list_scopes(
     State(state): State<SharedState>,
     Path(repo): Path<String>,
+    Query(params): Query<PageParams>,
     headers: HeaderMap,
-) -> Result<Json<Vec<String>>, ApiError> {
+) -> Result<Json<Page<String>>, ApiError> {
     let subject = subject(&state, &headers)?;
     authorize(state.meta.as_ref(), &subject, &repo, "*", Capability::Read)
         .map_err(|err| forbidden(format!("{err:#}")))?;
-    let scopes = state.meta.list_scopes(&repo).map_err(internal_error)?;
-    Ok(Json(scopes))
+    let limit = params.limit();
+    let scopes = state
+        .meta
+        .list_scopes_page(&repo, params.after.as_deref(), limit)
+        .map_err(internal_error)?;
+    Ok(Json(page_of(scopes, limit, |s| s.clone())))
+}
+
+/// Cursor paging params (batch 15.2). `limit` is clamped to the page cap
+/// whether or not the client sends one.
+#[derive(serde::Deserialize)]
+struct PageParams {
+    #[serde(default)]
+    after: Option<String>,
+    #[serde(default)]
+    limit: Option<usize>,
+}
+
+impl PageParams {
+    fn limit(&self) -> usize {
+        self.limit
+            .unwrap_or(MAX_PAGE_ITEMS)
+            .clamp(1, MAX_PAGE_ITEMS)
+    }
+}
+
+/// Build a page, reporting a cursor only when the page filled — a short
+/// page means the listing is exhausted.
+fn page_of<T>(items: Vec<T>, limit: usize, cursor: impl Fn(&T) -> String) -> Page<T> {
+    let next_cursor = (items.len() == limit)
+        .then(|| items.last().map(&cursor))
+        .flatten();
+    Page { items, next_cursor }
 }
 
 async fn list_lanes(
     State(state): State<SharedState>,
     Path(repo): Path<String>,
+    Query(params): Query<PageParams>,
     headers: HeaderMap,
-) -> Result<Json<Vec<LaneRecord>>, ApiError> {
+) -> Result<Json<Page<LaneRecord>>, ApiError> {
     let subject = subject(&state, &headers)?;
     authorize(state.meta.as_ref(), &subject, &repo, "*", Capability::Read)
         .map_err(|err| forbidden(format!("{err:#}")))?;
-    let lanes = state.meta.list_lanes(&repo).map_err(internal_error)?;
-    Ok(Json(lanes))
+    let limit = params.limit();
+    let lanes = state
+        .meta
+        .list_lanes_page(&repo, params.after.as_deref(), limit)
+        .map_err(internal_error)?;
+    Ok(Json(page_of(lanes, limit, |l| l.lane_id.clone())))
 }
 
 async fn add_lane_member(
@@ -740,13 +779,23 @@ async fn release(
 async fn list_releases(
     State(state): State<SharedState>,
     Path(repo): Path<String>,
+    Query(params): Query<PageParams>,
     headers: HeaderMap,
-) -> Result<Json<Vec<ReleaseRecord>>, ApiError> {
+) -> Result<Json<Page<ReleaseRecord>>, ApiError> {
     let subject = subject(&state, &headers)?;
     authorize(state.meta.as_ref(), &subject, &repo, "*", Capability::Read)
         .map_err(|err| forbidden(format!("{err:#}")))?;
-    let releases = state.meta.list_releases(&repo).map_err(internal_error)?;
-    Ok(Json(releases))
+    let limit = params.limit();
+    let after_seq = params.after.as_deref().and_then(|c| c.parse::<u64>().ok());
+    let rows = state
+        .meta
+        .list_releases_page(&repo, after_seq, limit)
+        .map_err(internal_error)?;
+    let next_cursor = (rows.len() == limit).then(|| rows.last().map(|(seq, _)| seq.to_string()));
+    Ok(Json(Page {
+        items: rows.into_iter().map(|(_, record)| record).collect(),
+        next_cursor: next_cursor.flatten(),
+    }))
 }
 
 async fn channel_head(
