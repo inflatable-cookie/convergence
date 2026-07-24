@@ -134,6 +134,12 @@ impl SqliteMetadataStore {
                 object_id TEXT NOT NULL,
                 PRIMARY KEY (repo_id, kind, object_id)
             );
+            CREATE TABLE IF NOT EXISTS object_pins (
+                repo_id TEXT NOT NULL,
+                kind TEXT NOT NULL,
+                object_id TEXT NOT NULL,
+                PRIMARY KEY (repo_id, kind, object_id)
+            );
             ",
         )
         .context("init metadata schema")?;
@@ -814,5 +820,43 @@ impl MetadataStore for SqliteMetadataStore {
             params![kind.dir(), id.as_str()],
         )?;
         Ok(())
+    }
+
+    fn pin_object(
+        &self,
+        repo_id: &str,
+        kind: crate::storage::ObjectKind,
+        id: &ObjectId,
+    ) -> Result<()> {
+        let conn = self.conn.lock().expect("meta lock");
+        conn.execute(
+            "INSERT OR IGNORE INTO object_pins (repo_id, kind, object_id) VALUES (?1, ?2, ?3)",
+            params![repo_id, kind.dir(), id.as_str()],
+        )?;
+        Ok(())
+    }
+
+    fn unpin_object(
+        &self,
+        repo_id: &str,
+        kind: crate::storage::ObjectKind,
+        id: &ObjectId,
+    ) -> Result<()> {
+        let conn = self.conn.lock().expect("meta lock");
+        conn.execute(
+            "DELETE FROM object_pins WHERE repo_id = ?1 AND kind = ?2 AND object_id = ?3",
+            params![repo_id, kind.dir(), id.as_str()],
+        )?;
+        Ok(())
+    }
+
+    fn is_object_pinned(&self, kind: crate::storage::ObjectKind, id: &ObjectId) -> Result<bool> {
+        let conn = self.conn.lock().expect("meta lock");
+        let n: u32 = conn.query_row(
+            "SELECT COUNT(*) FROM object_pins WHERE kind = ?1 AND object_id = ?2",
+            params![kind.dir(), id.as_str()],
+            |row| row.get(0),
+        )?;
+        Ok(n > 0)
     }
 }

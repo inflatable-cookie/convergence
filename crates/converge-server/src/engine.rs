@@ -104,7 +104,76 @@ impl Engine<'_> {
             notes: input.notes.clone(),
         })?;
 
-        self.build_bundle(&authz, &input.gate_id)
+        let bundle = self.build_bundle(&authz, &input.gate_id)?;
+        // The publication now references the uploaded tree durably: release
+        // its upload pins (batch 12.2). Reachable objects are GC-marked, so
+        // unpinning never drops protection.
+        self.unpin_tree(authz.repo_id(), &input.snap.root_manifest)?;
+        Ok(bundle)
+    }
+
+    /// Release upload pins for every object reachable from `root` (batch
+    /// 12.2). Tolerates missing objects — a partial tree just unpins less.
+    fn unpin_tree(&self, repo_id: &str, root: &ObjectId) -> Result<()> {
+        let mut manifests = vec![root.clone()];
+        let mut seen = std::collections::HashSet::new();
+        while let Some(id) = manifests.pop() {
+            if !seen.insert(id.clone()) {
+                continue;
+            }
+            self.meta
+                .unpin_object(repo_id, crate::storage::ObjectKind::Manifest, &id)?;
+            let Ok(bytes) = self.objects.get(crate::storage::ObjectKind::Manifest, &id) else {
+                continue;
+            };
+            let manifest: converge_model::Manifest =
+                converge_model::encoding::decode_manifest(&bytes)?;
+            for entry in manifest.entries {
+                self.unpin_entry(repo_id, entry.kind, &mut manifests)?;
+            }
+        }
+        Ok(())
+    }
+
+    fn unpin_entry(
+        &self,
+        repo_id: &str,
+        kind: converge_model::ManifestEntryKind,
+        manifests: &mut Vec<ObjectId>,
+    ) -> Result<()> {
+        use converge_model::{ManifestEntryKind as K, SuperpositionVariantKind as V};
+        let blob = crate::storage::ObjectKind::Blob;
+        match kind {
+            K::File { blob: b, .. } => self.meta.unpin_object(repo_id, blob, &b)?,
+            K::FileChunks { recipe: r, .. } => self.unpin_recipe(repo_id, &r)?,
+            K::Dir { manifest } => manifests.push(manifest),
+            K::Symlink { .. } => {}
+            K::Superposition { variants } => {
+                for variant in variants {
+                    match variant.kind {
+                        V::File { blob: b, .. } => self.meta.unpin_object(repo_id, blob, &b)?,
+                        V::FileChunks { recipe: r, .. } => self.unpin_recipe(repo_id, &r)?,
+                        V::Dir { manifest } => manifests.push(manifest),
+                        V::Symlink { .. } | V::Tombstone => {}
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
+
+    fn unpin_recipe(&self, repo_id: &str, id: &ObjectId) -> Result<()> {
+        self.meta
+            .unpin_object(repo_id, crate::storage::ObjectKind::Recipe, id)?;
+        let Ok(bytes) = self.objects.get(crate::storage::ObjectKind::Recipe, id) else {
+            return Ok(());
+        };
+        let recipe: converge_model::FileRecipe = converge_model::encoding::decode_recipe(&bytes)?;
+        for chunk in recipe.chunks {
+            self.meta
+                .unpin_object(repo_id, crate::storage::ObjectKind::Blob, &chunk.blob)?;
+        }
+        Ok(())
     }
 
     /// Deterministic bundle build over the partition's current window
@@ -301,6 +370,19 @@ impl Engine<'_> {
             updated_at: now(),
         };
         self.meta.set_lane_head(authz.repo_id(), &head)?;
+        // The head lineage's trees are now referenced by a lane head:
+        // release their upload pins (batch 12.2).
+        let mut stack = vec![head.snap_id.clone()];
+        let mut walked = std::collections::HashSet::new();
+        while let Some(id) = stack.pop() {
+            if !walked.insert(id.clone()) {
+                continue;
+            }
+            if let Some(record) = self.meta.get_snap_record(authz.repo_id(), &id)? {
+                self.unpin_tree(authz.repo_id(), &record.root_manifest)?;
+                stack.extend(record.parents);
+            }
+        }
         self.meta
             .add_event(authz.repo_id(), "lane", &head.lane_id, &now())?;
         Ok(head)
@@ -349,6 +431,20 @@ impl Engine<'_> {
         );
         if expected != snap.id {
             bail!("snap record identity mismatch (expected {expected})");
+        }
+        // The snap's tree must be present (batch 12.2, audit M4): otherwise
+        // a lane head fast-forwarded to it would dangle and never
+        // materialize. Thinned *ancestors* may be absent, but the head's own
+        // root manifest may not.
+        if !self
+            .objects
+            .has(crate::storage::ObjectKind::Manifest, &snap.root_manifest)
+        {
+            bail!(
+                "snap {} root manifest {} not uploaded",
+                snap.id,
+                snap.root_manifest.as_str()
+            );
         }
         self.meta.put_snap_record(authz.repo_id(), snap)
     }

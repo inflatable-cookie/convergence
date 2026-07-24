@@ -24,4 +24,4 @@ Archived specs live in [`archive/`](./archive/).
 
 ## Next Task
 
-Open batch card 12.2 (GC reachability guarantee) under `g02.012`.
+Open batch card 12.3 (honest sync failure) under `g02.012`.

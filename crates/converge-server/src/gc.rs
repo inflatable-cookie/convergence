@@ -153,8 +153,14 @@ impl Engine<'_> {
                 if marked.contains(&(kind, id.as_str().to_string())) {
                     continue;
                 }
+                // Upload pins are the real protection for not-yet-referenced
+                // objects (batch 12.2); the grace window only covers the
+                // sub-millisecond store-write → pin-write gap.
+                if self.meta.is_object_pinned(kind, &id)? {
+                    continue;
+                }
                 if mtime > cutoff {
-                    continue; // grace: possibly mid-upload
+                    continue;
                 }
                 report.swept_objects += 1;
                 report.swept_bytes += bytes;

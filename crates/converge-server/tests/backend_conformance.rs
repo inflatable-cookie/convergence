@@ -71,6 +71,20 @@ fn conform_metadata(meta: &dyn MetadataStore) -> Result<()> {
     assert!(!meta.object_in_repo("conf", ObjectKind::Manifest, &oid)?);
     meta.remove_object_associations(ObjectKind::Blob, &oid)?;
     assert!(!meta.object_in_repo("conf", ObjectKind::Blob, &oid)?);
+
+    // upload pins (batch 12.2)
+    let pid = ObjectId("bb".repeat(32));
+    assert!(!meta.is_object_pinned(ObjectKind::Blob, &pid)?);
+    meta.pin_object("conf", ObjectKind::Blob, &pid)?;
+    meta.pin_object("conf", ObjectKind::Blob, &pid)?; // idempotent
+    assert!(meta.is_object_pinned(ObjectKind::Blob, &pid)?);
+    assert!(!meta.is_object_pinned(ObjectKind::Manifest, &pid)?);
+    // A second repo's pin keeps the object protected until both release.
+    meta.pin_object("other", ObjectKind::Blob, &pid)?;
+    meta.unpin_object("conf", ObjectKind::Blob, &pid)?;
+    assert!(meta.is_object_pinned(ObjectKind::Blob, &pid)?);
+    meta.unpin_object("other", ObjectKind::Blob, &pid)?;
+    assert!(!meta.is_object_pinned(ObjectKind::Blob, &pid)?);
     Ok(())
 }
 

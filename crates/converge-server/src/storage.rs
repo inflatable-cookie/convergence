@@ -170,6 +170,13 @@ pub trait MetadataStore: Send + Sync {
     fn object_in_repo(&self, repo_id: &str, kind: ObjectKind, id: &ObjectId) -> Result<bool>;
     /// Drop every repo's association for an object (GC sweep only).
     fn remove_object_associations(&self, kind: ObjectKind, id: &ObjectId) -> Result<()>;
+
+    // upload pins (g02.012 batch 12.2): protect an uploaded object from GC
+    // until it becomes durably referenced, independent of clock time.
+    fn pin_object(&self, repo_id: &str, kind: ObjectKind, id: &ObjectId) -> Result<()>;
+    fn unpin_object(&self, repo_id: &str, kind: ObjectKind, id: &ObjectId) -> Result<()>;
+    /// Is this object pinned by any repo? (shared store → global check).
+    fn is_object_pinned(&self, kind: ObjectKind, id: &ObjectId) -> Result<bool>;
 }
 
 /// Repo-scoped view over the shared object store: every write also records
@@ -186,12 +193,16 @@ impl ObjectStore for AssociatingObjects<'_> {
     fn put(&self, kind: ObjectKind, bytes: &[u8]) -> Result<ObjectId> {
         let id = self.inner.put(kind, bytes)?;
         self.meta.associate_object(&self.repo_id, kind, &id)?;
+        // Pin until the object is durably referenced (batch 12.2): GC must
+        // not reclaim a fresh upload before its publish/set-lane-head lands.
+        self.meta.pin_object(&self.repo_id, kind, &id)?;
         Ok(id)
     }
 
     fn put_bytes(&self, kind: ObjectKind, id: &ObjectId, bytes: &[u8]) -> Result<()> {
         self.inner.put_bytes(kind, id, bytes)?;
-        self.meta.associate_object(&self.repo_id, kind, id)
+        self.meta.associate_object(&self.repo_id, kind, id)?;
+        self.meta.pin_object(&self.repo_id, kind, id)
     }
 
     fn get(&self, kind: ObjectKind, id: &ObjectId) -> Result<Vec<u8>> {

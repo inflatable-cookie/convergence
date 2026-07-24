@@ -78,6 +78,10 @@ impl PostgresMetadataStore {
                 repo_id TEXT NOT NULL, kind TEXT NOT NULL,
                 object_id TEXT NOT NULL,
                 PRIMARY KEY (repo_id, kind, object_id));
+            CREATE TABLE IF NOT EXISTS object_pins (
+                repo_id TEXT NOT NULL, kind TEXT NOT NULL,
+                object_id TEXT NOT NULL,
+                PRIMARY KEY (repo_id, kind, object_id));
             ",
             )
             .context("init postgres schema")?;
@@ -524,6 +528,45 @@ impl MetadataStore for PostgresMetadataStore {
             &[&kind.dir(), &id.as_str()],
         )?;
         Ok(())
+    }
+
+    fn pin_object(
+        &self,
+        repo_id: &str,
+        kind: crate::storage::ObjectKind,
+        id: &ObjectId,
+    ) -> Result<()> {
+        let mut c = self.client.lock().expect("pg lock");
+        c.execute(
+            "INSERT INTO object_pins (repo_id, kind, object_id)
+             VALUES ($1, $2, $3) ON CONFLICT DO NOTHING",
+            &[&repo_id, &kind.dir(), &id.as_str()],
+        )?;
+        Ok(())
+    }
+
+    fn unpin_object(
+        &self,
+        repo_id: &str,
+        kind: crate::storage::ObjectKind,
+        id: &ObjectId,
+    ) -> Result<()> {
+        let mut c = self.client.lock().expect("pg lock");
+        c.execute(
+            "DELETE FROM object_pins WHERE repo_id = $1 AND kind = $2 AND object_id = $3",
+            &[&repo_id, &kind.dir(), &id.as_str()],
+        )?;
+        Ok(())
+    }
+
+    fn is_object_pinned(&self, kind: crate::storage::ObjectKind, id: &ObjectId) -> Result<bool> {
+        let mut c = self.client.lock().expect("pg lock");
+        let row = c.query_one(
+            "SELECT COUNT(*) FROM object_pins WHERE kind = $1 AND object_id = $2",
+            &[&kind.dir(), &id.as_str()],
+        )?;
+        let n: i64 = row.get(0);
+        Ok(n > 0)
     }
 
     fn put_bundle(&self, bundle: &StoredBundle) -> Result<()> {

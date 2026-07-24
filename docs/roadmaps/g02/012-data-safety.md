@@ -1,6 +1,6 @@
 # 012 Data Safety
 
-Status: in progress (12.1 complete)
+Status: in progress (12.1-12.2 complete)
 Owner: repo maintainers
 Updated: 2026-07-24
 
@@ -41,9 +41,10 @@ closes every audited loss path.
 - **12.1 Safe restore** (complete, card 042): `materialize_via_temp`
   defers destruction until the tree fully materializes; materialize
   validates entry names, symlink targets, and duplicate names
-- **12.2 GC reachability guarantee**: replace mtime grace with an
-  explicit pending/pin mechanism for in-flight uploads; `put_snap`
-  verifies its root manifest; `set_lane_head` verifies tree presence
+- **12.2 GC reachability guarantee** (complete, card 043): upload
+  pins protect not-yet-referenced objects independent of clock time,
+  released when the tree is durably referenced; `upload_snap_record`
+  verifies its root manifest object is present (audit M4)
 - **12.3 Honest sync failure**: `pull_lane` distinguishes 404 from
   transient errors; `upload_tree` re-sorts child-first and re-verifies
   leaf presence after interruption
@@ -60,4 +61,4 @@ closes every audited loss path.
 
 ## Next Task
 
-Open batch card 12.2 (GC reachability guarantee).
+Open batch card 12.3 (honest sync failure).
