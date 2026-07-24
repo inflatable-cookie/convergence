@@ -110,6 +110,13 @@ Rules:
   content. Supersession applies only to `Set` opinions: deletions cannot
   be causally ordered this way (an absent path in a base is
   indistinguishable from never-existed) and always fold per the table.
+- **Restating W is still an opinion against a concurrent deletion.** A
+  `Set(k)` where `k` equals W's current value collapses into W only when
+  no input deletes the path. Against a concurrent `Delete`, that `Set`
+  is an explicit keep: the path superposes with the W-valued variant and
+  a `Tombstone` — never a silent delete of content someone just
+  affirmed. (A deleter whose declared base already contains exactly `k`
+  is causally newer and still wins cleanly via supersession above.)
 - **Tombstones never appear as plain manifest entries.** A resolved
   deletion is an absent path. `Tombstone` exists only as a superposition
   variant, and resolving a superposition to its tombstone variant removes

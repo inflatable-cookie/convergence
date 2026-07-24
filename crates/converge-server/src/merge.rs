@@ -120,16 +120,23 @@ pub fn merge_window(
             }
         }
 
-        // Drop sets that merely restate what W already holds.
+        // Drop sets that merely restate what W already holds — but only
+        // when no deletion contests the path (doc 17 §2, audit H4):
+        // against a Delete, restating W is an explicit keep opinion and
+        // must survive into the superposition.
         let current = result.get(&path).cloned();
-        let kept: Vec<(usize, (String, ManifestEntryKind))> = sets
-            .into_iter()
-            .enumerate()
-            .filter(|(_, (_, k))| current.as_ref() != Some(k))
-            .collect();
-        let set_bases: Vec<Option<ManifestEntryKind>> =
-            kept.iter().map(|(i, _)| set_bases[*i].clone()).collect();
-        let sets: Vec<(String, ManifestEntryKind)> = kept.into_iter().map(|(_, s)| s).collect();
+        let (sets, set_bases) = if deleters.is_empty() {
+            let kept: Vec<(usize, (String, ManifestEntryKind))> = sets
+                .into_iter()
+                .enumerate()
+                .filter(|(_, (_, k))| current.as_ref() != Some(k))
+                .collect();
+            let bases: Vec<Option<ManifestEntryKind>> =
+                kept.iter().map(|(i, _)| set_bases[*i].clone()).collect();
+            (kept.into_iter().map(|(_, s)| s).collect::<Vec<_>>(), bases)
+        } else {
+            (sets, set_bases)
+        };
 
         match (sets.len(), deleters.is_empty()) {
             (0, true) => {} // all opinions collapsed into W's value

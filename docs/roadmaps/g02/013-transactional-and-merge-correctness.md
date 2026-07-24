@@ -1,6 +1,6 @@
 # 013 Transactional and Merge Correctness
 
-Status: in progress (13.1-13.2 complete)
+Status: in progress (13.1-13.3 complete)
 Owner: repo maintainers
 Updated: 2026-07-24
 
@@ -44,9 +44,10 @@ These corrupt promoted history silently — worse than crashing.
 - **13.2 Promotion guards** (complete, card 047): monotonic window
   floor and base-must-match-W checks with fan-out re-promotion; doc 14
   §3 states the actual serialization mechanism (guarded batches)
-- **13.3 Merge decision-table fix**: modify-vs-delete superposes per
-  doc 17; doc first, then `merge_window`; regression tests for every
-  cell of the table
+- **13.3 Merge decision-table fix** (complete, card 048):
+  modify-back-to-W vs concurrent delete superposes with a Tombstone
+  per doc 17 (rule added there first); `decision_table` regression
+  file covers every cell
 - **13.4 Resolution and identity hygiene**: recursive
   `validate_resolution`; field-match release deletion; recapture rule
   fixes (message-bearing recapture creates a record, dedup without
@@ -63,4 +64,4 @@ These corrupt promoted history silently — worse than crashing.
 
 ## Next Task
 
-Open batch card 13.3 (merge decision-table fix).
+Open batch card 13.4 (resolution and identity hygiene).
