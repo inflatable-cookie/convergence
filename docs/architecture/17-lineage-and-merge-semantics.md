@@ -2,7 +2,7 @@
 
 Status: active
 Updated: 2026-07-25
-Roadmap: `g02.005` Batch 5.1, `g02.015` Batch 15.4
+Roadmap: `g02.005` Batch 5.1, `g02.015` Batch 15.4, `g02.016` Batch 16.1
 
 Decision-complete semantics for snap lineage, base-aware merge, bundle
 windows, and per-gate coalesce strategies. Supersedes the union-merge and
@@ -74,6 +74,13 @@ new snap. Restore sets head to the restored snap. Materializing a bundle
 into the workspace sets head to the snap subsequently captured from it
 (with `derived_from_bundle` set); materialize alone does not move head.
 
+Implemented (batch 16.1) as two client operations with that split baked
+in: `capture_tree` records a stored tree as a snap and leaves head alone,
+`adopt_tree` materializes into the workspace first and then moves head.
+`resolve apply` uses the second by default (`--no-checkout` selects the
+first), so the workspace and head never disagree about what is checked
+out.
+
 ## 2. Base-aware merge
 
 ### Publication base
@@ -142,8 +149,10 @@ Per path, fold deltas onto W:
 Rules:
 
 - **Supersession by base containment.** A `Set(k)` opinion on path `p` is
-  dropped when another input's declared base already contains exactly `k`
-  at `p` — that publisher demonstrably built on top of the value — **and**
+  dropped when another input's declared base already contains `k` at `p`
+  — either as the value there, or as one of the variants of a
+  superposition there (see below) — that publisher demonstrably built on
+  top of the value — **and**
   the drop cannot lose content: either that other input expresses its own
   explicit opinion at `p` (a different `Set` or a `Delete`, which is
   causally newer and wins cleanly), or W already carries `k` at `p` (the
@@ -159,6 +168,19 @@ Rules:
   a `Tombstone` — never a silent delete of content someone just
   affirmed. (A deleter whose declared base already contains exactly `k`
   is causally newer and still wins cleanly via supersession above.)
+- **A resolution supersedes the variants it decided among.** Base
+  containment counts variant membership: a publisher whose declared base
+  holds a `Superposition` at `p` saw every variant there and chose. The
+  losing variants are superseded even though the base's *value* at `p`
+  was the superposition rather than any one of them. Without this rule a
+  resolution published into a still-open window (nothing promoted, so
+  the original publications re-merge) immediately re-superposes, and
+  resolution is impossible before promotion — which is the one moment it
+  is most needed. The safety condition is unchanged and does the work:
+  the superseder carries its own explicit opinion at `p`, so no content
+  is dropped that nothing else expresses. A publisher who never based on
+  the superposed bundle is untouched — their opinion was formed without
+  seeing the variants, so it still contests the resolution.
 - **Tombstones never appear as plain manifest entries.** A resolved
   deletion is an absent path. `Tombstone` exists only as a superposition
   variant, and resolving a superposition to its tombstone variant removes

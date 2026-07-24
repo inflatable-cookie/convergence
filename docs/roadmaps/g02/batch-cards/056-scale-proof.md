@@ -72,5 +72,5 @@ at a size where an accidental quadratic would show.
 
 ## Next Task
 
-Roadmap `g02.015` is complete. Return to the audit-hardening lane: open
-items g02.011-018 in `docs/roadmaps/g02/`.
+Roadmap `g02.015` is complete. Continue the audit-hardening lane at
+`g02.016` — batch card 16.1 (card 057).

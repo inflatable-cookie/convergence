@@ -1,8 +1,8 @@
 # 016 Workflow Completion
 
-Status: planned
+Status: in progress (16.1 complete)
 Owner: repo maintainers
-Updated: 2026-07-24
+Updated: 2026-07-25
 
 ## Context
 
@@ -37,11 +37,14 @@ conflicts-as-data flow must complete without reading source code.
 
 ## Execution Plan (batch details in cards)
 
-- **16.1 Close the resolve loop**: `resolve apply` lands as a snap
-  (lineage-correct, bundle-derived) with materialize-or-publish
-  follow-through; inbox recommendations emit runnable commands that
-  actually run end-to-end; superposed-bundle fetch flows into
-  resolution
+- **16.1 Close the resolve loop** (complete, card 057): `resolve`
+  accepts bundle ids and fetches on demand; `resolve apply` lands the
+  resolution as a snap and checks it out, naming the next verb; inbox
+  actions moved into `converge_cli::inbox_actions` so CLI text and TUI
+  Enter run the same command. The e2e test found a third wall behind the
+  two the audit named — a resolution republished into an open window
+  re-superposed — fixed by counting variant membership as base
+  containment (doc 17 §2)
 - **16.2 Arrival ergonomics**: `sync pull --materialize` (safe-restore
   path from g02.012); `fetch --into` default behavior rationalized;
   `show <snap|bundle>` read-only browser; `unsnap` undo per UX spec
@@ -62,5 +65,4 @@ conflicts-as-data flow must complete without reading source code.
 
 ## Next Task
 
-Blocked behind g02.013 completion (parallelizable with g02.014/015 if
-operator chooses).
+Open batch card 16.2 (arrival ergonomics).

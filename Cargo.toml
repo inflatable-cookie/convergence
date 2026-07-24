@@ -35,3 +35,4 @@ tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 converge-model = { path = "crates/converge-model" }
 converge-client = { path = "crates/converge-client" }
 converge-cli = { path = "crates/converge-cli" }
+converge-server = { path = "crates/converge-server" }

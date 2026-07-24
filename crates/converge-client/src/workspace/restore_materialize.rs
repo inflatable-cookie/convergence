@@ -3,7 +3,49 @@ use super::*;
 impl Workspace {
     pub fn restore_snap(&self, snap_id: &str, force: bool) -> Result<()> {
         let snap = self.store.get_snap(snap_id)?;
+        self.ensure_safe_to_overwrite(force)?;
 
+        // Destruction deferred until the target fully materializes
+        // (batch 12.1): a superposed or unfetchable target must not
+        // cost the current tree.
+        materialize_fs::materialize_via_temp(
+            &self.store,
+            &snap.root_manifest,
+            &self.root,
+            &[".converge", ".git"],
+        )?;
+        self.store.set_head(Some(&snap.id))?;
+        Ok(())
+    }
+
+    /// Materialize a stored tree into the workspace and capture it as a
+    /// snap (batch 16.1) — the "continue from this tree" move that
+    /// `resolve apply` and bundle checkout both need.
+    ///
+    /// Doc 17 §1 splits the two halves deliberately: materializing alone
+    /// does not move head, so head moves here only because the capture
+    /// happens too, and the workspace genuinely holds that tree.
+    pub fn adopt_tree(
+        &self,
+        root_manifest: &ObjectId,
+        message: Option<String>,
+        derived_from_bundle: Option<&str>,
+        force: bool,
+    ) -> Result<crate::model::SnapRecord> {
+        self.ensure_safe_to_overwrite(force)?;
+        materialize_fs::materialize_via_temp(
+            &self.store,
+            root_manifest,
+            &self.root,
+            &[".converge", ".git"],
+        )?;
+        let snap = self.capture_tree(root_manifest, message, derived_from_bundle)?;
+        self.store.set_head(Some(&snap.id))?;
+        Ok(snap)
+    }
+
+    /// Refuse to overwrite a workspace carrying uncaptured work.
+    fn ensure_safe_to_overwrite(&self, force: bool) -> Result<()> {
         if !force {
             let (cur_root, _cur_manifests, _stats) = self.current_manifest_tree()?;
 
@@ -33,17 +75,6 @@ impl Workspace {
                 self.store.set_head(Some(&head_id))?;
             }
         }
-
-        // Destruction deferred until the target fully materializes
-        // (batch 12.1): a superposed or unfetchable target must not
-        // cost the current tree.
-        materialize_fs::materialize_via_temp(
-            &self.store,
-            &snap.root_manifest,
-            &self.root,
-            &[".converge", ".git"],
-        )?;
-        self.store.set_head(Some(&snap.id))?;
         Ok(())
     }
 

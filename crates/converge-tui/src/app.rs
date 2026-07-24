@@ -105,6 +105,9 @@ pub fn is_remote_command(argv: &[String]) -> bool {
                 | "sync"
                 | "inbox"
                 | "events"
+                // `resolve` may fetch a bundle before it can list or
+                // apply anything (batch 16.1).
+                | "resolve"
         )
     )
 }
@@ -515,7 +518,17 @@ impl App {
                     .inbox_entries
                     .get(self.inbox_selected)
                     .and_then(|(_, argv)| argv.clone())
-                    .map(Action::Run);
+                    .map(|argv| {
+                        // `resolve list <ref>` is the console form; in the
+                        // TUI the same intent opens the resolution view
+                        // instead of printing paths (UX spec §4.2).
+                        match argv.as_slice() {
+                            [verb, sub, target] if verb == "resolve" && sub == "list" => {
+                                Action::EnterResolution(target.clone())
+                            }
+                            _ => Action::Run(argv),
+                        }
+                    });
                 Some(action)
             }
             _ => None,
@@ -523,48 +536,15 @@ impl App {
     }
 
     /// Build inbox entries from the report (label, runnable argv).
+    ///
+    /// The mapping itself lives in `converge_cli::inbox_actions` (batch
+    /// 16.1): what the TUI runs on Enter and what the CLI tells a user to
+    /// paste must be the same command.
     pub fn load_inbox_entries(&mut self, report: &serde_json::Value) {
-        let mut entries = Vec::new();
-        for lane in report["lanes"].as_array().into_iter().flatten() {
-            let lane_id = lane["lane_id"].as_str().unwrap_or("?").to_string();
-            entries.push((
-                format!(
-                    "lane {lane_id} updated ({})",
-                    lane["updated_at"].as_str().unwrap_or("")
-                ),
-                Some(vec!["sync".into(), "pull".into(), "--lane".into(), lane_id]),
-            ));
-        }
-        for publication in report["publications"].as_array().into_iter().flatten() {
-            entries.push((
-                format!(
-                    "publication by {} -> {} (window open)",
-                    publication["publisher"].as_str().unwrap_or("?"),
-                    publication["gate_id"].as_str().unwrap_or("?")
-                ),
-                None,
-            ));
-        }
-        for bundle in report["bundles"].as_array().into_iter().flatten() {
-            let id = bundle["bundle_id"].as_str().unwrap_or("?").to_string();
-            let recommendation = bundle["recommendation"].as_str().unwrap_or("");
-            let argv = match recommendation {
-                "approve" => Some(vec!["approve".into(), id.clone()]),
-                "resolve" => Some(vec!["fetch".into(), id.clone()]),
-                _ => None,
-            };
-            entries.push((
-                format!(
-                    "bundle {} @ {} -> {recommendation} ({}/{})",
-                    &id[..id.len().min(12)],
-                    bundle["gate_id"].as_str().unwrap_or("?"),
-                    bundle["approvals"],
-                    bundle["required_approvals"]
-                ),
-                argv,
-            ));
-        }
-        self.inbox_entries = entries;
+        self.inbox_entries = converge_cli::inbox_actions(report)
+            .into_iter()
+            .map(|action| (action.label, action.argv))
+            .collect();
         self.inbox_selected = 0;
     }
 
@@ -881,9 +861,11 @@ mod tests {
             app.inbox_entries[2].1,
             Some(vec!["approve".into(), "b1".into()])
         );
+        // A superposed bundle recommends the runnable resolve command,
+        // not `fetch` (batch 16.1, audit P1.2: fetch could not accept it).
         assert_eq!(
             app.inbox_entries[3].1,
-            Some(vec!["fetch".into(), "b2".into()])
+            Some(vec!["resolve".into(), "list".into(), "b2".into()])
         );
 
         // Enter on the approve entry runs it.
@@ -892,6 +874,14 @@ mod tests {
         assert_eq!(
             app.handle_key(key(KeyCode::Enter)),
             Some(Action::Run(vec!["approve".into(), "b1".into()]))
+        );
+
+        // Enter on the superposed bundle opens the resolution view over
+        // the bundle itself — same command, richer front-end.
+        app.inbox_selected = 3;
+        assert_eq!(
+            app.handle_key(key(KeyCode::Enter)),
+            Some(Action::EnterResolution("b2".into()))
         );
     }
 

@@ -374,16 +374,32 @@ enum ScopeCommand {
 
 #[derive(Subcommand)]
 enum ResolveCommand {
-    /// List superposition paths and variant counts in a snap.
-    List { snap_id: String },
-    /// Validate a decisions file against a snap.
+    /// List superposition paths and variant counts in a snap or bundle.
+    List {
+        /// Local snap id, or a bundle id (fetched if not local yet).
+        target: String,
+    },
+    /// Validate a decisions file against a snap or bundle.
     Validate {
-        snap_id: String,
+        target: String,
         /// JSON file: { "<path>": <decision>, ... }
         decisions: PathBuf,
     },
-    /// Apply a decisions file; prints the resolved root manifest id.
-    Apply { snap_id: String, decisions: PathBuf },
+    /// Apply a decisions file: capture the resolved tree as a snap and
+    /// materialize it into the workspace.
+    Apply {
+        target: String,
+        decisions: PathBuf,
+        /// Message for the resolution snap.
+        #[arg(short, long)]
+        message: Option<String>,
+        /// Overwrite uncaptured workspace changes.
+        #[arg(long)]
+        force: bool,
+        /// Record the snap without touching the working tree.
+        #[arg(long)]
+        no_checkout: bool,
+    },
 }
 
 #[derive(Serialize)]
@@ -779,19 +795,9 @@ fn run(cli: &Cli, mode: OutputMode, session: &Session) -> Result<serde_json::Val
                 }
                 (None, None) => anyhow::bail!("provide a bundle id or --release <channel>"),
             };
-            let bundle_id = &bundle_id;
-            let bundle = client.get_bundle(bundle_id)?;
-            let root = client.fetch_bundle(&ws.store, &remote.repo_id, bundle_id)?;
             // A fetched bundle for the configured target becomes the new
-            // publish base (doc 17 §2).
-            if bundle.scope_id == remote.scope {
-                ws.store.set_last_seen_bundle(
-                    &remote,
-                    &bundle.scope_id,
-                    &bundle.produced_by_gate_id,
-                    &bundle.bundle_id,
-                )?;
-            }
+            // publish base (doc 17 §2) — see `fetch_bundle_tree`.
+            let root = fetch_bundle_tree(session, &ws, &bundle_id)?;
             if let Some(dir) = into {
                 ws.materialize_manifest_to(&root, dir, true)?;
             }
@@ -931,26 +937,19 @@ fn run(cli: &Cli, mode: OutputMode, session: &Session) -> Result<serde_json::Val
             let (client, remote) = remote_client(session, &ws)?;
             let report = client.inbox(&remote.repo_id, &remote.scope, since.as_deref())?;
             emit(mode, report, |r| {
-                for lane in &r.lanes {
-                    println!(
-                        "lane {}  head {}  {}",
-                        lane.lane_id, lane.head_snap_id, lane.updated_at
-                    );
-                }
-                for p in &r.publications {
-                    println!(
-                        "publication {} -> {} by {} ({})",
-                        p.publication_id, p.gate_id, p.publisher, p.lane_id
-                    );
-                }
-                for b in &r.bundles {
-                    println!(
-                        "bundle {} @ {}  -> {} ({}/{} approvals)",
-                        b.bundle_id, b.gate_id, b.recommendation, b.approvals, b.required_approvals
-                    );
-                }
-                if r.lanes.is_empty() && r.publications.is_empty() && r.bundles.is_empty() {
+                // Human output shows the command, not just the noun: every
+                // row is copy-pasteable (roadmap 016 exit criterion).
+                let actions = inbox_actions(&serde_json::to_value(r).unwrap_or_default());
+                if actions.is_empty() {
                     println!("inbox empty");
+                }
+                for action in actions {
+                    match action.argv {
+                        Some(argv) => {
+                            println!("{}\n    run: converge {}", action.label, argv.join(" "))
+                        }
+                        None => println!("{}", action.label),
+                    }
                 }
             })
         }
@@ -1213,9 +1212,10 @@ fn run_resolve(
 ) -> Result<serde_json::Value> {
     let ws = session.workspace()?;
     match command {
-        ResolveCommand::List { snap_id } => {
+        ResolveCommand::List { target } => {
             // Path -> stable variant keys (order matches display order).
-            let variants = superposition_variants(&ws.store, &snap_root(&ws, snap_id)?)?;
+            let (root, _) = resolve_target(session, &ws, target)?;
+            let variants = superposition_variants(&ws.store, &root)?;
             let keyed: std::collections::BTreeMap<String, Vec<converge_client::model::VariantKey>> =
                 variants
                     .into_iter()
@@ -1227,9 +1227,10 @@ fn run_resolve(
                 }
             })
         }
-        ResolveCommand::Validate { snap_id, decisions } => {
+        ResolveCommand::Validate { target, decisions } => {
             let decisions = read_decisions(decisions)?;
-            let report = validate_resolution(&ws.store, &snap_root(&ws, snap_id)?, &decisions)?;
+            let (root, _) = resolve_target(session, &ws, target)?;
+            let report = validate_resolution(&ws.store, &root, &decisions)?;
             let ok = report.ok;
             let value = emit(mode, report, |r| {
                 if r.ok {
@@ -1250,12 +1251,171 @@ fn run_resolve(
                 anyhow::bail!("resolution invalid")
             }
         }
-        ResolveCommand::Apply { snap_id, decisions } => {
+        ResolveCommand::Apply {
+            target,
+            decisions,
+            message,
+            force,
+            no_checkout,
+        } => {
             let decisions = read_decisions(decisions)?;
-            let resolved = apply_resolution(&ws.store, &snap_root(&ws, snap_id)?, &decisions)?;
-            emit(mode, resolved.as_str().to_string(), |id| {
-                println!("resolved root manifest {id}");
-            })
+            let (root, bundle_id) = resolve_target(session, &ws, target)?;
+            let resolved = apply_resolution(&ws.store, &root, &decisions)?;
+
+            // A resolved tree used to stop here as a manifest id no verb
+            // accepted (audit P1.1). It lands as a snap, so `publish`,
+            // `history`, and `restore` all take it from here.
+            let message = message
+                .clone()
+                .or_else(|| Some(format!("resolved {}", short(target))));
+            let snap = if *no_checkout {
+                ws.capture_tree(&resolved, message, bundle_id.as_deref())?
+            } else {
+                ws.adopt_tree(&resolved, message, bundle_id.as_deref(), *force)?
+            };
+
+            #[derive(Serialize)]
+            struct ResolutionApplied {
+                snap: String,
+                root_manifest: String,
+                derived_from_bundle: Option<String>,
+                paths_resolved: usize,
+                checked_out: bool,
+                /// The verb that continues the flow — the inbox and the
+                /// TUI both surface this rather than inventing their own.
+                next: String,
+            }
+            emit(
+                mode,
+                ResolutionApplied {
+                    snap: snap.id.clone(),
+                    root_manifest: resolved.as_str().to_string(),
+                    derived_from_bundle: bundle_id,
+                    paths_resolved: decisions.len(),
+                    checked_out: !*no_checkout,
+                    next: format!("publish --snap {}", snap.id),
+                },
+                |r| {
+                    println!(
+                        "resolved {} path(s) -> snap {}{}",
+                        r.paths_resolved,
+                        r.snap,
+                        if r.checked_out {
+                            " (workspace updated)"
+                        } else {
+                            ""
+                        }
+                    );
+                    println!("next: converge {}", r.next);
+                },
+            )
         }
     }
+}
+
+/// One inbox row: what happened, and the argv that acts on it.
+#[derive(Serialize, Clone, Debug, PartialEq, Eq)]
+pub struct InboxAction {
+    pub label: String,
+    /// Runnable argv, or `None` when the row is informational.
+    pub argv: Option<Vec<String>>,
+}
+
+/// Turn an inbox report into labelled, runnable actions (batch 16.1).
+///
+/// Lives here, not in the TUI, because the argv contract says the CLI
+/// owns semantics: a recommendation the TUI could run but a user could
+/// not paste is exactly the dead end audit P1.2 found.
+pub fn inbox_actions(report: &serde_json::Value) -> Vec<InboxAction> {
+    let str_at = |v: &serde_json::Value, k: &str| v[k].as_str().unwrap_or("?").to_string();
+    let mut actions = Vec::new();
+
+    for lane in report["lanes"].as_array().into_iter().flatten() {
+        let lane_id = str_at(lane, "lane_id");
+        actions.push(InboxAction {
+            label: format!("lane {lane_id} updated ({})", str_at(lane, "updated_at")),
+            argv: Some(vec!["sync".into(), "pull".into(), "--lane".into(), lane_id]),
+        });
+    }
+
+    for publication in report["publications"].as_array().into_iter().flatten() {
+        actions.push(InboxAction {
+            label: format!(
+                "publication by {} -> {} (window open)",
+                str_at(publication, "publisher"),
+                str_at(publication, "gate_id")
+            ),
+            argv: None,
+        });
+    }
+
+    for bundle in report["bundles"].as_array().into_iter().flatten() {
+        let id = str_at(bundle, "bundle_id");
+        let recommendation = bundle["recommendation"].as_str().unwrap_or("");
+        actions.push(InboxAction {
+            label: format!(
+                "bundle {} @ {} -> {recommendation} ({}/{})",
+                short(&id),
+                str_at(bundle, "gate_id"),
+                bundle["approvals"],
+                bundle["required_approvals"]
+            ),
+            argv: match recommendation {
+                "approve" => Some(vec!["approve".into(), id]),
+                // Superposed: list the contested paths. `resolve` takes a
+                // bundle id directly now, so this runs as written.
+                "resolve" => Some(vec!["resolve".into(), "list".into(), id]),
+                _ => None,
+            },
+        });
+    }
+
+    actions
+}
+
+/// Resolve a user-supplied ref to a root manifest: a local snap id, or a
+/// bundle id (batch 16.1, audit P1.2).
+///
+/// Bundles are the *reason* superpositions exist, so refusing them here
+/// was the dead end — the inbox recommends resolving a bundle and the
+/// only resolvable thing was a local snap. A bundle whose objects are not
+/// local yet is fetched first; that is the same work the user would have
+/// done by hand, and it is idempotent.
+fn resolve_target(
+    session: &Session,
+    ws: &Workspace,
+    target: &str,
+) -> Result<(ObjectId, Option<String>)> {
+    if let Ok(snap) = ws.store.get_snap(target) {
+        return Ok((snap.root_manifest, snap.derived_from_bundle));
+    }
+    let root = fetch_bundle_tree(session, ws, target)
+        .with_context(|| format!("{target} is neither a local snap nor a reachable bundle"))?;
+    Ok((root, Some(target.to_string())))
+}
+
+/// Fetch a bundle's tree into the local store and, when the bundle
+/// belongs to the configured target, record it as the publish base.
+///
+/// The base matters more than it looks: a resolution published without
+/// it declares no knowledge of the bundle it resolved, so the fold
+/// re-superposes the very paths the user just decided (batch 16.1). Both
+/// `fetch` and `resolve` go through here so neither can forget.
+fn fetch_bundle_tree(session: &Session, ws: &Workspace, bundle_id: &str) -> Result<ObjectId> {
+    let (client, remote) = remote_client(session, ws)?;
+    let bundle = client.get_bundle(bundle_id)?;
+    let root = client.fetch_bundle(&ws.store, &remote.repo_id, bundle_id)?;
+    if bundle.scope_id == remote.scope {
+        ws.store.set_last_seen_bundle(
+            &remote,
+            &bundle.scope_id,
+            &bundle.produced_by_gate_id,
+            &bundle.bundle_id,
+        )?;
+    }
+    Ok(root)
+}
+
+fn short(id: &str) -> String {
+    id.chars().take(12).collect()
 }

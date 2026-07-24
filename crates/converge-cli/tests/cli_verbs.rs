@@ -113,7 +113,9 @@ fn resolve_list_validate_apply_over_superposition() -> anyhow::Result<()> {
                         source: "lane-a".into(),
                         kind: SuperpositionVariantKind::File {
                             blob: blob_a,
-                            mode: 0o644,
+                            // Full st_mode: what a workspace scan records,
+                            // so a checked-out resolution compares equal.
+                            mode: 0o100644,
                             size: 9,
                         },
                     },
@@ -121,7 +123,7 @@ fn resolve_list_validate_apply_over_superposition() -> anyhow::Result<()> {
                         source: "lane-b".into(),
                         kind: SuperpositionVariantKind::File {
                             blob: blob_b,
-                            mode: 0o644,
+                            mode: 0o100644,
                             size: 9,
                         },
                     },
@@ -143,6 +145,7 @@ fn resolve_list_validate_apply_over_superposition() -> anyhow::Result<()> {
         stats: SnapStats::default(),
     };
     ws.store.put_snap(&snap)?;
+    ws.store.set_head(Some(&snap.id))?;
 
     let list = json_data(&converge(root, &["--json", "resolve", "list", &snap.id]));
     let keys = list["conflicted.txt"].as_array().unwrap();
@@ -182,11 +185,46 @@ fn resolve_list_validate_apply_over_superposition() -> anyhow::Result<()> {
     );
     assert!(out.status.success());
 
+    // `--no-checkout` records the snap without touching the working tree
+    // or head — the escape hatch for "resolve now, look at it later".
+    let recorded = json_data(&converge(
+        root,
+        &[
+            "--json",
+            "resolve",
+            "apply",
+            &snap.id,
+            "decisions.json",
+            "--no-checkout",
+        ],
+    ));
+    assert_eq!(recorded["checked_out"], false);
+    assert_eq!(
+        ws.store.get_head()?.as_deref(),
+        Some(snap.id.as_str()),
+        "no-checkout leaves head where the workspace still is"
+    );
+    assert!(
+        !root.join("conflicted.txt").exists(),
+        "working tree untouched"
+    );
+
+    // Applying lands a snap and checks it out (batch 16.1, audit P1.1):
+    // the resolved tree used to be an orphan manifest id no verb took.
+    // `--force` because this workspace holds the decisions files, which
+    // are not part of any snap — checkout is a restore and says so.
     let resolved = json_data(&converge(
         root,
-        &["--json", "resolve", "apply", &snap.id, "decisions.json"],
+        &[
+            "--json",
+            "resolve",
+            "apply",
+            &snap.id,
+            "decisions.json",
+            "--force",
+        ],
     ));
-    let resolved_id = resolved.as_str().unwrap();
+    let resolved_id = resolved["root_manifest"].as_str().unwrap();
     let m = ws
         .store
         .get_manifest(&converge_client::model::ObjectId(resolved_id.to_string()))?;
@@ -196,6 +234,45 @@ fn resolve_list_validate_apply_over_superposition() -> anyhow::Result<()> {
         }
         other => panic!("expected resolved file, got {other:?}"),
     }
+
+    // The snap exists, is the head, carries the superposed snap as parent,
+    // and the working tree holds the resolved content.
+    assert_eq!(resolved["paths_resolved"], 1);
+    assert_eq!(resolved["checked_out"], true);
+    let resolved_snap_id = resolved["snap"].as_str().unwrap().to_string();
+    assert_eq!(
+        resolved["next"],
+        format!("publish --snap {resolved_snap_id}"),
+        "the next verb is named, not inferred"
+    );
+    let resolved_snap = ws.store.get_snap(&resolved_snap_id)?;
+    assert_eq!(resolved_snap.parents, vec![snap.id.clone()]);
+    assert_eq!(resolved_snap.stats.files, 1);
+    assert_eq!(
+        ws.store.get_head()?.as_deref(),
+        Some(resolved_snap_id.as_str())
+    );
+    assert_eq!(
+        std::fs::read_to_string(root.join("conflicted.txt"))?,
+        "variant b"
+    );
+
+    // Status agrees: the checked-out tree is the head snap's tree.
+    let status = json_data(&converge(root, &["--json", "status"]));
+    assert_eq!(status["pending"]["count"], 0, "no phantom pending changes");
+
+    // Checkout is a full materialize: the workspace now *is* the resolved
+    // tree, so the scratch decisions files are gone. Same contract as
+    // `restore`, which is why it needed --force.
+    assert!(
+        !root.join("decisions.json").exists(),
+        "checkout materializes the resolved tree, nothing beside it"
+    );
+
+    // Same decisions from the same head yield the same snap id: identity
+    // is content + lineage (doc 17 §1), so applying twice records one
+    // node, not two. The second run is what moved head and the tree.
+    assert_eq!(recorded["snap"], resolved["snap"]);
     Ok(())
 }
 

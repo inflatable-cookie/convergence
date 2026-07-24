@@ -90,7 +90,10 @@ fn run(terminal: &mut ratatui::DefaultTerminal, trace: &mut trace::Trace) -> Res
         while let Ok((argv, result)) = rx.try_recv() {
             trace.command_result(&argv, &result);
             app.finish_in_flight();
-            app.record_result(result);
+            let entered = enter_resolution(&mut app, &argv, &result);
+            if !entered {
+                app.record_result(result);
+            }
             refresh(&mut app, &session);
             // Remote events change the inbox, not just local status
             // (batch 15.3): refresh it too, but only when the inbox view
@@ -151,38 +154,20 @@ fn run(terminal: &mut ratatui::DefaultTerminal, trace: &mut trace::Trace) -> Res
                     Err(err) => app.record_result(Err(err)),
                 }
             }
-            Some(Action::EnterResolution(snap_id)) => {
-                app.record_command(&["resolve".into(), "list".into(), snap_id.clone()]);
-                match converge_cli::execute_in(
-                    &session,
-                    ["resolve".into(), "list".into(), snap_id.clone()],
-                ) {
-                    Ok(value) => {
-                        let mut paths: Vec<(String, Vec<serde_json::Value>)> = value
-                            .as_object()
-                            .map(|m| {
-                                m.iter()
-                                    .map(|(k, v)| {
-                                        (k.clone(), v.as_array().cloned().unwrap_or_default())
-                                    })
-                                    .collect()
-                            })
-                            .unwrap_or_default();
-                        paths.sort_by(|a, b| a.0.cmp(&b.0));
-                        app.record_result(Ok(serde_json::json!(format!(
-                            "{} superposed path(s)",
-                            paths.len()
-                        ))));
-                        app.resolution = Some(ResolutionState {
-                            snap_id,
-                            paths,
-                            decisions: Default::default(),
-                            selected: 0,
-                        });
-                        app.frames.push(View::Resolution);
-                    }
-                    Err(err) => app.record_result(Err(err)),
-                }
+            Some(Action::EnterResolution(target)) => {
+                // `resolve list` may fetch a bundle's tree (batch 16.1),
+                // so it runs on the worker like any other remote verb —
+                // the event loop never blocks (arch 15 §3). The result is
+                // turned into the resolution view when it lands.
+                let argv = vec!["resolve".into(), "list".into(), target];
+                app.record_command(&argv);
+                app.record_in_flight(&argv);
+                let tx = tx.clone();
+                let session = std::sync::Arc::clone(&session);
+                std::thread::spawn(move || {
+                    let result = converge_cli::execute_in(&session, argv.iter().cloned());
+                    let _ = tx.send((argv, result));
+                });
             }
             Some(Action::ApplyResolution) => {
                 if let Some(resolution) = app.resolution.take() {
@@ -292,6 +277,47 @@ fn refresh(app: &mut App, session: &converge_cli::Session) {
         .ok()
         .and_then(|v| v.as_array().cloned())
         .unwrap_or_default();
+}
+
+/// A finished `resolve list <ref>` becomes the resolution view. Returns
+/// false when this result was something else, so the caller records it
+/// normally.
+fn enter_resolution(
+    app: &mut App,
+    argv: &[String],
+    result: &anyhow::Result<serde_json::Value>,
+) -> bool {
+    let target = match argv {
+        [verb, sub, target] if verb == "resolve" && sub == "list" => target.clone(),
+        _ => return false,
+    };
+    let value = match result {
+        Ok(value) => value,
+        Err(_) => return false, // let the error render like any other
+    };
+    let mut paths: Vec<(String, Vec<serde_json::Value>)> = value
+        .as_object()
+        .map(|m| {
+            m.iter()
+                .map(|(k, v)| (k.clone(), v.as_array().cloned().unwrap_or_default()))
+                .collect()
+        })
+        .unwrap_or_default();
+    paths.sort_by(|a, b| a.0.cmp(&b.0));
+    app.record_result(Ok(serde_json::json!(format!(
+        "{} superposed path(s)",
+        paths.len()
+    ))));
+    app.resolution = Some(ResolutionState {
+        snap_id: target,
+        paths,
+        decisions: Default::default(),
+        selected: 0,
+    });
+    if app.current_view() != View::Resolution {
+        app.frames.push(View::Resolution);
+    }
+    true
 }
 
 /// Reload inbox entries in place, keeping the current selection sane.

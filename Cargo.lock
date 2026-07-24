@@ -441,13 +441,16 @@ name = "converge-cli"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "axum",
  "clap",
  "converge-client",
  "converge-model",
+ "converge-server",
  "serde",
  "serde_json",
  "tempfile",
  "time",
+ "tokio",
 ]
 
 [[package]]

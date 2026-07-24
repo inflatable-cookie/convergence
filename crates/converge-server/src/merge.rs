@@ -123,7 +123,7 @@ pub fn merge_window_outcome(
                             Some(root) => lookup_path_memo(objects, &mut walked, root, &path)?,
                             None => None,
                         };
-                        if other_base.as_ref() != Some(kind) {
+                        if !base_contains(other_base.as_ref(), kind) {
                             continue;
                         }
                         let other_has_own_opinion = ops.iter().any(|(op_index, _, other_op)| {
@@ -522,6 +522,57 @@ fn load_manifest(objects: &dyn ObjectStore, id: &ObjectId) -> Result<Manifest> {
     let bytes = objects.get(ObjectKind::Manifest, id)?;
     converge_model::encoding::decode_manifest(&bytes)
         .with_context(|| format!("parse manifest {}", id.as_str()))
+}
+
+/// Does a declared base hold `kind` at a path — either as the value, or
+/// as one of the variants of a superposition there (doc 17 §2)?
+///
+/// The variant case is what lets a resolution close the loop (batch
+/// 16.1). A publisher who based on a superposed bundle and set a value
+/// saw every variant and decided among them; re-superposing the losing
+/// variants against that decision would make resolution impossible until
+/// the window is promoted. Content is not at risk: the safety condition
+/// below still requires the superseder to carry its own explicit opinion
+/// at the path, or W to hold the value already.
+fn base_contains(base: Option<&ManifestEntryKind>, kind: &ManifestEntryKind) -> bool {
+    match base {
+        Some(value) if value == kind => true,
+        Some(ManifestEntryKind::Superposition { variants }) => variants
+            .iter()
+            .any(|variant| variant_matches(&variant.kind, kind)),
+        _ => false,
+    }
+}
+
+fn variant_matches(variant: &SuperpositionVariantKind, kind: &ManifestEntryKind) -> bool {
+    match (variant, kind) {
+        (
+            SuperpositionVariantKind::File { blob, mode, size },
+            ManifestEntryKind::File {
+                blob: b,
+                mode: m,
+                size: s,
+            },
+        ) => blob == b && mode == m && size == s,
+        (
+            SuperpositionVariantKind::FileChunks { recipe, mode, size },
+            ManifestEntryKind::FileChunks {
+                recipe: r,
+                mode: m,
+                size: s,
+            },
+        ) => recipe == r && mode == m && size == s,
+        (
+            SuperpositionVariantKind::Dir { manifest },
+            ManifestEntryKind::Dir { manifest: other },
+        ) => manifest == other,
+        (
+            SuperpositionVariantKind::Symlink { target },
+            ManifestEntryKind::Symlink { target: other },
+        ) => target == other,
+        // A tombstone is the absence of content, never a value someone set.
+        _ => false,
+    }
 }
 
 fn to_variants(source: String, kind: ManifestEntryKind) -> Vec<SuperpositionVariant> {

@@ -285,3 +285,71 @@ fn restating_w_without_delete_collapses_cleanly() -> Result<()> {
     );
     Ok(())
 }
+
+/// Batch 16.1: a resolution published into an open window supersedes the
+/// variants it decided among. Without this the superposition returns on
+/// the very next build and resolution is impossible before promotion —
+/// the deepest form of the resolve-loop dead end (audit P1.1).
+#[test]
+fn resolution_supersedes_the_variants_it_decided() -> Result<()> {
+    let (_dir, objects) = store()?;
+    let base = tree(&objects, &[("a.txt", b"start")])?;
+    let alice = tree(&objects, &[("a.txt", b"alice")])?;
+    let bob = tree(&objects, &[("a.txt", b"bob")])?;
+
+    // Round one: two divergent publishes superpose.
+    let superposed = merge_window(
+        &objects,
+        Some(&base),
+        &[
+            input("alice", Some(&base), &alice),
+            input("bob", Some(&base), &bob),
+        ],
+        "whole-file",
+    )?;
+    assert!(matches!(
+        entry_kind(&manifest(&objects, &superposed)?, "a.txt").expect("present"),
+        ManifestEntryKind::Superposition { .. }
+    ));
+
+    // Round two: the window is still open (nothing promoted), so the two
+    // originals re-merge alongside a resolution based on the superposed
+    // bundle. The resolution wins outright.
+    let root = merge_window(
+        &objects,
+        Some(&base),
+        &[
+            input("alice", Some(&base), &alice),
+            input("bob", Some(&base), &bob),
+            input("alice", Some(&superposed), &alice),
+        ],
+        "whole-file",
+    )?;
+    let kind = entry_kind(&manifest(&objects, &root)?, "a.txt").expect("present");
+    assert_eq!(
+        file_bytes(&objects, &kind)?,
+        b"alice",
+        "the resolved value stands alone"
+    );
+
+    // A publisher who never saw the superposition is not superseded: a
+    // third opinion still contests the resolution.
+    let carol = tree(&objects, &[("a.txt", b"carol")])?;
+    let contested = merge_window(
+        &objects,
+        Some(&base),
+        &[
+            input("alice", Some(&superposed), &alice),
+            input("carol", Some(&base), &carol),
+        ],
+        "whole-file",
+    )?;
+    assert!(
+        matches!(
+            entry_kind(&manifest(&objects, &contested)?, "a.txt").expect("present"),
+            ManifestEntryKind::Superposition { .. }
+        ),
+        "an opinion formed without seeing the variants still counts"
+    );
+    Ok(())
+}
