@@ -2,7 +2,7 @@ use anyhow::Result;
 
 use converge_model::{
     BundleStatus, GateGraph, LaneHead, LaneRecord, ObjectId, PublicationRecord, ReleaseRecord,
-    SnapRecord,
+    RetentionPolicy, SnapRecord,
 };
 
 /// Content-addressed object storage (blobs, manifests, recipes). Embedded
@@ -123,6 +123,10 @@ pub trait MetadataStore: Send + Sync {
     fn list_bundles(&self, repo_id: &str, scope_id: &str) -> Result<Vec<StoredBundle>>;
     fn add_approval(&self, bundle_id: &str, approver: &str) -> Result<()>;
     fn count_approvals(&self, bundle_id: &str) -> Result<u32>;
+    // retention (g02.008)
+    fn set_retention(&self, repo_id: &str, policy: &RetentionPolicy) -> Result<()>;
+    fn get_retention(&self, repo_id: &str) -> Result<RetentionPolicy>;
+
     // releases (g02.008)
     fn add_release(&self, release: &ReleaseRecord) -> Result<()>;
     fn list_releases(&self, repo_id: &str) -> Result<Vec<ReleaseRecord>>;

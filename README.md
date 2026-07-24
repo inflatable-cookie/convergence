@@ -55,4 +55,4 @@ cargo nextest run -P ci
 
 ## Next task
 
-Execute the ready `g02.008` Batch 8.2 retention-policy card.002` Batch 2.4 rebuild-architecture card.
+Execute the ready `g02.008` Batch 8.3 GC card.002` Batch 2.4 rebuild-architecture card.

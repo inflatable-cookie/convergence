@@ -5,8 +5,8 @@ use anyhow::{Context, Result, bail};
 use crate::model::{
     AddLaneMemberRequest, ApproveRequest, BundleRecord, CreateLaneRequest, InboxReport, LaneRecord,
     Manifest, ManifestEntryKind, NegotiateRequest, NegotiateResponse, ObjectId, ObjectSet,
-    PromoteRequest, PublishRequest, ReleaseRecord, ReleaseRequest, SetLaneHeadRequest, SnapRecord,
-    SuperpositionVariantKind, WIRE_VERSION,
+    PromoteRequest, PublishRequest, ReleaseRecord, ReleaseRequest, RetentionPolicy,
+    SetLaneHeadRequest, SnapRecord, SuperpositionVariantKind, WIRE_VERSION,
 };
 use crate::store::LocalStore;
 
@@ -433,6 +433,29 @@ impl RemoteClient {
                 .context("channel head")?,
         )?;
         response.json().context("parse release")
+    }
+
+    pub fn get_retention(&self, repo_id: &str) -> Result<RetentionPolicy> {
+        let response = Self::check(
+            self.http
+                .get(self.url(&format!("/api/repos/{repo_id}/retention")))
+                .bearer_auth(&self.token)
+                .send()
+                .context("get retention")?,
+        )?;
+        response.json().context("parse retention")
+    }
+
+    pub fn set_retention(&self, repo_id: &str, policy: &RetentionPolicy) -> Result<()> {
+        Self::check(
+            self.http
+                .put(self.url(&format!("/api/repos/{repo_id}/retention")))
+                .bearer_auth(&self.token)
+                .json(policy)
+                .send()
+                .context("set retention")?,
+        )?;
+        Ok(())
     }
 
     pub fn promote(

@@ -145,6 +145,11 @@ enum Command {
     },
     /// List the repo's releases.
     Releases,
+    /// Show or set the repo's server-side retention policy.
+    Retention {
+        #[command(subcommand)]
+        command: RetentionCommand,
+    },
     /// Share unpublished lineage through lanes.
     Sync {
         #[command(subcommand)]
@@ -165,6 +170,19 @@ enum Command {
         /// Run a single check-capture-thin cycle and exit (for tests).
         #[arg(long)]
         once: bool,
+    },
+}
+
+#[derive(Subcommand)]
+enum RetentionCommand {
+    Show,
+    Set {
+        #[arg(long)]
+        keep_releases: Option<u32>,
+        #[arg(long)]
+        keep_bundles: Option<u32>,
+        #[arg(long)]
+        keep_publication_days: Option<u32>,
     },
 }
 
@@ -482,6 +500,38 @@ fn run(cli: &Cli, mode: OutputMode) -> Result<serde_json::Value> {
                     );
                 }
             })
+        }
+        Command::Retention { command } => {
+            let ws = open_workspace()?;
+            let (client, remote) = remote_client(&ws)?;
+            match command {
+                RetentionCommand::Show => {
+                    let policy = client.get_retention(&remote.repo_id)?;
+                    emit(mode, policy, |p| {
+                        println!(
+                            "releases/channel: {:?}  bundles/gate: {:?}  publication days: {:?}",
+                            p.keep_releases_per_channel,
+                            p.keep_bundles_per_gate,
+                            p.keep_publication_days
+                        );
+                    })
+                }
+                RetentionCommand::Set {
+                    keep_releases,
+                    keep_bundles,
+                    keep_publication_days,
+                } => {
+                    let policy = converge_client::model::RetentionPolicy {
+                        keep_releases_per_channel: *keep_releases,
+                        keep_bundles_per_gate: *keep_bundles,
+                        keep_publication_days: *keep_publication_days,
+                    };
+                    client.set_retention(&remote.repo_id, &policy)?;
+                    emit(mode, policy, |_| {
+                        println!("retention updated");
+                    })
+                }
+            }
         }
         Command::Fetch {
             bundle_id,

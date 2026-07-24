@@ -121,3 +121,33 @@ fn lineage_walk_tolerates_thinned_ancestors() -> Result<()> {
     assert_eq!(ids[0], s3.id, "head first");
     Ok(())
 }
+
+#[test]
+fn thinning_honors_workspace_retention_config() -> Result<()> {
+    let tmp = tempfile::tempdir()?;
+    let ws = Workspace::init(tmp.path(), false)?;
+    let now = OffsetDateTime::parse("2026-07-24T12:00:00Z", &Rfc3339)?;
+
+    // keep_days=7 drops ancient bucket-newest snaps; keep_last=1 exempts
+    // the newest automatic snap unconditionally.
+    let mut cfg = ws.store.read_config()?;
+    cfg.retention = Some(converge_client::model::RetentionConfig {
+        keep_last: Some(1),
+        keep_days: Some(7),
+        ..Default::default()
+    });
+    ws.store.write_config(&cfg)?;
+
+    let ancient = synthetic_snap(&ws, "ancient", now - time::Duration::days(30), "automatic")?;
+    let old_hourly = synthetic_snap(&ws, "oldh", now - time::Duration::minutes(90), "automatic")?;
+    let newest = synthetic_snap(&ws, "newest", now - time::Duration::minutes(5), "automatic")?;
+
+    let deleted = ws.thin_automatic_snaps(now)?;
+    assert!(deleted.contains(&ancient), "beyond keep_days drops");
+    assert!(
+        !deleted.contains(&old_hourly),
+        "bucket-newest inside keep_days survives"
+    );
+    assert!(!deleted.contains(&newest), "keep_last exempt");
+    Ok(())
+}

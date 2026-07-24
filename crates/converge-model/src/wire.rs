@@ -183,6 +183,21 @@ pub struct InboxBundle {
     pub required_approvals: u32,
 }
 
+/// Server-side retention policy, stored per repo in the control plane.
+/// Pure evaluation lives server-side; GC (g02.008 batch 8.3) consumes it.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RetentionPolicy {
+    /// Keep the newest N releases per channel (None = keep all).
+    #[serde(default)]
+    pub keep_releases_per_channel: Option<u32>,
+    /// Keep the newest N bundles per gate (None = keep all).
+    #[serde(default)]
+    pub keep_bundles_per_gate: Option<u32>,
+    /// Drop consumed publications older than N days (None = keep all).
+    #[serde(default)]
+    pub keep_publication_days: Option<u32>,
+}
+
 /// A release: a bundle designated for consumption on a named channel.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ReleaseRecord {

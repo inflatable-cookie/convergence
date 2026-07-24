@@ -162,3 +162,29 @@ fn superposed_bundle_cannot_release() -> Result<()> {
     assert!(err.to_string().contains("unresolved superpositions"));
     Ok(())
 }
+
+#[test]
+fn retention_config_round_trips_with_admin_gate() -> Result<()> {
+    let server_dir = tempfile::tempdir()?;
+    let base_url = start_server(server_dir.path())?;
+    // Grant alice admin for this test.
+    {
+        let meta = SqliteMetadataStore::open(&server_dir.path().join("meta.sqlite"))?;
+        meta.add_grant("alice", "repo", "*", "admin")?;
+    }
+    let alice = RemoteClient::new(&base_url, "token-a");
+    let bob = RemoteClient::new(&base_url, "token-b");
+
+    let policy = converge_model::RetentionPolicy {
+        keep_releases_per_channel: Some(5),
+        keep_bundles_per_gate: Some(10),
+        keep_publication_days: Some(30),
+    };
+    alice.set_retention("repo", &policy)?;
+    assert_eq!(alice.get_retention("repo")?, policy);
+    assert_eq!(bob.get_retention("repo")?, policy, "readable by readers");
+
+    let err = bob.set_retention("repo", &policy).unwrap_err();
+    assert!(err.to_string().contains("authorization denied"));
+    Ok(())
+}

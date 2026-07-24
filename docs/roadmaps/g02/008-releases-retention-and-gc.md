@@ -34,4 +34,4 @@ roadmap completes the verb surface and makes storage honest about retention.
 
 ## Next Task
 
-Execute the ready Batch 8.2 card (`batch-cards/027-retention-policy.md`).
+Execute the ready Batch 8.3 card (`batch-cards/028-gc.md`).

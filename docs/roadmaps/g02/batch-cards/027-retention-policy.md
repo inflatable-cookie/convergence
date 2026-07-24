@@ -1,6 +1,6 @@
 # 027 Retention Policy
 
-Status: ready
+Status: complete
 Updated: 2026-07-24
 Roadmap: `g02.008`
 Spec: `docs/specs/008-releases-retention-and-gc.md`
@@ -41,6 +41,19 @@ shared between server GC (8.3) and client thinning.
 
 - retention interacts with lineage in murky ways — doc 17 first
 
+## Outcome
+
+- `RetentionPolicy` (releases/channel, bundles/gate, publication days)
+  stored per repo; GET readable by readers, PUT admin-gated (denial
+  tested); CLI `retention show/set`
+- pure evaluation module (`retention.rs`): releases-to-drop per channel,
+  bundles-to-drop per gate with a protection set, consumed-publications-
+  to-drop by age with window immunity — all unit-tested, nothing deletes
+- client thinning honors `WorkspaceConfig.retention`: `keep_last`
+  unconditional exemption, `keep_days` hard age cutoff, defaults preserve
+  prior tier behavior
+- 83 workspace tests green
+
 ## Next Task
 
-On completion, open the Batch 8.3 GC card.
+Execute the Batch 8.3 GC card (`028-gc.md`).

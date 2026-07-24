@@ -12,8 +12,8 @@ use serde_json::json;
 use converge_model::{
     AddLaneMemberRequest, ApproveRequest, BundleProvenance, BundleRecord, CreateLaneRequest,
     InboxReport, LaneHead, LaneRecord, NegotiateRequest, NegotiateResponse, ObjectId, ObjectSet,
-    PromoteRequest, PublishRequest, ReleaseRecord, ReleaseRequest, SetLaneHeadRequest, SnapRecord,
-    WIRE_VERSION,
+    PromoteRequest, PublishRequest, ReleaseRecord, ReleaseRequest, RetentionPolicy,
+    SetLaneHeadRequest, SnapRecord, WIRE_VERSION,
 };
 
 use crate::authz::{Capability, authorize};
@@ -52,6 +52,10 @@ pub fn router(state: AppState) -> Router {
         .route("/api/bundles/:id/release", post(release))
         .route("/api/repos/:repo/releases", get(list_releases))
         .route("/api/repos/:repo/release/:channel", get(channel_head))
+        .route(
+            "/api/repos/:repo/retention",
+            get(get_retention).put(set_retention),
+        )
         .with_state(Arc::new(state))
 }
 
@@ -530,6 +534,38 @@ async fn channel_head(
                 format!("channel {channel} has no release"),
             )
         })
+}
+
+async fn get_retention(
+    State(state): State<SharedState>,
+    Path(repo): Path<String>,
+    headers: HeaderMap,
+) -> Result<Json<RetentionPolicy>, ApiError> {
+    let subject = subject(&state, &headers)?;
+    authorize(state.meta.as_ref(), &subject, &repo, "*", Capability::Read)
+        .map_err(|err| forbidden(format!("{err:#}")))?;
+    let policy = state
+        .meta
+        .get_retention(&repo)
+        .map_err(|err| bad_request(format!("{err:#}")))?;
+    Ok(Json(policy))
+}
+
+async fn set_retention(
+    State(state): State<SharedState>,
+    Path(repo): Path<String>,
+    headers: HeaderMap,
+    Json(policy): Json<RetentionPolicy>,
+) -> Result<Json<RetentionPolicy>, ApiError> {
+    let subject = subject(&state, &headers)?;
+    // Retention is control-plane config: admin only.
+    authorize(state.meta.as_ref(), &subject, &repo, "*", Capability::Admin)
+        .map_err(|err| forbidden(format!("{err:#}")))?;
+    state
+        .meta
+        .set_retention(&repo, &policy)
+        .map_err(|err| bad_request(format!("{err:#}")))?;
+    Ok(Json(policy))
 }
 
 async fn promote(

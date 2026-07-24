@@ -6,7 +6,7 @@ use rusqlite::{Connection, params};
 
 use converge_model::{
     BundleStatus, GateGraph, LaneHead, LaneRecord, ObjectId, PublicationRecord, ReleaseRecord,
-    SnapRecord,
+    RetentionPolicy, SnapRecord,
 };
 
 use crate::storage::{MetadataStore, PartitionState, StoredBundle};
@@ -104,6 +104,10 @@ impl SqliteMetadataStore {
                 window_floor INTEGER NOT NULL DEFAULT 0,
                 base_bundle_id TEXT,
                 PRIMARY KEY (repo_id, scope_id, gate_id)
+            );
+            CREATE TABLE IF NOT EXISTS retention (
+                repo_id TEXT PRIMARY KEY,
+                policy_json TEXT NOT NULL
             );
             CREATE TABLE IF NOT EXISTS releases (
                 repo_id TEXT NOT NULL,
@@ -536,6 +540,32 @@ impl MetadataStore for SqliteMetadataStore {
             |row| row.get(0),
         )?;
         Ok(n)
+    }
+
+    fn set_retention(&self, repo_id: &str, policy: &RetentionPolicy) -> Result<()> {
+        let json = serde_json::to_string(policy)?;
+        let conn = self.conn.lock().expect("meta lock");
+        conn.execute(
+            "INSERT INTO retention (repo_id, policy_json) VALUES (?1, ?2)
+             ON CONFLICT(repo_id) DO UPDATE SET policy_json = excluded.policy_json",
+            params![repo_id, json],
+        )?;
+        Ok(())
+    }
+
+    fn get_retention(&self, repo_id: &str) -> Result<RetentionPolicy> {
+        let conn = self.conn.lock().expect("meta lock");
+        let json: Option<String> = conn
+            .query_row(
+                "SELECT policy_json FROM retention WHERE repo_id = ?1",
+                params![repo_id],
+                |row| row.get(0),
+            )
+            .ok();
+        Ok(json
+            .map(|j| serde_json::from_str(&j))
+            .transpose()?
+            .unwrap_or_default())
     }
 
     fn add_release(&self, release: &ReleaseRecord) -> Result<()> {

@@ -4,6 +4,7 @@ pub mod http;
 pub mod merge;
 pub mod meta_sqlite;
 pub mod object_fs;
+pub mod retention;
 pub mod storage;
 
 pub use authz::{AuthzContext, Capability, authorize};
