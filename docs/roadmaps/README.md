@@ -32,7 +32,7 @@ records the closed state.
 - `g02.008` (releases, retention, and GC) is the active roadmap.
 - `docs/specs/008-releases-retention-and-gc.md` is the active strict
   planning lane; `g02.009`-`g02.010` are planned and open in sequence.
-- ready card: `g02/batch-cards/028-gc.md`
+- ready card: `g02/batch-cards/029-provenance-verify.md`
 
 ## Rollover guardrail
 
@@ -46,4 +46,4 @@ Before rollover:
 
 ## Next Task
 
-Execute the ready `g02.008` Batch 8.3 GC card.002` Batch 2.4 rebuild-architecture card.
+Execute the ready `g02.008` Batch 8.4 verify card.002` Batch 2.4 rebuild-architecture card.

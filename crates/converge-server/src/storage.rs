@@ -12,9 +12,13 @@ pub trait ObjectStore: Send + Sync {
     fn put_bytes(&self, kind: ObjectKind, id: &ObjectId, bytes: &[u8]) -> Result<()>;
     fn get(&self, kind: ObjectKind, id: &ObjectId) -> Result<Vec<u8>>;
     fn has(&self, kind: ObjectKind, id: &ObjectId) -> bool;
+    /// All stored objects of a kind: (id, bytes, mtime). GC sweep input.
+    fn list(&self, kind: ObjectKind) -> Result<Vec<(ObjectId, u64, std::time::SystemTime)>>;
+    /// Remove one object (GC sweep only).
+    fn delete(&self, kind: ObjectKind, id: &ObjectId) -> Result<()>;
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum ObjectKind {
     Blob,
     Manifest,
@@ -78,6 +82,7 @@ pub trait MetadataStore: Send + Sync {
         capability: &str,
     ) -> Result<bool>;
     fn create_repo(&self, repo_id: &str) -> Result<()>;
+    fn list_repos(&self) -> Result<Vec<String>>;
     fn repo_exists(&self, repo_id: &str) -> Result<bool>;
     fn set_gate_graph(&self, repo_id: &str, graph: &GateGraph) -> Result<()>;
     fn get_gate_graph(&self, repo_id: &str) -> Result<GateGraph>;
@@ -121,6 +126,9 @@ pub trait MetadataStore: Send + Sync {
     fn put_bundle(&self, bundle: &StoredBundle) -> Result<()>;
     fn get_bundle(&self, bundle_id: &str) -> Result<StoredBundle>;
     fn list_bundles(&self, repo_id: &str, scope_id: &str) -> Result<Vec<StoredBundle>>;
+    fn list_bundles_all_scopes(&self, repo_id: &str) -> Result<Vec<StoredBundle>>;
+    /// All partitions of a repo: (scope, gate, window_floor).
+    fn list_partitions(&self, repo_id: &str) -> Result<Vec<(String, String, u64)>>;
     fn add_approval(&self, bundle_id: &str, approver: &str) -> Result<()>;
     fn count_approvals(&self, bundle_id: &str) -> Result<u32>;
     // retention (g02.008)
@@ -131,6 +139,11 @@ pub trait MetadataStore: Send + Sync {
     fn add_release(&self, release: &ReleaseRecord) -> Result<()>;
     fn list_releases(&self, repo_id: &str) -> Result<Vec<ReleaseRecord>>;
     fn get_channel_head(&self, repo_id: &str, channel: &str) -> Result<Option<ReleaseRecord>>;
+
+    // GC metadata drops (g02.008 batch 8.3)
+    fn delete_releases_for_bundles(&self, repo_id: &str, bundle_ids: &[String]) -> Result<u64>;
+    fn delete_bundles(&self, repo_id: &str, bundle_ids: &[String]) -> Result<u64>;
+    fn delete_publications(&self, repo_id: &str, publication_ids: &[String]) -> Result<u64>;
 
     fn record_promotion(
         &self,

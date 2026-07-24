@@ -87,4 +87,48 @@ impl ObjectStore for FsObjectStore {
     fn has(&self, kind: ObjectKind, id: &ObjectId) -> bool {
         self.path(kind, id).exists()
     }
+
+    fn list(&self, kind: ObjectKind) -> Result<Vec<(ObjectId, u64, std::time::SystemTime)>> {
+        let mut out = Vec::new();
+        let root = self.root.join("objects").join(kind.dir());
+        if !root.is_dir() {
+            return Ok(out);
+        }
+        for shard_a in fs::read_dir(&root).context("read shard level 1")? {
+            let shard_a = shard_a?.path();
+            if !shard_a.is_dir() {
+                continue;
+            }
+            for shard_b in fs::read_dir(&shard_a)? {
+                let shard_b = shard_b?.path();
+                if !shard_b.is_dir() {
+                    continue;
+                }
+                for entry in fs::read_dir(&shard_b)? {
+                    let entry = entry?;
+                    let Ok(name) = entry.file_name().into_string() else {
+                        continue;
+                    };
+                    if name.contains(".tmp.") {
+                        continue;
+                    }
+                    let meta = entry.metadata()?;
+                    out.push((
+                        ObjectId(name),
+                        meta.len(),
+                        meta.modified().unwrap_or(std::time::SystemTime::UNIX_EPOCH),
+                    ));
+                }
+            }
+        }
+        Ok(out)
+    }
+
+    fn delete(&self, kind: ObjectKind, id: &ObjectId) -> Result<()> {
+        let path = self.path(kind, id);
+        if path.exists() {
+            fs::remove_file(&path).with_context(|| format!("delete {}", path.display()))?;
+        }
+        Ok(())
+    }
 }

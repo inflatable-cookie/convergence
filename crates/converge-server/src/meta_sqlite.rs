@@ -181,6 +181,14 @@ impl MetadataStore for SqliteMetadataStore {
         Ok(())
     }
 
+    fn list_repos(&self) -> Result<Vec<String>> {
+        let conn = self.conn.lock().expect("meta lock");
+        let mut stmt = conn.prepare("SELECT repo_id FROM repos ORDER BY repo_id")?;
+        let rows = stmt.query_map([], |row| row.get(0))?;
+        rows.collect::<std::result::Result<_, _>>()
+            .context("list repos")
+    }
+
     fn repo_exists(&self, repo_id: &str) -> Result<bool> {
         let conn = self.conn.lock().expect("meta lock");
         let n: u32 = conn.query_row(
@@ -523,6 +531,43 @@ impl MetadataStore for SqliteMetadataStore {
         ids.iter().map(|id| self.get_bundle(id)).collect()
     }
 
+    fn list_bundles_all_scopes(&self, repo_id: &str) -> Result<Vec<StoredBundle>> {
+        let ids: Vec<String> = {
+            let conn = self.conn.lock().expect("meta lock");
+            let mut stmt = conn.prepare(
+                "SELECT bundle_id FROM bundles WHERE repo_id = ?1 ORDER BY created_at ASC",
+            )?;
+            let rows = stmt.query_map(params![repo_id], |row| row.get(0))?;
+            rows.collect::<std::result::Result<_, _>>()?
+        };
+        ids.iter().map(|id| self.get_bundle(id)).collect()
+    }
+
+    fn list_partitions(&self, repo_id: &str) -> Result<Vec<(String, String, u64)>> {
+        let conn = self.conn.lock().expect("meta lock");
+        let mut stmt = conn.prepare(
+            "SELECT DISTINCT p.scope_id, p.gate_id,
+                    COALESCE(s.window_floor, 0)
+             FROM publications p
+             LEFT JOIN partitions s
+               ON s.repo_id = p.repo_id AND s.scope_id = p.scope_id
+              AND s.gate_id = p.gate_id
+             WHERE p.repo_id = ?1",
+        )?;
+        let rows = stmt.query_map(params![repo_id], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, i64>(2)? as u64,
+            ))
+        })?;
+        let mut out = Vec::new();
+        for row in rows {
+            out.push(row?);
+        }
+        Ok(out)
+    }
+
     fn add_approval(&self, bundle_id: &str, approver: &str) -> Result<()> {
         let conn = self.conn.lock().expect("meta lock");
         conn.execute(
@@ -603,6 +648,47 @@ impl MetadataStore for SqliteMetadataStore {
             .ok();
         json.map(|j| serde_json::from_str(&j).context("parse release"))
             .transpose()
+    }
+
+    fn delete_releases_for_bundles(&self, repo_id: &str, bundle_ids: &[String]) -> Result<u64> {
+        let conn = self.conn.lock().expect("meta lock");
+        let mut deleted = 0u64;
+        for bundle_id in bundle_ids {
+            deleted += conn.execute(
+                "DELETE FROM releases WHERE repo_id = ?1
+                 AND record_json LIKE '%' || ?2 || '%'",
+                params![repo_id, bundle_id],
+            )? as u64;
+        }
+        Ok(deleted)
+    }
+
+    fn delete_bundles(&self, repo_id: &str, bundle_ids: &[String]) -> Result<u64> {
+        let conn = self.conn.lock().expect("meta lock");
+        let mut deleted = 0u64;
+        for bundle_id in bundle_ids {
+            deleted += conn.execute(
+                "DELETE FROM bundles WHERE repo_id = ?1 AND bundle_id = ?2",
+                params![repo_id, bundle_id],
+            )? as u64;
+            conn.execute(
+                "DELETE FROM approvals WHERE bundle_id = ?1",
+                params![bundle_id],
+            )?;
+        }
+        Ok(deleted)
+    }
+
+    fn delete_publications(&self, repo_id: &str, publication_ids: &[String]) -> Result<u64> {
+        let conn = self.conn.lock().expect("meta lock");
+        let mut deleted = 0u64;
+        for publication_id in publication_ids {
+            deleted += conn.execute(
+                "DELETE FROM publications WHERE repo_id = ?1 AND publication_id = ?2",
+                params![repo_id, publication_id],
+            )? as u64;
+        }
+        Ok(deleted)
     }
 
     fn record_promotion(

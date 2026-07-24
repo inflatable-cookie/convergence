@@ -435,6 +435,18 @@ impl RemoteClient {
         response.json().context("parse release")
     }
 
+    pub fn gc(&self, repo_id: &str, dry_run: bool) -> Result<serde_json::Value> {
+        let response = Self::check(
+            self.http
+                .post(self.url(&format!("/api/repos/{repo_id}/gc")))
+                .query(&[("dry_run", if dry_run { "true" } else { "false" })])
+                .bearer_auth(&self.token)
+                .send()
+                .context("gc")?,
+        )?;
+        response.json().context("parse gc report")
+    }
+
     pub fn get_retention(&self, repo_id: &str) -> Result<RetentionPolicy> {
         let response = Self::check(
             self.http

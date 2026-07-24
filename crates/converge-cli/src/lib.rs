@@ -145,6 +145,11 @@ enum Command {
     },
     /// List the repo's releases.
     Releases,
+    /// Run server garbage collection (dry-run unless --execute).
+    Gc {
+        #[arg(long)]
+        execute: bool,
+    },
     /// Show or set the repo's server-side retention policy.
     Retention {
         #[command(subcommand)]
@@ -499,6 +504,28 @@ fn run(cli: &Cli, mode: OutputMode) -> Result<serde_json::Value> {
                         r.channel, r.bundle_id, r.released_by, r.created_at
                     );
                 }
+            })
+        }
+        Command::Gc { execute } => {
+            let ws = open_workspace()?;
+            let (client, remote) = remote_client(&ws)?;
+            let report = client.gc(&remote.repo_id, !execute)?;
+            emit(mode, report, |r| {
+                println!(
+                    "{}: dropped {} releases, {} bundles, {} publications; \
+                     {} reachable, swept {} objects ({} bytes)",
+                    if r["dry_run"].as_bool().unwrap_or(true) {
+                        "dry-run"
+                    } else {
+                        "executed"
+                    },
+                    r["dropped_releases"],
+                    r["dropped_bundles"],
+                    r["dropped_publications"],
+                    r["reachable_objects"],
+                    r["swept_objects"],
+                    r["swept_bytes"]
+                );
             })
         }
         Command::Retention { command } => {

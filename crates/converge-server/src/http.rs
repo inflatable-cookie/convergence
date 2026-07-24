@@ -56,6 +56,7 @@ pub fn router(state: AppState) -> Router {
             "/api/repos/:repo/retention",
             get(get_retention).put(set_retention),
         )
+        .route("/api/repos/:repo/gc", post(run_gc))
         .with_state(Arc::new(state))
 }
 
@@ -566,6 +567,43 @@ async fn set_retention(
         .set_retention(&repo, &policy)
         .map_err(|err| bad_request(format!("{err:#}")))?;
     Ok(Json(policy))
+}
+
+#[derive(serde::Deserialize)]
+struct GcParams {
+    #[serde(default = "default_true")]
+    dry_run: bool,
+}
+
+fn default_true() -> bool {
+    true
+}
+
+async fn run_gc(
+    State(state): State<SharedState>,
+    Path(repo): Path<String>,
+    Query(params): Query<GcParams>,
+    headers: HeaderMap,
+) -> Result<Json<crate::gc::GcReport>, ApiError> {
+    let subject = subject(&state, &headers)?;
+    let authz = authorize(state.meta.as_ref(), &subject, &repo, "*", Capability::Admin)
+        .map_err(|err| forbidden(format!("{err:#}")))?;
+    let engine = Engine {
+        meta: state.meta.as_ref(),
+        objects: state.objects.as_ref(),
+    };
+    let now = time::OffsetDateTime::now_utc()
+        .format(&time::format_description::well_known::Rfc3339)
+        .unwrap_or_default();
+    let report = engine
+        .gc(
+            &authz,
+            params.dry_run,
+            &now,
+            std::time::Duration::from_secs(300),
+        )
+        .map_err(|err| bad_request(format!("{err:#}")))?;
+    Ok(Json(report))
 }
 
 async fn promote(

@@ -1,5 +1,6 @@
 pub mod authz;
 pub mod engine;
+pub mod gc;
 pub mod http;
 pub mod merge;
 pub mod meta_sqlite;
@@ -9,6 +10,7 @@ pub mod storage;
 
 pub use authz::{AuthzContext, Capability, authorize};
 pub use engine::{Engine, PublishInput};
+pub use gc::GcReport;
 pub use http::{AppState, router};
 pub use merge::{MergeInput, merge_window};
 pub use meta_sqlite::SqliteMetadataStore;
