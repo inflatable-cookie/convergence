@@ -37,8 +37,12 @@ fn main() -> Result<()> {
 
 fn run(terminal: &mut ratatui::DefaultTerminal, trace: &mut trace::Trace) -> Result<()> {
     let mut app = App::default();
+    // One session for the whole TUI lifetime (batch 15.3): the workspace
+    // is discovered once, an idle refresh stats the tree instead of
+    // rehashing it, and remote commands share one connection pool.
+    let session = std::sync::Arc::new(converge_cli::Session::new());
     let (tx, rx) = std::sync::mpsc::channel::<WorkerResult>();
-    refresh(&mut app);
+    refresh(&mut app, &session);
     trace.session_start();
 
     // Event poller (doc 14 §5b): replaces blind remote refresh. Events are
@@ -46,11 +50,13 @@ fn run(terminal: &mut ratatui::DefaultTerminal, trace: &mut trace::Trace) -> Res
     // worker channel.
     {
         let tx = tx.clone();
+        let session = std::sync::Arc::clone(&session);
         std::thread::spawn(move || {
             let mut cursor: u64 = 0;
             loop {
                 std::thread::sleep(std::time::Duration::from_secs(3));
-                let Ok(events) = converge_cli::execute(["events", "--since", &cursor.to_string()])
+                let Ok(events) =
+                    converge_cli::execute_in(&session, ["events", "--since", &cursor.to_string()])
                 else {
                     continue; // no remote configured or unreachable
                 };
@@ -85,7 +91,13 @@ fn run(terminal: &mut ratatui::DefaultTerminal, trace: &mut trace::Trace) -> Res
             trace.command_result(&argv, &result);
             app.finish_in_flight();
             app.record_result(result);
-            refresh(&mut app);
+            refresh(&mut app, &session);
+            // Remote events change the inbox, not just local status
+            // (batch 15.3): refresh it too, but only when the inbox view
+            // is what the user is looking at or already loaded.
+            if argv.first().map(String::as_str) == Some("events") {
+                refresh_inbox(&mut app, &session);
+            }
         }
 
         terminal.draw(|frame| render(frame, &app))?;
@@ -109,14 +121,14 @@ fn run(terminal: &mut ratatui::DefaultTerminal, trace: &mut trace::Trace) -> Res
             }
             Some(Action::Enter(view)) => {
                 app.frames.push(view);
-                refresh(&mut app);
+                refresh(&mut app, &session);
             }
             Some(Action::StartWizard(kind)) => {
                 app.wizard = Some(match kind {
                     WizardKind::Annotate(snap_id) => Wizard::annotate(snap_id),
                     WizardKind::Login => Wizard::login(),
                     WizardKind::Publish => {
-                        let default_gate = converge_cli::execute(["remote"])
+                        let default_gate = converge_cli::execute_in(&session, ["remote"])
                             .ok()
                             .and_then(|r| r["gate"].as_str().map(str::to_string));
                         Wizard::publish(default_gate.as_deref(), Vec::new())
@@ -125,7 +137,7 @@ fn run(terminal: &mut ratatui::DefaultTerminal, trace: &mut trace::Trace) -> Res
             }
             Some(Action::LoadInbox) => {
                 app.record_command(&["inbox".into()]);
-                match converge_cli::execute(["inbox"]) {
+                match converge_cli::execute_in(&session, ["inbox"]) {
                     Ok(report) => {
                         app.load_inbox_entries(&report);
                         app.record_result(Ok(serde_json::json!(format!(
@@ -141,7 +153,10 @@ fn run(terminal: &mut ratatui::DefaultTerminal, trace: &mut trace::Trace) -> Res
             }
             Some(Action::EnterResolution(snap_id)) => {
                 app.record_command(&["resolve".into(), "list".into(), snap_id.clone()]);
-                match converge_cli::execute(["resolve".into(), "list".into(), snap_id.clone()]) {
+                match converge_cli::execute_in(
+                    &session,
+                    ["resolve".into(), "list".into(), snap_id.clone()],
+                ) {
                     Ok(value) => {
                         let mut paths: Vec<(String, Vec<serde_json::Value>)> = value
                             .as_object()
@@ -188,13 +203,13 @@ fn run(terminal: &mut ratatui::DefaultTerminal, trace: &mut trace::Trace) -> Res
                         serde_json::to_vec(&decisions).expect("serialize decisions"),
                     )
                     .map_err(anyhow::Error::from)
-                    .and_then(|_| converge_cli::execute(argv.iter().cloned()));
+                    .and_then(|_| converge_cli::execute_in(&session, argv.iter().cloned()));
                     let _ = std::fs::remove_file(&path);
                     app.record_result(result);
                     if app.current_view() == View::Resolution {
                         app.frames.pop();
                     }
-                    refresh(&mut app);
+                    refresh(&mut app, &session);
                 }
             }
             Some(Action::Run(argv)) => {
@@ -203,15 +218,16 @@ fn run(terminal: &mut ratatui::DefaultTerminal, trace: &mut trace::Trace) -> Res
                     // Never block the event loop on the network.
                     app.record_in_flight(&argv);
                     let tx = tx.clone();
+                    let session = std::sync::Arc::clone(&session);
                     std::thread::spawn(move || {
-                        let result = converge_cli::execute(argv.iter().cloned());
+                        let result = converge_cli::execute_in(&session, argv.iter().cloned());
                         let _ = tx.send((argv, result));
                     });
                 } else {
-                    let result = converge_cli::execute(argv.iter().cloned());
+                    let result = converge_cli::execute_in(&session, argv.iter().cloned());
                     trace.command_result(&argv, &result);
                     app.record_result(result);
-                    refresh(&mut app);
+                    refresh(&mut app, &session);
                 }
             }
             None => {}
@@ -265,17 +281,32 @@ fn trace_screen(trace: &mut trace::Trace, app: &App) {
 /// Pull view data through the CLI layer (arch 15: no bespoke semantics).
 /// Root views render from the `status` report alone; the snap list feeds
 /// the history view.
-fn refresh(app: &mut App) {
-    app.status = converge_cli::execute(["status"]).ok();
+fn refresh(app: &mut App, session: &converge_cli::Session) {
+    app.status = converge_cli::execute_in(session, ["status"]).ok();
     app.pending_changes = app
         .status
         .as_ref()
         .and_then(|s| s["pending"]["count"].as_u64())
         .unwrap_or(0) as usize;
-    app.snaps = converge_cli::execute(["history"])
+    app.snaps = converge_cli::execute_in(session, ["history"])
         .ok()
         .and_then(|v| v.as_array().cloned())
         .unwrap_or_default();
+}
+
+/// Reload inbox entries in place, keeping the current selection sane.
+/// Silent on failure: an unreachable remote must not stomp the last line
+/// on a refresh the user did not ask for.
+fn refresh_inbox(app: &mut App, session: &converge_cli::Session) {
+    if app.inbox_entries.is_empty() && app.current_view() != View::Inbox {
+        return;
+    }
+    if let Ok(report) = converge_cli::execute_in(session, ["inbox"]) {
+        app.load_inbox_entries(&report);
+        app.inbox_selected = app
+            .inbox_selected
+            .min(app.inbox_entries.len().saturating_sub(1));
+    }
 }
 
 fn render(frame: &mut Frame, app: &App) {

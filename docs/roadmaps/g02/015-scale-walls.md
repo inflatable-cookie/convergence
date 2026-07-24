@@ -1,6 +1,6 @@
 # 015 Scale Walls
 
-Status: in progress (15.1-15.2 complete)
+Status: in progress (15.1-15.3 complete)
 Owner: repo maintainers
 Updated: 2026-07-24
 
@@ -39,10 +39,13 @@ and removes the unbounded surfaces.
   inbox capped with a `truncated` flag and reading one bundle per gate
   instead of scanning the scope; client follows pages internally; doc
   16 §1e carries the contract
-- **15.3 TUI refresh economics**: long-lived client/workspace handle in
-  the TUI runtime; refresh reuses it and skips rescan when the
-  workspace is unchanged (mtime/dirstamp check); event-driven refresh
-  includes inbox
+- **15.3 TUI refresh economics** (complete, card 055):
+  `converge_cli::Session` holds the workspace handle, the working-tree
+  scan, and the remote connection pool across commands; the scan is
+  keyed by a metadata-only dirstamp so an idle refresh stats instead of
+  hashing. The TUI holds one session for its lifetime and refreshes the
+  inbox on event arrival. Capture paths (`snap`, `watch`) never read the
+  cache — the stamp's same-tick blind spot must not reach a snapshot
 - **15.4 Scale proof**: large-tree and large-window benchmarks in CI
   (ignored-by-default like the CBOR benchmark) demonstrating merge cost
   tracks changed paths, not tree size
@@ -56,4 +59,5 @@ and removes the unbounded surfaces.
 
 ## Next Task
 
-Open batch card 15.3 (TUI refresh economics).
+Open batch card 15.4 (scale proof: large-tree and large-window
+benchmarks in CI, ignored by default).

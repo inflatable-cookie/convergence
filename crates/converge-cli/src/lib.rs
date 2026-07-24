@@ -34,7 +34,21 @@ pub enum OutputMode {
 
 /// Run one command from argv (without the leading binary name) and return
 /// its data payload. This is the exact code path the binary runs.
+///
+/// One-shot: everything the command discovers is discarded afterwards. A
+/// long-lived front-end should hold a [`Session`] and call
+/// [`execute_in`] instead.
 pub fn execute<I, S>(argv: I) -> Result<serde_json::Value>
+where
+    I: IntoIterator<Item = S>,
+    S: Into<String>,
+{
+    execute_in(&Session::new(), argv)
+}
+
+/// Run one command against a caller-owned [`Session`], reusing whatever
+/// that session already discovered (batch 15.3).
+pub fn execute_in<I, S>(session: &Session, argv: I) -> Result<serde_json::Value>
 where
     I: IntoIterator<Item = S>,
     S: Into<String>,
@@ -42,7 +56,94 @@ where
     let mut full: Vec<String> = vec!["converge".into()];
     full.extend(argv.into_iter().map(Into::into));
     let cli = Cli::try_parse_from(full)?;
-    run(&cli, OutputMode::Capture)
+    run(&cli, OutputMode::Capture, session)
+}
+
+/// Per-process state a front-end can keep across commands (batch 15.3).
+///
+/// A one-shot `converge` invocation rediscovers the workspace, rescans
+/// the working tree, and builds a fresh HTTP client every time — correct
+/// but wasteful when the caller is a TUI refreshing every few seconds.
+/// The session caches the three:
+///
+/// - the workspace handle, keyed by the cwd it was discovered from
+/// - the working-tree manifest scan, keyed by [`Workspace::dirstamp`], so
+///   an idle refresh stats the tree instead of hashing every file
+/// - the remote HTTP client (connection pool), keyed by base url + token
+///
+/// Every entry is self-invalidating: the stamp changes when the tree
+/// changes, and the client key changes when `login` rewrites the remote.
+/// Sharing one across threads is safe and intended.
+#[derive(Default)]
+pub struct Session {
+    inner: std::sync::Mutex<SessionCache>,
+}
+
+type ManifestScan = (
+    ObjectId,
+    std::collections::HashMap<ObjectId, converge_client::model::Manifest>,
+    converge_client::model::SnapStats,
+);
+
+#[derive(Default)]
+struct SessionCache {
+    workspace: Option<(PathBuf, Workspace)>,
+    scan: Option<(String, ManifestScan)>,
+    remote: Option<(String, String, converge_client::remote::RemoteClient)>,
+}
+
+impl Session {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Discover the workspace once per cwd and hand back a handle.
+    fn workspace(&self) -> Result<Workspace> {
+        let cwd = std::env::current_dir().context("read current directory")?;
+        let mut cache = self.inner.lock().expect("session lock");
+        if let Some((root, ws)) = &cache.workspace
+            && root == &cwd
+        {
+            return Ok(ws.clone());
+        }
+        let ws = Workspace::discover(&cwd)?;
+        cache.workspace = Some((cwd, ws.clone()));
+        Ok(ws)
+    }
+
+    /// The working-tree manifest, reusing the last scan when the tree's
+    /// dirstamp is unchanged. A stamp failure just forces the scan.
+    fn manifest_tree(&self, ws: &Workspace) -> Result<ManifestScan> {
+        let stamp = ws.dirstamp().ok();
+        if let Some(stamp) = &stamp {
+            let cache = self.inner.lock().expect("session lock");
+            if let Some((cached_stamp, scan)) = &cache.scan
+                && cached_stamp == stamp
+            {
+                return Ok(scan.clone());
+            }
+        }
+        let scan = ws.current_manifest_tree()?;
+        if let Some(stamp) = stamp {
+            let mut cache = self.inner.lock().expect("session lock");
+            cache.scan = Some((stamp, scan.clone()));
+        }
+        Ok(scan)
+    }
+
+    /// A remote client for this base url + token, reusing the pooled one.
+    fn remote_client(&self, base_url: &str, token: &str) -> converge_client::remote::RemoteClient {
+        let mut cache = self.inner.lock().expect("session lock");
+        if let Some((url, tok, client)) = &cache.remote
+            && url == base_url
+            && tok == token
+        {
+            return client.clone();
+        }
+        let client = converge_client::remote::RemoteClient::new(base_url, token);
+        cache.remote = Some((base_url.to_string(), token.to_string(), client.clone()));
+        client
+    }
 }
 
 #[derive(Subcommand)]
@@ -320,7 +421,7 @@ pub fn main_impl() -> std::process::ExitCode {
     } else {
         OutputMode::Human
     };
-    match run(&cli, mode) {
+    match run(&cli, mode, &Session::new()) {
         Ok(_) => std::process::ExitCode::SUCCESS,
         Err(err) => {
             if cli.json {
@@ -338,11 +439,6 @@ pub fn main_impl() -> std::process::ExitCode {
             std::process::ExitCode::FAILURE
         }
     }
-}
-
-fn open_workspace() -> Result<Workspace> {
-    let cwd = std::env::current_dir().context("read current directory")?;
-    Workspace::discover(&cwd)
 }
 
 fn read_decisions(path: &PathBuf) -> Result<BTreeMap<String, ResolutionDecision>> {
@@ -375,7 +471,7 @@ fn snap_summary(s: &converge_client::model::SnapRecord) -> SnapSummary {
     }
 }
 
-fn run(cli: &Cli, mode: OutputMode) -> Result<serde_json::Value> {
+fn run(cli: &Cli, mode: OutputMode, session: &Session) -> Result<serde_json::Value> {
     match &cli.command {
         Command::Init { force } => {
             let cwd = std::env::current_dir().context("read current directory")?;
@@ -385,14 +481,14 @@ fn run(cli: &Cli, mode: OutputMode) -> Result<serde_json::Value> {
             })
         }
         Command::Snap { message } => {
-            let ws = open_workspace()?;
+            let ws = session.workspace()?;
             let snap = ws.create_snap(message.clone())?;
             emit(mode, snap_summary(&snap), |s| {
                 println!("snap {} ({} files, {} bytes)", s.id, s.files, s.bytes);
             })
         }
         Command::History => {
-            let ws = open_workspace()?;
+            let ws = session.workspace()?;
             let snaps = ws.list_snaps()?;
             let list: Vec<SnapSummary> = snaps.iter().map(snap_summary).collect();
             emit(mode, list, |list| {
@@ -407,14 +503,14 @@ fn run(cli: &Cli, mode: OutputMode) -> Result<serde_json::Value> {
             })
         }
         Command::Restore { snap_id, force } => {
-            let ws = open_workspace()?;
+            let ws = session.workspace()?;
             ws.restore_snap(snap_id, *force)?;
             emit(mode, snap_id.clone(), |id| {
                 println!("restored {id}");
             })
         }
         Command::Diff { from, to } => {
-            let ws = open_workspace()?;
+            let ws = session.workspace()?;
             let from_tree = tree_from_store(&ws.store, &snap_root(&ws, from)?)?;
             let to_tree = tree_from_store(&ws.store, &snap_root(&ws, to)?)?;
             let lines = diff_trees(&from_tree, &to_tree);
@@ -429,8 +525,8 @@ fn run(cli: &Cli, mode: OutputMode) -> Result<serde_json::Value> {
             })
         }
         Command::Changes => {
-            let ws = open_workspace()?;
-            let (root, manifests, _) = ws.current_manifest_tree()?;
+            let ws = session.workspace()?;
+            let (root, manifests, _) = session.manifest_tree(&ws)?;
             let working = converge_client::diff::tree_from_memory(&manifests, &root)?;
             let base = match latest_snap(&ws) {
                 Ok(snap) => tree_from_store(&ws.store, &snap.root_manifest)?,
@@ -450,7 +546,7 @@ fn run(cli: &Cli, mode: OutputMode) -> Result<serde_json::Value> {
                 }
             })
         }
-        Command::Resolve { command } => run_resolve(mode, command),
+        Command::Resolve { command } => run_resolve(mode, command, session),
         Command::Login {
             url,
             token,
@@ -458,7 +554,7 @@ fn run(cli: &Cli, mode: OutputMode) -> Result<serde_json::Value> {
             scope,
             gate,
         } => {
-            let ws = open_workspace()?;
+            let ws = session.workspace()?;
             let mut cfg = ws.store.read_config()?;
             let remote = converge_client::model::RemoteConfig {
                 base_url: url.clone(),
@@ -480,8 +576,8 @@ fn run(cli: &Cli, mode: OutputMode) -> Result<serde_json::Value> {
             lane,
             notes,
         } => {
-            let ws = open_workspace()?;
-            let (client, remote) = remote_client(&ws)?;
+            let ws = session.workspace()?;
+            let (client, remote) = remote_client(session, &ws)?;
             let snap = match snap {
                 Some(id) => ws.store.get_snap(id)?,
                 None => latest_snap(&ws)?,
@@ -528,8 +624,8 @@ fn run(cli: &Cli, mode: OutputMode) -> Result<serde_json::Value> {
             channel,
             notes,
         } => {
-            let ws = open_workspace()?;
-            let (client, remote) = remote_client(&ws)?;
+            let ws = session.workspace()?;
+            let (client, remote) = remote_client(session, &ws)?;
             let release = client.release(
                 bundle_id,
                 &remote.repo_id,
@@ -542,8 +638,8 @@ fn run(cli: &Cli, mode: OutputMode) -> Result<serde_json::Value> {
             })
         }
         Command::Releases => {
-            let ws = open_workspace()?;
-            let (client, remote) = remote_client(&ws)?;
+            let ws = session.workspace()?;
+            let (client, remote) = remote_client(session, &ws)?;
             let releases = client.list_releases(&remote.repo_id)?;
             emit(mode, releases, |releases| {
                 for r in releases {
@@ -555,7 +651,7 @@ fn run(cli: &Cli, mode: OutputMode) -> Result<serde_json::Value> {
             })
         }
         Command::Git { command } => {
-            let ws = open_workspace()?;
+            let ws = session.workspace()?;
             match command {
                 GitCommand::Import { depth, all } => {
                     let mode_arg = match (depth, all) {
@@ -595,8 +691,8 @@ fn run(cli: &Cli, mode: OutputMode) -> Result<serde_json::Value> {
             }
         }
         Command::Verify { bundle_id } => {
-            let ws = open_workspace()?;
-            let (client, _) = remote_client(&ws)?;
+            let ws = session.workspace()?;
+            let (client, _) = remote_client(session, &ws)?;
             let report = client.verify(bundle_id)?;
             let verified = report.verified;
             emit(mode, report, |r| {
@@ -613,8 +709,8 @@ fn run(cli: &Cli, mode: OutputMode) -> Result<serde_json::Value> {
             }
         }
         Command::Gc { execute } => {
-            let ws = open_workspace()?;
-            let (client, remote) = remote_client(&ws)?;
+            let ws = session.workspace()?;
+            let (client, remote) = remote_client(session, &ws)?;
             let report = client.gc(&remote.repo_id, !execute)?;
             emit(mode, report, |r| {
                 println!(
@@ -635,8 +731,8 @@ fn run(cli: &Cli, mode: OutputMode) -> Result<serde_json::Value> {
             })
         }
         Command::Retention { command } => {
-            let ws = open_workspace()?;
-            let (client, remote) = remote_client(&ws)?;
+            let ws = session.workspace()?;
+            let (client, remote) = remote_client(session, &ws)?;
             match command {
                 RetentionCommand::Show => {
                     let policy = client.get_retention(&remote.repo_id)?;
@@ -674,8 +770,8 @@ fn run(cli: &Cli, mode: OutputMode) -> Result<serde_json::Value> {
             release,
             into,
         } => {
-            let ws = open_workspace()?;
-            let (client, remote) = remote_client(&ws)?;
+            let ws = session.workspace()?;
+            let (client, remote) = remote_client(session, &ws)?;
             let bundle_id = match (bundle_id, release) {
                 (Some(id), _) => id.clone(),
                 (None, Some(channel)) => {
@@ -704,7 +800,7 @@ fn run(cli: &Cli, mode: OutputMode) -> Result<serde_json::Value> {
             })
         }
         Command::Watch { interval_ms, once } => {
-            let ws = open_workspace()?;
+            let ws = session.workspace()?;
             let mut captured: Vec<serde_json::Value> = Vec::new();
             // Debounce: capture only when the tree is stable across two
             // consecutive ticks and differs from head (doc 17 makes
@@ -742,7 +838,7 @@ fn run(cli: &Cli, mode: OutputMode) -> Result<serde_json::Value> {
             })
         }
         Command::Remote => {
-            let ws = open_workspace()?;
+            let ws = session.workspace()?;
             let cfg = ws.store.read_config()?;
             #[derive(Serialize)]
             struct RemoteInfo {
@@ -790,8 +886,8 @@ fn run(cli: &Cli, mode: OutputMode) -> Result<serde_json::Value> {
             })
         }
         Command::Bundle { bundle_id } => {
-            let ws = open_workspace()?;
-            let (client, _) = remote_client(&ws)?;
+            let ws = session.workspace()?;
+            let (client, _) = remote_client(session, &ws)?;
             let provenance = client.get_provenance(bundle_id)?;
             emit(mode, provenance, |p| {
                 println!("bundle {}: {:?}", p.bundle.bundle_id, p.bundle.status);
@@ -815,8 +911,8 @@ fn run(cli: &Cli, mode: OutputMode) -> Result<serde_json::Value> {
             })
         }
         Command::Events { since } => {
-            let ws = open_workspace()?;
-            let (client, remote) = remote_client(&ws)?;
+            let ws = session.workspace()?;
+            let (client, remote) = remote_client(session, &ws)?;
             let events = client.events(&remote.repo_id, *since)?;
             emit(mode, events, |events| {
                 for event in events {
@@ -831,8 +927,8 @@ fn run(cli: &Cli, mode: OutputMode) -> Result<serde_json::Value> {
             })
         }
         Command::Inbox { since } => {
-            let ws = open_workspace()?;
-            let (client, remote) = remote_client(&ws)?;
+            let ws = session.workspace()?;
+            let (client, remote) = remote_client(session, &ws)?;
             let report = client.inbox(&remote.repo_id, &remote.scope, since.as_deref())?;
             emit(mode, report, |r| {
                 for lane in &r.lanes {
@@ -859,24 +955,24 @@ fn run(cli: &Cli, mode: OutputMode) -> Result<serde_json::Value> {
             })
         }
         Command::Approve { bundle_id } => {
-            let ws = open_workspace()?;
-            let (client, remote) = remote_client(&ws)?;
+            let ws = session.workspace()?;
+            let (client, remote) = remote_client(session, &ws)?;
             client.approve(bundle_id, &remote.repo_id, &remote.scope)?;
             emit(mode, bundle_id.clone(), |id| {
                 println!("approved {id}");
             })
         }
         Command::Promote { bundle_id, to } => {
-            let ws = open_workspace()?;
-            let (client, remote) = remote_client(&ws)?;
+            let ws = session.workspace()?;
+            let (client, remote) = remote_client(session, &ws)?;
             client.promote(bundle_id, &remote.repo_id, &remote.scope, to)?;
             emit(mode, format!("{bundle_id} -> {to}"), |m| {
                 println!("promoted {m}");
             })
         }
         Command::Sync { command } => {
-            let ws = open_workspace()?;
-            let (client, remote) = remote_client(&ws)?;
+            let ws = session.workspace()?;
+            let (client, remote) = remote_client(session, &ws)?;
             match command {
                 SyncCommand::Push { lane, force } => {
                     let head = ws
@@ -903,8 +999,8 @@ fn run(cli: &Cli, mode: OutputMode) -> Result<serde_json::Value> {
             }
         }
         Command::Lane { command } => {
-            let ws = open_workspace()?;
-            let (client, remote) = remote_client(&ws)?;
+            let ws = session.workspace()?;
+            let (client, remote) = remote_client(session, &ws)?;
             match command {
                 LaneCommand::Create {
                     lane_id,
@@ -938,8 +1034,8 @@ fn run(cli: &Cli, mode: OutputMode) -> Result<serde_json::Value> {
             }
         }
         Command::Scope { command } => {
-            let ws = open_workspace()?;
-            let (client, remote) = remote_client(&ws)?;
+            let ws = session.workspace()?;
+            let (client, remote) = remote_client(session, &ws)?;
             match command {
                 ScopeCommand::Create { scope_id } => {
                     client.create_scope(&remote.repo_id, scope_id)?;
@@ -958,17 +1054,17 @@ fn run(cli: &Cli, mode: OutputMode) -> Result<serde_json::Value> {
             }
         }
         Command::Annotate { snap_id, message } => {
-            let ws = open_workspace()?;
+            let ws = session.workspace()?;
             ws.store.update_snap_message(snap_id, Some(message))?;
             emit(mode, snap_id.clone(), |id| {
                 println!("annotated {id}");
             })
         }
         Command::Status => {
-            let ws = open_workspace()?;
+            let ws = session.workspace()?;
 
             // Pending changes vs latest snap.
-            let (root, manifests, _) = ws.current_manifest_tree()?;
+            let (root, manifests, _) = session.manifest_tree(&ws)?;
             let working = converge_client::diff::tree_from_memory(&manifests, &root)?;
             let base = match latest_snap(&ws) {
                 Ok(snap) => tree_from_store(&ws.store, &snap.root_manifest)?,
@@ -1087,6 +1183,7 @@ fn run(cli: &Cli, mode: OutputMode) -> Result<serde_json::Value> {
 }
 
 fn remote_client(
+    session: &Session,
     ws: &Workspace,
 ) -> Result<(
     converge_client::remote::RemoteClient,
@@ -1100,10 +1197,7 @@ fn remote_client(
         .store
         .get_remote_token(&remote)?
         .context("no token stored for this remote; run `converge login` again")?;
-    Ok((
-        converge_client::remote::RemoteClient::new(&remote.base_url, &token),
-        remote,
-    ))
+    Ok((session.remote_client(&remote.base_url, &token), remote))
 }
 
 fn latest_snap(ws: &Workspace) -> Result<converge_client::model::SnapRecord> {
@@ -1112,8 +1206,12 @@ fn latest_snap(ws: &Workspace) -> Result<converge_client::model::SnapRecord> {
     snaps.into_iter().next().context("no snaps to publish")
 }
 
-fn run_resolve(mode: OutputMode, command: &ResolveCommand) -> Result<serde_json::Value> {
-    let ws = open_workspace()?;
+fn run_resolve(
+    mode: OutputMode,
+    command: &ResolveCommand,
+    session: &Session,
+) -> Result<serde_json::Value> {
+    let ws = session.workspace()?;
     match command {
         ResolveCommand::List { snap_id } => {
             // Path -> stable variant keys (order matches display order).

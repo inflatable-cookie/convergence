@@ -13,6 +13,7 @@ use crate::store::LocalStore;
 
 /// Blocking sync client for the wire contract (arch 16). The TUI wraps this
 /// behind its async task pool; the CLI calls it directly.
+#[derive(Clone)]
 pub struct RemoteClient {
     base_url: String,
     token: String,

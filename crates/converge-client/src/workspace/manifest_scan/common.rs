@@ -5,7 +5,9 @@ use anyhow::{Context, Result, anyhow};
 
 /// Root-level ignore patterns from `.convergeignore` (arch doc 18 §3):
 /// exact names, `dir/` forms. No negations or nesting — documented.
-pub(super) fn load_root_ignores(root: &std::path::Path) -> std::collections::HashSet<String> {
+pub(in crate::workspace) fn load_root_ignores(
+    root: &std::path::Path,
+) -> std::collections::HashSet<String> {
     let mut out = std::collections::HashSet::new();
     if let Ok(text) = std::fs::read_to_string(root.join(".convergeignore")) {
         for line in text.lines() {
@@ -19,11 +21,11 @@ pub(super) fn load_root_ignores(root: &std::path::Path) -> std::collections::Has
     out
 }
 
-pub(super) fn should_ignore_name(name: &str) -> bool {
+pub(in crate::workspace) fn should_ignore_name(name: &str) -> bool {
     matches!(name, ".converge" | ".git")
 }
 
-pub(super) fn read_dir_sorted(dir: &Path) -> Result<Vec<fs::DirEntry>> {
+pub(in crate::workspace) fn read_dir_sorted(dir: &Path) -> Result<Vec<fs::DirEntry>> {
     let mut entries: Vec<fs::DirEntry> = fs::read_dir(dir)
         .with_context(|| format!("read dir {}", dir.display()))?
         .collect::<std::result::Result<_, _>>()

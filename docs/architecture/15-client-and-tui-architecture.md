@@ -1,8 +1,8 @@
 # 15 Client and TUI Architecture
 
 Status: active
-Updated: 2026-07-23
-Roadmap: `g02.002` Batch 2.4
+Updated: 2026-07-24
+Roadmap: `g02.002` Batch 2.4, `g02.015` Batch 15.3
 
 Client side of the rebuild. UX authority:
 `docs/rebuild/002-tui-ux-spec.md`.
@@ -49,7 +49,34 @@ converge-tui  ── argv contract ──▶ converge-cli ──▶ converge-cli
 - Consistent contextual key layer alongside the console (direct view-jump
   keys), keeping the superposition `Alt+N` pattern as the template.
 
-## 4. Local capture path
+## 4. Session (front-end refresh economics)
+
+The argv contract says a front-end may only speak in CLI verbs; it does
+not say each verb must rediscover the world. `converge_cli::Session` is
+the per-process state a long-lived front-end holds across commands, and
+`execute_in(&session, argv)` is the same code path `execute` runs:
+
+- workspace handle, discovered once and keyed by the cwd it came from
+- working-tree manifest scan, keyed by a **dirstamp** — a metadata-only
+  walk (name, kind, mode, size, mtime) over exactly the paths the scan
+  would read. An idle refresh stats the tree instead of hashing it
+- remote HTTP client (connection pool), keyed by base url + token
+
+Every entry self-invalidates: the stamp moves when the tree moves, and
+the client key moves when `login` rewrites the remote. No verb has to
+remember to flush a cache.
+
+The stamp's blind spot is deliberate and bounded: a write landing within
+one mtime tick that leaves the size identical is invisible to it. That
+is tolerable only because the stamp gates a cache whose miss path is the
+real scan, and because the capture paths — `snap`, `watch` — never read
+it. They always rescan.
+
+The TUI holds one session for its lifetime, shared with its worker
+threads. Event arrival refreshes the inbox as well as status: remote
+events are precisely the thing that changes what is waiting on you.
+
+## 5. Local capture path
 
 The validated theory stays: snaps are cheap, automatic-capable, offline, and
 carry no quality gate. Quality enters at `publish` (server-side gate policy,

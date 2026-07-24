@@ -8,7 +8,7 @@ use crate::model::{Manifest, ObjectId, SnapStats};
 use super::Workspace;
 use super::chunking::ChunkingPolicy;
 
-mod common;
+pub(in crate::workspace) mod common;
 mod scan_memory;
 mod scan_store;
 
