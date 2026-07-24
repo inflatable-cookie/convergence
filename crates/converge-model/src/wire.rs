@@ -228,6 +228,18 @@ pub struct ReleaseRequest {
     pub notes: Option<String>,
 }
 
+/// A convergence event (doc 14 §5b): a hint that something changed.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct EventRecord {
+    pub seq: u64,
+    pub repo_id: String,
+    /// "bundle" | "lane" | "release"
+    pub kind: String,
+    /// bundle id, lane id, or channel name.
+    pub subject_id: String,
+    pub created_at: String,
+}
+
 /// Provenance replay result (g02.008 batch 8.4): the audit feature.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct VerifyReport {

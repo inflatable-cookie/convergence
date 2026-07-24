@@ -121,6 +121,11 @@ enum Command {
     Status,
     /// Set or replace a snap's message (identity is unaffected).
     Annotate { snap_id: String, message: String },
+    /// Poll the repo's event feed (hints; reconcile via inbox).
+    Events {
+        #[arg(long, default_value_t = 0)]
+        since: u64,
+    },
     /// What needs your attention: lane activity, publications, bundles.
     Inbox {
         /// Only lane activity newer than this RFC3339 timestamp.
@@ -786,6 +791,22 @@ fn run(cli: &Cli, mode: OutputMode) -> Result<serde_json::Value> {
                         input.base_bundle_id.as_deref().unwrap_or("none"),
                         input.snap_parents.len()
                     );
+                }
+            })
+        }
+        Command::Events { since } => {
+            let ws = open_workspace()?;
+            let (client, remote) = remote_client(&ws)?;
+            let events = client.events(&remote.repo_id, *since)?;
+            emit(mode, events, |events| {
+                for event in events {
+                    println!(
+                        "#{}  {}  {}  {}",
+                        event.seq, event.kind, event.subject_id, event.created_at
+                    );
+                }
+                if events.is_empty() {
+                    println!("no new events");
                 }
             })
         }

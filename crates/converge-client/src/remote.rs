@@ -3,10 +3,11 @@ use std::collections::BTreeSet;
 use anyhow::{Context, Result, bail};
 
 use crate::model::{
-    AddLaneMemberRequest, ApproveRequest, BundleRecord, CreateLaneRequest, InboxReport, LaneRecord,
-    Manifest, ManifestEntryKind, NegotiateRequest, NegotiateResponse, ObjectFrame, ObjectId,
-    ObjectSet, PromoteRequest, PublishRequest, ReleaseRecord, ReleaseRequest, RetentionPolicy,
-    SetLaneHeadRequest, SnapRecord, SuperpositionVariantKind, VerifyReport, WIRE_VERSION,
+    AddLaneMemberRequest, ApproveRequest, BundleRecord, CreateLaneRequest, EventRecord,
+    InboxReport, LaneRecord, Manifest, ManifestEntryKind, NegotiateRequest, NegotiateResponse,
+    ObjectFrame, ObjectId, ObjectSet, PromoteRequest, PublishRequest, ReleaseRecord,
+    ReleaseRequest, RetentionPolicy, SetLaneHeadRequest, SnapRecord, SuperpositionVariantKind,
+    VerifyReport, WIRE_VERSION,
 };
 use crate::store::LocalStore;
 
@@ -419,6 +420,19 @@ impl RemoteClient {
             store.put_snap(&snap)?;
         }
         Ok(head.snap_id)
+    }
+
+    /// Poll the event feed after `since` (doc 14 §5b: hints, not truth).
+    pub fn events(&self, repo_id: &str, since: u64) -> Result<Vec<EventRecord>> {
+        let response = Self::check(
+            self.http
+                .get(self.url(&format!("/api/repos/{repo_id}/events")))
+                .query(&[("since", since.to_string())])
+                .bearer_auth(&self.token)
+                .send()
+                .context("events")?,
+        )?;
+        response.json().context("parse events")
     }
 
     pub fn inbox(&self, repo_id: &str, scope_id: &str, since: Option<&str>) -> Result<InboxReport> {

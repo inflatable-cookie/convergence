@@ -11,9 +11,9 @@ use serde_json::json;
 
 use converge_model::{
     AddLaneMemberRequest, ApproveRequest, BundleProvenance, BundleRecord, CreateLaneRequest,
-    InboxReport, LaneHead, LaneRecord, NegotiateRequest, NegotiateResponse, ObjectFrame, ObjectId,
-    ObjectSet, PromoteRequest, PublishRequest, ReleaseRecord, ReleaseRequest, RetentionPolicy,
-    SetLaneHeadRequest, SnapRecord, VerifyReport, WIRE_VERSION,
+    EventRecord, InboxReport, LaneHead, LaneRecord, NegotiateRequest, NegotiateResponse,
+    ObjectFrame, ObjectId, ObjectSet, PromoteRequest, PublishRequest, ReleaseRecord,
+    ReleaseRequest, RetentionPolicy, SetLaneHeadRequest, SnapRecord, VerifyReport, WIRE_VERSION,
 };
 
 use crate::authz::{Capability, authorize};
@@ -52,6 +52,7 @@ pub fn router(state: AppState) -> Router {
         .route("/api/repos/:repo/lane-head", post(set_lane_head))
         .route("/api/repos/:repo/lane-head/:lane", get(get_lane_head))
         .route("/api/repos/:repo/inbox", get(inbox))
+        .route("/api/repos/:repo/events", get(list_events))
         .route("/api/bundles/:id/release", post(release))
         .route("/api/repos/:repo/releases", get(list_releases))
         .route("/api/repos/:repo/release/:channel", get(channel_head))
@@ -465,6 +466,28 @@ async fn inbox(
         .inbox(&authz, params.since.as_deref())
         .map_err(|err| bad_request(format!("{err:#}")))?;
     Ok(Json(report))
+}
+
+#[derive(serde::Deserialize)]
+struct EventsParams {
+    #[serde(default)]
+    since: u64,
+}
+
+async fn list_events(
+    State(state): State<SharedState>,
+    Path(repo): Path<String>,
+    Query(params): Query<EventsParams>,
+    headers: HeaderMap,
+) -> Result<Json<Vec<EventRecord>>, ApiError> {
+    let subject = subject(&state, &headers)?;
+    authorize(state.meta.as_ref(), &subject, &repo, "*", Capability::Read)
+        .map_err(|err| forbidden(format!("{err:#}")))?;
+    let events = state
+        .meta
+        .list_events(&repo, params.since)
+        .map_err(|err| bad_request(format!("{err:#}")))?;
+    Ok(Json(events))
 }
 
 async fn get_bundle(

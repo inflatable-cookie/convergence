@@ -1,8 +1,8 @@
 use anyhow::Result;
 
 use converge_model::{
-    BundleStatus, GateGraph, LaneHead, LaneRecord, ObjectId, PublicationRecord, ReleaseRecord,
-    RetentionPolicy, SnapRecord,
+    BundleStatus, EventRecord, GateGraph, LaneHead, LaneRecord, ObjectId, PublicationRecord,
+    ReleaseRecord, RetentionPolicy, SnapRecord,
 };
 
 /// Content-addressed object storage (blobs, manifests, recipes). Embedded
@@ -131,6 +131,16 @@ pub trait MetadataStore: Send + Sync {
     fn list_partitions(&self, repo_id: &str) -> Result<Vec<(String, String, u64)>>;
     fn add_approval(&self, bundle_id: &str, approver: &str) -> Result<()>;
     fn count_approvals(&self, bundle_id: &str) -> Result<u32>;
+    // events (g02.010 batch 10.3)
+    fn add_event(
+        &self,
+        repo_id: &str,
+        kind: &str,
+        subject_id: &str,
+        created_at: &str,
+    ) -> Result<u64>;
+    fn list_events(&self, repo_id: &str, since: u64) -> Result<Vec<EventRecord>>;
+
     // retention (g02.008)
     fn set_retention(&self, repo_id: &str, policy: &RetentionPolicy) -> Result<()>;
     fn get_retention(&self, repo_id: &str) -> Result<RetentionPolicy>;

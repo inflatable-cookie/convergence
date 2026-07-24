@@ -41,6 +41,43 @@ fn run(terminal: &mut ratatui::DefaultTerminal, trace: &mut trace::Trace) -> Res
     refresh(&mut app);
     trace.session_start();
 
+    // Event poller (doc 14 §5b): replaces blind remote refresh. Events are
+    // hints — arrival triggers a status/inbox refresh through the normal
+    // worker channel.
+    {
+        let tx = tx.clone();
+        std::thread::spawn(move || {
+            let mut cursor: u64 = 0;
+            loop {
+                std::thread::sleep(std::time::Duration::from_secs(3));
+                let Ok(events) = converge_cli::execute(["events", "--since", &cursor.to_string()])
+                else {
+                    continue; // no remote configured or unreachable
+                };
+                let Some(list) = events.as_array() else {
+                    continue;
+                };
+                if list.is_empty() {
+                    continue;
+                }
+                cursor = list
+                    .iter()
+                    .filter_map(|e| e["seq"].as_u64())
+                    .max()
+                    .unwrap_or(cursor);
+                let note = serde_json::json!(format!(
+                    "{} remote event(s): {}",
+                    list.len(),
+                    list.iter()
+                        .filter_map(|e| e["kind"].as_str())
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                ));
+                let _ = tx.send((vec!["events".into()], Ok(note)));
+            }
+        });
+    }
+
     loop {
         trace_screen(trace, &app);
         // Deliver finished worker results without blocking.

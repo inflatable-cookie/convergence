@@ -5,8 +5,8 @@ use anyhow::{Context, Result, anyhow};
 use rusqlite::{Connection, params};
 
 use converge_model::{
-    BundleStatus, GateGraph, LaneHead, LaneRecord, ObjectId, PublicationRecord, ReleaseRecord,
-    RetentionPolicy, SnapRecord,
+    BundleStatus, EventRecord, GateGraph, LaneHead, LaneRecord, ObjectId, PublicationRecord,
+    ReleaseRecord, RetentionPolicy, SnapRecord,
 };
 
 use crate::storage::{MetadataStore, PartitionState, StoredBundle};
@@ -104,6 +104,13 @@ impl SqliteMetadataStore {
                 window_floor INTEGER NOT NULL DEFAULT 0,
                 base_bundle_id TEXT,
                 PRIMARY KEY (repo_id, scope_id, gate_id)
+            );
+            CREATE TABLE IF NOT EXISTS events (
+                seq INTEGER PRIMARY KEY AUTOINCREMENT,
+                repo_id TEXT NOT NULL,
+                kind TEXT NOT NULL,
+                subject_id TEXT NOT NULL,
+                created_at TEXT NOT NULL
             );
             CREATE TABLE IF NOT EXISTS retention (
                 repo_id TEXT PRIMARY KEY,
@@ -585,6 +592,44 @@ impl MetadataStore for SqliteMetadataStore {
             |row| row.get(0),
         )?;
         Ok(n)
+    }
+
+    fn add_event(
+        &self,
+        repo_id: &str,
+        kind: &str,
+        subject_id: &str,
+        created_at: &str,
+    ) -> Result<u64> {
+        let conn = self.conn.lock().expect("meta lock");
+        conn.execute(
+            "INSERT INTO events (repo_id, kind, subject_id, created_at)
+             VALUES (?1, ?2, ?3, ?4)",
+            params![repo_id, kind, subject_id, created_at],
+        )?;
+        Ok(conn.last_insert_rowid() as u64)
+    }
+
+    fn list_events(&self, repo_id: &str, since: u64) -> Result<Vec<EventRecord>> {
+        let conn = self.conn.lock().expect("meta lock");
+        let mut stmt = conn.prepare(
+            "SELECT seq, kind, subject_id, created_at FROM events
+             WHERE repo_id = ?1 AND seq > ?2 ORDER BY seq ASC",
+        )?;
+        let rows = stmt.query_map(params![repo_id, since as i64], |row| {
+            Ok(EventRecord {
+                seq: row.get::<_, i64>(0)? as u64,
+                repo_id: repo_id.to_string(),
+                kind: row.get(1)?,
+                subject_id: row.get(2)?,
+                created_at: row.get(3)?,
+            })
+        })?;
+        let mut out = Vec::new();
+        for row in rows {
+            out.push(row?);
+        }
+        Ok(out)
     }
 
     fn set_retention(&self, repo_id: &str, policy: &RetentionPolicy) -> Result<()> {

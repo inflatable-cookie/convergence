@@ -112,6 +112,20 @@ Semantics live in doc 17; the scale posture:
   a publication is accepted fast, coalescing follows. Status is visible
   (`building` → `ready`/`failed`) — no silent stubs.
 
+## 5b. Event feed (g02.010)
+
+The server records convergence events (`bundle` built, `lane` head moved,
+`release` cut) with a per-repo monotonically increasing sequence.
+
+- **Events are hints, never the source of truth**: clients reconcile via
+  the inbox/status surfaces; a missed event costs freshness, not
+  correctness. At-most-once delivery is therefore acceptable.
+- Exposure: `GET /api/repos/:repo/events?since=<seq>` (read capability),
+  returning events after the cursor. Poll is the v1 transport; an SSE
+  stream over the same feed is deliberate follow-up once external
+  backends land (the feed contract — seq cursor + reconcile-on-gap —
+  does not change).
+
 ## 6. Failure and scale posture
 
 - Control plane HA via the metadata backend (Postgres replication /

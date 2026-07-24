@@ -86,8 +86,8 @@ impl ResolutionState {
 /// Commands the console accepts. View-entering commands push a frame;
 /// the rest run through the CLI layer verbatim.
 pub const COMMANDS: &[&str] = &[
-    "approve", "bundle", "changes", "diff", "fetch", "history", "inbox", "login", "promote",
-    "publish", "remote", "resolve", "restore", "snap", "status", "sync", "watch",
+    "approve", "bundle", "changes", "diff", "events", "fetch", "history", "inbox", "login",
+    "promote", "publish", "remote", "resolve", "restore", "snap", "status", "sync", "watch",
 ];
 
 /// Commands that hit the network run on the async worker so the event loop
@@ -95,7 +95,17 @@ pub const COMMANDS: &[&str] = &[
 pub fn is_remote_command(argv: &[String]) -> bool {
     matches!(
         argv.first().map(String::as_str),
-        Some("publish" | "fetch" | "bundle" | "login" | "approve" | "promote" | "sync" | "inbox")
+        Some(
+            "publish"
+                | "fetch"
+                | "bundle"
+                | "login"
+                | "approve"
+                | "promote"
+                | "sync"
+                | "inbox"
+                | "events"
+        )
     )
 }
 

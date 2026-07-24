@@ -378,3 +378,38 @@ fn verify_replays_provenance_and_detects_tamper() -> Result<()> {
     assert!(!report.verified, "tampered provenance must fail");
     Ok(())
 }
+
+#[test]
+fn events_flow_with_increasing_seq_and_cursor_filtering() -> Result<()> {
+    let server_dir = tempfile::tempdir()?;
+    let base_url = start_server(server_dir.path())?;
+    let alice = RemoteClient::new(&base_url, "token-a");
+
+    let ws_dir = tempfile::tempdir()?;
+    let ws = Workspace::init(ws_dir.path(), false)?;
+    std::fs::write(ws_dir.path().join("e.txt"), "v1")?;
+    let snap = ws.create_snap(None)?;
+
+    // publish -> bundle event; sync push -> lane event; release -> release event.
+    let (bundle, _) = alice.publish(&ws.store, "repo", "scope", "main", &snap, None, None, None)?;
+    alice.push_lineage(&ws.store, "repo", None, &snap.id, false)?;
+    alice.release(&bundle.bundle_id, "repo", "scope", "stable", None)?;
+
+    let events = alice.events("repo", 0)?;
+    let kinds: Vec<&str> = events.iter().map(|e| e.kind.as_str()).collect();
+    assert!(kinds.contains(&"bundle"));
+    assert!(kinds.contains(&"lane"));
+    assert!(kinds.contains(&"release"));
+    assert!(
+        events.windows(2).all(|w| w[0].seq < w[1].seq),
+        "seq strictly increasing"
+    );
+
+    // Cursor filtering.
+    let cursor = events[events.len() - 2].seq;
+    let tail = alice.events("repo", cursor)?;
+    assert_eq!(tail.len(), 1);
+    assert_eq!(tail[0].seq, events.last().unwrap().seq);
+    assert!(alice.events("repo", tail[0].seq)?.is_empty());
+    Ok(())
+}

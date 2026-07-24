@@ -199,6 +199,9 @@ impl Engine<'_> {
             },
         };
         self.meta.put_bundle(&bundle)?;
+        // Event hint (doc 14 §5b): bundle state changed.
+        self.meta
+            .add_event(authz.repo_id(), "bundle", &bundle.bundle_id, &now())?;
         Ok(bundle)
     }
 
@@ -298,6 +301,8 @@ impl Engine<'_> {
             updated_at: now(),
         };
         self.meta.set_lane_head(authz.repo_id(), &head)?;
+        self.meta
+            .add_event(authz.repo_id(), "lane", &head.lane_id, &now())?;
         Ok(head)
     }
 
@@ -519,6 +524,8 @@ impl Engine<'_> {
             created_at: now(),
         };
         self.meta.add_release(&release)?;
+        self.meta
+            .add_event(authz.repo_id(), "release", channel, &now())?;
         Ok(release)
     }
 
