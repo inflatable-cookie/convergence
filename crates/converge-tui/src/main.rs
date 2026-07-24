@@ -86,6 +86,22 @@ fn run(terminal: &mut ratatui::DefaultTerminal, trace: &mut trace::Trace) -> Res
                     }
                 });
             }
+            Some(Action::LoadInbox) => {
+                app.record_command(&["inbox".into()]);
+                match converge_cli::execute(["inbox"]) {
+                    Ok(report) => {
+                        app.load_inbox_entries(&report);
+                        app.record_result(Ok(serde_json::json!(format!(
+                            "{} inbox item(s)",
+                            app.inbox_entries.len()
+                        ))));
+                        if app.current_view() != View::Inbox {
+                            app.frames.push(View::Inbox);
+                        }
+                    }
+                    Err(err) => app.record_result(Err(err)),
+                }
+            }
             Some(Action::EnterResolution(snap_id)) => {
                 app.record_command(&["resolve".into(), "list".into(), snap_id.clone()]);
                 match converge_cli::execute(["resolve".into(), "list".into(), snap_id.clone()]) {
@@ -172,6 +188,7 @@ fn action_label(action: &Action) -> String {
         Action::Enter(view) => format!("enter {}", view.title()),
         Action::StartWizard(kind) => format!("wizard {kind:?}"),
         Action::EnterResolution(snap) => format!("resolve {snap}"),
+        Action::LoadInbox => "inbox".into(),
         Action::ApplyResolution => "resolve apply".into(),
         Action::Quit => "quit".into(),
     }
@@ -198,6 +215,11 @@ fn trace_screen(trace: &mut trace::Trace, app: &App) {
             .as_ref()
             .map(|r| r.paths.iter().map(|(p, _)| p.clone()).collect())
             .unwrap_or_default(),
+        View::Inbox => app
+            .inbox_entries
+            .iter()
+            .map(|(label, _)| label.clone())
+            .collect(),
         View::Root => Vec::new(),
     };
     trace.screen_view(&screen_id, &selectable, app.primary_action().0);
@@ -342,6 +364,29 @@ fn render(frame: &mut Frame, app: &App) {
                 resolution.undecided(),
                 resolution.paths.len()
             )));
+            frame.render_widget(List::new(items).block(view_block(app)), body);
+        }
+        View::Inbox => {
+            let mut items: Vec<ListItem> = app
+                .inbox_entries
+                .iter()
+                .enumerate()
+                .map(|(i, (label, argv))| {
+                    let style = if i == app.inbox_selected {
+                        Style::default().add_modifier(Modifier::REVERSED)
+                    } else {
+                        Style::default()
+                    };
+                    let suffix = argv
+                        .as_ref()
+                        .map(|a| format!("  [Enter: {}]", a.join(" ")))
+                        .unwrap_or_default();
+                    ListItem::new(format!("{label}{suffix}")).style(style)
+                })
+                .collect();
+            if items.is_empty() {
+                items.push(ListItem::new("inbox empty"));
+            }
             frame.render_widget(List::new(items).block(view_block(app)), body);
         }
         View::History => {

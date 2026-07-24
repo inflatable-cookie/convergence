@@ -118,6 +118,7 @@ pub trait MetadataStore: Send + Sync {
     ) -> Result<()>;
     fn put_bundle(&self, bundle: &StoredBundle) -> Result<()>;
     fn get_bundle(&self, bundle_id: &str) -> Result<StoredBundle>;
+    fn list_bundles(&self, repo_id: &str, scope_id: &str) -> Result<Vec<StoredBundle>>;
     fn add_approval(&self, bundle_id: &str, approver: &str) -> Result<()>;
     fn count_approvals(&self, bundle_id: &str) -> Result<u32>;
     fn record_promotion(

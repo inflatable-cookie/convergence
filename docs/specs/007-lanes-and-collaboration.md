@@ -22,8 +22,9 @@ doc 17 before code.
 
 - Batch 7.1 (lane model and registry) complete.
 - Batch 7.2 (unpublished sync) complete.
-- Batch 7.3 has a ready card:
-  `docs/roadmaps/g02/batch-cards/024-inbox.md`
+- Batch 7.3 (inbox) complete.
+- Batch 7.4 has a ready card:
+  `docs/roadmaps/g02/batch-cards/025-provenance-tightening.md`
 
 ## Exit Condition
 
@@ -31,4 +32,4 @@ Roadmap `g02.007` exit criteria met.
 
 ## Next Task
 
-Execute the ready Batch 7.3 card.
+Execute the ready Batch 7.4 card.

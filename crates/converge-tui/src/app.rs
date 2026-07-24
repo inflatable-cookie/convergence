@@ -34,6 +34,7 @@ pub enum View {
     Root,
     History,
     Resolution,
+    Inbox,
 }
 
 impl View {
@@ -42,6 +43,7 @@ impl View {
             View::Root => "Root",
             View::History => "History",
             View::Resolution => "Superpositions",
+            View::Inbox => "Inbox",
         }
     }
 }
@@ -84,8 +86,8 @@ impl ResolutionState {
 /// Commands the console accepts. View-entering commands push a frame;
 /// the rest run through the CLI layer verbatim.
 pub const COMMANDS: &[&str] = &[
-    "bundle", "changes", "diff", "fetch", "history", "login", "publish", "remote", "resolve",
-    "restore", "snap", "status", "watch",
+    "approve", "bundle", "changes", "diff", "fetch", "history", "inbox", "login", "promote",
+    "publish", "remote", "resolve", "restore", "snap", "status", "sync", "watch",
 ];
 
 /// Commands that hit the network run on the async worker so the event loop
@@ -93,7 +95,7 @@ pub const COMMANDS: &[&str] = &[
 pub fn is_remote_command(argv: &[String]) -> bool {
     matches!(
         argv.first().map(String::as_str),
-        Some("publish" | "fetch" | "bundle" | "login")
+        Some("publish" | "fetch" | "bundle" | "login" | "approve" | "promote" | "sync" | "inbox")
     )
 }
 
@@ -107,6 +109,8 @@ pub enum Action {
     StartWizard(WizardKind),
     /// Load superpositions for a snap and enter the resolution view.
     EnterResolution(String),
+    /// Fetch the inbox report and enter the inbox view.
+    LoadInbox,
     /// Write the decisions file and run `resolve apply`.
     ApplyResolution,
     Quit,
@@ -144,6 +148,9 @@ pub struct App {
     pub pending_confirm: Option<(String, Action)>,
     /// Selected row in the history view.
     pub history_selected: usize,
+    /// Inbox report entries as (label, action argv or None).
+    pub inbox_entries: Vec<(String, Option<Vec<String>>)>,
+    pub inbox_selected: usize,
     /// Resolution view state.
     pub resolution: Option<ResolutionState>,
 }
@@ -167,6 +174,8 @@ impl Default for App {
             wizard: None,
             pending_confirm: None,
             history_selected: 0,
+            inbox_entries: Vec::new(),
+            inbox_selected: 0,
             resolution: None,
         }
     }
@@ -226,6 +235,7 @@ impl App {
             View::Root => "root",
             View::History => "history",
             View::Resolution => "supers",
+            View::Inbox => "inbox",
         };
         // Wart fix: context is named in the prompt, not color-only.
         format!("{} {view}>", self.context.label())
@@ -253,6 +263,7 @@ impl App {
         let argv: Vec<String> = line.split_whitespace().map(str::to_string).collect();
         match argv.first().map(String::as_str) {
             Some("history") if argv.len() == 1 => Some(Action::Enter(View::History)),
+            Some("inbox") if argv.len() == 1 => Some(Action::LoadInbox),
             Some("login") if argv.len() == 1 => Some(Action::StartWizard(WizardKind::Login)),
             Some("publish") if argv.len() == 1 => Some(Action::StartWizard(WizardKind::Publish)),
             Some("resolve") if argv.len() == 2 => Some(Action::EnterResolution(argv[1].clone())),
@@ -290,6 +301,12 @@ impl App {
         {
             return action;
         }
+        if self.current_view() == View::Inbox
+            && self.input.is_empty()
+            && let Some(action) = self.handle_inbox_key(key)
+        {
+            return action;
+        }
         if self.quit_confirm {
             return match key.code {
                 KeyCode::Enter | KeyCode::Char('y') => Some(Action::Quit),
@@ -307,6 +324,12 @@ impl App {
                 KeyCode::Char('h') => {
                     if self.current_view() != View::History {
                         return Some(Action::Enter(View::History));
+                    }
+                    return None;
+                }
+                KeyCode::Char('i') => {
+                    if self.current_view() != View::Inbox {
+                        return Some(Action::LoadInbox);
                     }
                     return None;
                 }
@@ -460,6 +483,79 @@ impl App {
             }
             _ => None,
         }
+    }
+
+    /// Inbox-view keys: navigate entries, Enter runs the recommended
+    /// action through the console contract.
+    fn handle_inbox_key(&mut self, key: KeyEvent) -> Option<Option<Action>> {
+        match key.code {
+            KeyCode::Up => {
+                self.inbox_selected = self.inbox_selected.saturating_sub(1);
+                Some(None)
+            }
+            KeyCode::Down => {
+                if !self.inbox_entries.is_empty() {
+                    self.inbox_selected =
+                        (self.inbox_selected + 1).min(self.inbox_entries.len() - 1);
+                }
+                Some(None)
+            }
+            KeyCode::Enter => {
+                let action = self
+                    .inbox_entries
+                    .get(self.inbox_selected)
+                    .and_then(|(_, argv)| argv.clone())
+                    .map(Action::Run);
+                Some(action)
+            }
+            _ => None,
+        }
+    }
+
+    /// Build inbox entries from the report (label, runnable argv).
+    pub fn load_inbox_entries(&mut self, report: &serde_json::Value) {
+        let mut entries = Vec::new();
+        for lane in report["lanes"].as_array().into_iter().flatten() {
+            let lane_id = lane["lane_id"].as_str().unwrap_or("?").to_string();
+            entries.push((
+                format!(
+                    "lane {lane_id} updated ({})",
+                    lane["updated_at"].as_str().unwrap_or("")
+                ),
+                Some(vec!["sync".into(), "pull".into(), "--lane".into(), lane_id]),
+            ));
+        }
+        for publication in report["publications"].as_array().into_iter().flatten() {
+            entries.push((
+                format!(
+                    "publication by {} -> {} (window open)",
+                    publication["publisher"].as_str().unwrap_or("?"),
+                    publication["gate_id"].as_str().unwrap_or("?")
+                ),
+                None,
+            ));
+        }
+        for bundle in report["bundles"].as_array().into_iter().flatten() {
+            let id = bundle["bundle_id"].as_str().unwrap_or("?").to_string();
+            let recommendation = bundle["recommendation"].as_str().unwrap_or("");
+            let argv = match recommendation {
+                "approve" => Some(vec!["approve".into(), id.clone()]),
+                "resolve" => Some(vec!["fetch".into(), id.clone()]),
+                _ => None,
+            };
+            entries.push((
+                format!(
+                    "bundle {} @ {} -> {recommendation} ({}/{})",
+                    &id[..id.len().min(12)],
+                    bundle["gate_id"].as_str().unwrap_or("?"),
+                    bundle["approvals"],
+                    bundle["required_approvals"]
+                ),
+                argv,
+            ));
+        }
+        self.inbox_entries = entries;
+        self.inbox_selected = 0;
     }
 
     fn selected_snap_id(&self) -> Option<String> {
@@ -745,6 +841,48 @@ mod tests {
         resolution.decisions.insert("conflicted.txt".into(), 1);
         let keyed = resolution.keyed_decisions();
         assert_eq!(keyed["conflicted.txt"], key_b, "index maps to stable key");
+    }
+
+    #[test]
+    fn inbox_entries_map_to_recommended_actions() {
+        let mut app = App::default();
+        app.load_inbox_entries(&serde_json::json!({
+            "lanes": [{"lane_id": "shared/wip", "head_snap_id": "s", "updated_at": "t"}],
+            "publications": [{"publisher": "alice", "gate_id": "intake"}],
+            "bundles": [
+                {"bundle_id": "b1", "gate_id": "intake", "recommendation": "approve",
+                 "approvals": 0, "required_approvals": 2},
+                {"bundle_id": "b2", "gate_id": "intake", "recommendation": "resolve",
+                 "approvals": 0, "required_approvals": 0}
+            ]
+        }));
+        assert_eq!(app.inbox_entries.len(), 4);
+        assert_eq!(
+            app.inbox_entries[0].1,
+            Some(vec![
+                "sync".into(),
+                "pull".into(),
+                "--lane".into(),
+                "shared/wip".into()
+            ])
+        );
+        assert_eq!(app.inbox_entries[1].1, None, "publications informational");
+        assert_eq!(
+            app.inbox_entries[2].1,
+            Some(vec!["approve".into(), "b1".into()])
+        );
+        assert_eq!(
+            app.inbox_entries[3].1,
+            Some(vec!["fetch".into(), "b2".into()])
+        );
+
+        // Enter on the approve entry runs it.
+        app.frames.push(View::Inbox);
+        app.inbox_selected = 2;
+        assert_eq!(
+            app.handle_key(key(KeyCode::Enter)),
+            Some(Action::Run(vec!["approve".into(), "b1".into()]))
+        );
     }
 
     #[test]

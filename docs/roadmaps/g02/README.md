@@ -15,7 +15,7 @@ auto-capture with thinning, one-call status, actionable history,
 annotate, variant-key resolution. `g02.008`-`g02.010` remain planned.
 
 Ready batch card:
-[`batch-cards/024-inbox.md`](./batch-cards/024-inbox.md)
+[`batch-cards/025-provenance-tightening.md`](./batch-cards/025-provenance-tightening.md)
 
 The paused posture is over. The lane is capture → archive cut → docs spine
 restructure → rebuild architecture definition. Batch 2.1 (capture) is
@@ -40,4 +40,4 @@ restructure) complete: docs tree reduced to the keeper spine.
 
 ## Next Task
 
-Execute the ready `g02.007` Batch 7.3 inbox card.002` Batch 2.4 rebuild-architecture card.
+Execute the ready `g02.007` Batch 7.4 provenance card.002` Batch 2.4 rebuild-architecture card.

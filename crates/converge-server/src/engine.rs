@@ -2,7 +2,10 @@ use anyhow::{Result, bail};
 use time::OffsetDateTime;
 use time::format_description::well_known::Rfc3339;
 
-use converge_model::{BundleStatus, LaneHead, LaneRecord, ObjectId, PublicationRecord, SnapRecord};
+use converge_model::{
+    BundleStatus, InboxBundle, InboxLane, InboxPublication, InboxReport, LaneHead, LaneRecord,
+    ObjectId, PublicationRecord, SnapRecord,
+};
 
 use crate::authz::{AuthzContext, Capability};
 use crate::merge::{MergeInput, merge_window};
@@ -351,6 +354,79 @@ impl Engine<'_> {
             bail!("snap record identity mismatch (expected {expected})");
         }
         self.meta.put_snap_record(authz.repo_id(), snap)
+    }
+
+    /// Triage report: readable lane heads (newer than `since`), the
+    /// scope's current-window publications, and bundles awaiting action.
+    pub fn inbox(&self, authz: &AuthzContext, since: Option<&str>) -> Result<InboxReport> {
+        require(authz, Capability::Read)?;
+        let mut report = InboxReport::default();
+
+        for lane in self.meta.list_lanes(authz.repo_id())? {
+            if self.check_lane_readable(authz, &lane.lane_id).is_err() {
+                continue;
+            }
+            if let Some(head) = self.meta.get_lane_head(authz.repo_id(), &lane.lane_id)? {
+                if since.is_some_and(|s| head.updated_at.as_str() <= s) {
+                    continue;
+                }
+                report.lanes.push(InboxLane {
+                    lane_id: lane.lane_id,
+                    head_snap_id: head.snap_id,
+                    updated_at: head.updated_at,
+                });
+            }
+        }
+
+        let graph = self.meta.get_gate_graph(authz.repo_id())?;
+        for gate in &graph.gates {
+            let partition =
+                self.meta
+                    .get_partition_state(authz.repo_id(), authz.scope_id(), &gate.gate_id)?;
+            for (_, publication) in self.meta.list_publications_after(
+                authz.repo_id(),
+                authz.scope_id(),
+                &gate.gate_id,
+                partition.window_floor,
+            )? {
+                report.publications.push(InboxPublication {
+                    gate_id: gate.gate_id.clone(),
+                    publication_id: publication.publication_id,
+                    lane_id: publication.lane_id,
+                    publisher: publication.publisher,
+                    created_at: publication.created_at,
+                });
+            }
+        }
+
+        // Latest bundle per gate that still needs someone.
+        let mut latest: std::collections::BTreeMap<String, crate::storage::StoredBundle> =
+            Default::default();
+        for bundle in self.meta.list_bundles(authz.repo_id(), authz.scope_id())? {
+            latest.insert(bundle.gate_id.clone(), bundle);
+        }
+        for (gate_id, bundle) in latest {
+            let required = graph
+                .gates
+                .iter()
+                .find(|g| g.gate_id == gate_id)
+                .map(|g| g.required_approvals)
+                .unwrap_or(0);
+            let approvals = self.meta.count_approvals(&bundle.bundle_id)?;
+            let recommendation = match bundle.status {
+                BundleStatus::Ready { promotable: false } => "resolve",
+                BundleStatus::Ready { promotable: true } if approvals < required => "approve",
+                _ => continue,
+            };
+            report.bundles.push(InboxBundle {
+                bundle_id: bundle.bundle_id,
+                gate_id,
+                recommendation: recommendation.to_string(),
+                approvals,
+                required_approvals: required,
+            });
+        }
+        Ok(report)
     }
 
     pub fn approve(&self, authz: AuthzContext, bundle_id: &str) -> Result<u32> {

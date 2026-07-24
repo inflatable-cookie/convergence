@@ -144,6 +144,40 @@ pub struct LaneHead {
     pub updated_at: String,
 }
 
+/// Triage report (g02.007 batch 7.3): what needs the caller's attention.
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+pub struct InboxReport {
+    pub lanes: Vec<InboxLane>,
+    pub publications: Vec<InboxPublication>,
+    pub bundles: Vec<InboxBundle>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct InboxLane {
+    pub lane_id: String,
+    pub head_snap_id: String,
+    pub updated_at: String,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct InboxPublication {
+    pub gate_id: String,
+    pub publication_id: String,
+    pub lane_id: String,
+    pub publisher: String,
+    pub created_at: String,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct InboxBundle {
+    pub bundle_id: String,
+    pub gate_id: String,
+    /// "resolve" (superposed) or "approve" (short of approvals).
+    pub recommendation: String,
+    pub approvals: u32,
+    pub required_approvals: u32,
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct SetLaneHeadRequest {
     /// `None` -> the caller's personal lane (auto-provisioned).

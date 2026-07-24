@@ -1,6 +1,6 @@
 # 024 Inbox
 
-Status: ready
+Status: complete
 Updated: 2026-07-24
 Roadmap: `g02.007`
 Spec: `docs/specs/007-lanes-and-collaboration.md`
@@ -42,6 +42,24 @@ publications and bundles awaiting action in my scope.
 
 - inbox needs state the engine cannot see — extend storage deliberately
 
+## Outcome
+
+- engine `inbox`: readable lane heads (visibility-filtered, `since`
+  cursor), open-window publications per gate, latest bundle per gate
+  still needing someone — `resolve` (superposed) or `approve`
+  (approval-short) recommendations
+- `GET /api/repos/:repo/inbox?scope=&since=`; client `inbox()`; CLI
+  `converge inbox` plus the previously missing `approve` and `promote`
+  verbs (completes the CLI verb surface for the six-verb contract's
+  server side)
+- TUI inbox view (`inbox` command, Alt+i): entries labeled with their
+  recommended action, Enter runs it through the console contract
+  (lane -> sync pull, approve -> approve, resolve -> fetch)
+- tests: two-user visibility filtering, resolve + approve
+  recommendations, reducer entry-to-action mapping; 74 workspace tests
+  green
+
 ## Next Task
 
-On completion, open the Batch 7.4 provenance-tightening card.
+Execute the Batch 7.4 provenance-tightening card
+(`025-provenance-tightening.md`).

@@ -485,6 +485,20 @@ impl MetadataStore for SqliteMetadataStore {
         )
     }
 
+    fn list_bundles(&self, repo_id: &str, scope_id: &str) -> Result<Vec<StoredBundle>> {
+        let ids: Vec<String> = {
+            let conn = self.conn.lock().expect("meta lock");
+            let mut stmt = conn.prepare(
+                "SELECT bundle_id FROM bundles
+                 WHERE repo_id = ?1 AND scope_id = ?2
+                 ORDER BY created_at ASC",
+            )?;
+            let rows = stmt.query_map(params![repo_id, scope_id], |row| row.get(0))?;
+            rows.collect::<std::result::Result<_, _>>()?
+        };
+        ids.iter().map(|id| self.get_bundle(id)).collect()
+    }
+
     fn add_approval(&self, bundle_id: &str, approver: &str) -> Result<()> {
         let conn = self.conn.lock().expect("meta lock");
         conn.execute(

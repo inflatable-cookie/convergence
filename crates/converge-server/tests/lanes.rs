@@ -254,3 +254,120 @@ fn private_lane_head_not_readable_by_non_members() -> Result<()> {
     assert!(err.to_string().contains("private"));
     Ok(())
 }
+
+#[test]
+fn inbox_reports_visible_activity_and_recommendations() -> Result<()> {
+    let server_dir = tempfile::tempdir()?;
+    let base_url = start_server(server_dir.path())?;
+    let alice = RemoteClient::new(&base_url, "token-a");
+    let bob = RemoteClient::new(&base_url, "token-b");
+
+    // Private WIP from alice + shared lane activity.
+    let ws_dir = tempfile::tempdir()?;
+    let ws = Workspace::init(ws_dir.path(), false)?;
+    std::fs::write(ws_dir.path().join("f.txt"), "wip")?;
+    let snap = ws.create_snap(None)?;
+    alice.push_lineage(&ws.store, "repo", None, &snap.id, false)?;
+    alice.create_lane("repo", "shared/wip", "repo")?;
+    alice.push_lineage(
+        &ws.store,
+        "repo",
+        Some("shared/wip".into()),
+        &snap.id,
+        false,
+    )?;
+
+    // Divergent publishes -> superposed bundle needing resolution.
+    let ws_b_dir = tempfile::tempdir()?;
+    let ws_b = Workspace::init(ws_b_dir.path(), false)?;
+    std::fs::write(ws_b_dir.path().join("f.txt"), "other")?;
+    let snap_b = ws_b.create_snap(None)?;
+    alice.publish(
+        &ws.store,
+        "repo",
+        "scope",
+        "intake",
+        &snap.id,
+        &snap.root_manifest,
+        None,
+        None,
+        None,
+    )?;
+    bob.publish(
+        &ws_b.store,
+        "repo",
+        "scope",
+        "intake",
+        &snap_b.id,
+        &snap_b.root_manifest,
+        None,
+        None,
+        None,
+    )?;
+
+    // Bob's inbox: sees the shared lane but not alice's personal lane;
+    // sees the superposed bundle with a resolve recommendation.
+    let report = bob.inbox("repo", "scope", None)?;
+    let lane_ids: Vec<&str> = report.lanes.iter().map(|l| l.lane_id.as_str()).collect();
+    assert!(lane_ids.contains(&"shared/wip"));
+    assert!(
+        !lane_ids.iter().any(|l| l.starts_with("personal/alice")),
+        "private lane hidden"
+    );
+    assert_eq!(
+        report.publications.len(),
+        2,
+        "open window publications listed"
+    );
+    assert_eq!(report.bundles.len(), 1);
+    assert_eq!(report.bundles[0].recommendation, "resolve");
+
+    // Alice's inbox additionally shows her personal lane.
+    let report = alice.inbox("repo", "scope", None)?;
+    assert!(report.lanes.iter().any(|l| l.lane_id == "personal/alice"));
+    Ok(())
+}
+
+#[test]
+fn inbox_recommends_approval_when_short() -> Result<()> {
+    let server_dir = tempfile::tempdir()?;
+    let base_url = start_server(server_dir.path())?;
+    // Raise required approvals on intake for this server.
+    {
+        let meta = SqliteMetadataStore::open(&server_dir.path().join("meta.sqlite"))?;
+        meta.set_gate_graph(
+            "repo",
+            &GateGraph {
+                gates: vec![GateNode {
+                    gate_id: "intake".into(),
+                    name: "Intake".into(),
+                    upstreams: vec![],
+                    required_approvals: 2,
+                    strategy: "whole-file".into(),
+                }],
+            },
+        )?;
+    }
+    let alice = RemoteClient::new(&base_url, "token-a");
+    let ws_dir = tempfile::tempdir()?;
+    let ws = Workspace::init(ws_dir.path(), false)?;
+    std::fs::write(ws_dir.path().join("f.txt"), "clean")?;
+    let snap = ws.create_snap(None)?;
+    alice.publish(
+        &ws.store,
+        "repo",
+        "scope",
+        "intake",
+        &snap.id,
+        &snap.root_manifest,
+        None,
+        None,
+        None,
+    )?;
+
+    let report = alice.inbox("repo", "scope", None)?;
+    assert_eq!(report.bundles.len(), 1);
+    assert_eq!(report.bundles[0].recommendation, "approve");
+    assert_eq!(report.bundles[0].required_approvals, 2);
+    Ok(())
+}

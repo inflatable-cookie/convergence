@@ -3,9 +3,10 @@ use std::collections::BTreeSet;
 use anyhow::{Context, Result, bail};
 
 use crate::model::{
-    AddLaneMemberRequest, ApproveRequest, BundleRecord, CreateLaneRequest, LaneRecord, Manifest,
-    ManifestEntryKind, NegotiateRequest, NegotiateResponse, ObjectId, ObjectSet, PromoteRequest,
-    PublishRequest, SetLaneHeadRequest, SnapRecord, SuperpositionVariantKind, WIRE_VERSION,
+    AddLaneMemberRequest, ApproveRequest, BundleRecord, CreateLaneRequest, InboxReport, LaneRecord,
+    Manifest, ManifestEntryKind, NegotiateRequest, NegotiateResponse, ObjectId, ObjectSet,
+    PromoteRequest, PublishRequest, SetLaneHeadRequest, SnapRecord, SuperpositionVariantKind,
+    WIRE_VERSION,
 };
 use crate::store::LocalStore;
 
@@ -349,6 +350,19 @@ impl RemoteClient {
             store.put_snap(&snap)?;
         }
         Ok(head.snap_id)
+    }
+
+    pub fn inbox(&self, repo_id: &str, scope_id: &str, since: Option<&str>) -> Result<InboxReport> {
+        let mut request = self
+            .http
+            .get(self.url(&format!("/api/repos/{repo_id}/inbox")))
+            .query(&[("scope", scope_id)])
+            .bearer_auth(&self.token);
+        if let Some(since) = since {
+            request = request.query(&[("since", since)]);
+        }
+        let response = Self::check(request.send().context("inbox")?)?;
+        response.json().context("parse inbox")
     }
 
     pub fn approve(&self, bundle_id: &str, repo_id: &str, scope_id: &str) -> Result<()> {

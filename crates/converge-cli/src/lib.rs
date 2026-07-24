@@ -117,6 +117,20 @@ enum Command {
     Status,
     /// Set or replace a snap's message (identity is unaffected).
     Annotate { snap_id: String, message: String },
+    /// What needs your attention: lane activity, publications, bundles.
+    Inbox {
+        /// Only lane activity newer than this RFC3339 timestamp.
+        #[arg(long)]
+        since: Option<String>,
+    },
+    /// Approve a bundle.
+    Approve { bundle_id: String },
+    /// Promote a bundle to a downstream gate.
+    Promote {
+        bundle_id: String,
+        #[arg(long)]
+        to: String,
+    },
     /// Share unpublished lineage through lanes.
     Sync {
         #[command(subcommand)]
@@ -539,6 +553,50 @@ fn run(cli: &Cli, mode: OutputMode) -> Result<serde_json::Value> {
             let bundle = client.get_bundle(bundle_id)?;
             emit(mode, bundle, |b| {
                 println!("bundle {}: {:?}", b.bundle_id, b.status);
+            })
+        }
+        Command::Inbox { since } => {
+            let ws = open_workspace()?;
+            let (client, remote) = remote_client(&ws)?;
+            let report = client.inbox(&remote.repo_id, &remote.scope, since.as_deref())?;
+            emit(mode, report, |r| {
+                for lane in &r.lanes {
+                    println!(
+                        "lane {}  head {}  {}",
+                        lane.lane_id, lane.head_snap_id, lane.updated_at
+                    );
+                }
+                for p in &r.publications {
+                    println!(
+                        "publication {} -> {} by {} ({})",
+                        p.publication_id, p.gate_id, p.publisher, p.lane_id
+                    );
+                }
+                for b in &r.bundles {
+                    println!(
+                        "bundle {} @ {}  -> {} ({}/{} approvals)",
+                        b.bundle_id, b.gate_id, b.recommendation, b.approvals, b.required_approvals
+                    );
+                }
+                if r.lanes.is_empty() && r.publications.is_empty() && r.bundles.is_empty() {
+                    println!("inbox empty");
+                }
+            })
+        }
+        Command::Approve { bundle_id } => {
+            let ws = open_workspace()?;
+            let (client, remote) = remote_client(&ws)?;
+            client.approve(bundle_id, &remote.repo_id, &remote.scope)?;
+            emit(mode, bundle_id.clone(), |id| {
+                println!("approved {id}");
+            })
+        }
+        Command::Promote { bundle_id, to } => {
+            let ws = open_workspace()?;
+            let (client, remote) = remote_client(&ws)?;
+            client.promote(bundle_id, &remote.repo_id, &remote.scope, to)?;
+            emit(mode, format!("{bundle_id} -> {to}"), |m| {
+                println!("promoted {m}");
             })
         }
         Command::Sync { command } => {

@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use axum::body::Bytes;
-use axum::extract::{Path, State};
+use axum::extract::{Path, Query, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post, put};
@@ -10,9 +10,9 @@ use axum::{Json, Router};
 use serde_json::json;
 
 use converge_model::{
-    AddLaneMemberRequest, ApproveRequest, BundleRecord, CreateLaneRequest, LaneHead, LaneRecord,
-    NegotiateRequest, NegotiateResponse, ObjectId, ObjectSet, PromoteRequest, PublishRequest,
-    SetLaneHeadRequest, SnapRecord, WIRE_VERSION,
+    AddLaneMemberRequest, ApproveRequest, BundleRecord, CreateLaneRequest, InboxReport, LaneHead,
+    LaneRecord, NegotiateRequest, NegotiateResponse, ObjectId, ObjectSet, PromoteRequest,
+    PublishRequest, SetLaneHeadRequest, SnapRecord, WIRE_VERSION,
 };
 
 use crate::authz::{Capability, authorize};
@@ -46,6 +46,7 @@ pub fn router(state: AppState) -> Router {
         .route("/api/repos/:repo/snaps/:id", put(put_snap).get(get_snap))
         .route("/api/repos/:repo/lane-head", post(set_lane_head))
         .route("/api/repos/:repo/lane-head/:lane", get(get_lane_head))
+        .route("/api/repos/:repo/inbox", get(inbox))
         .with_state(Arc::new(state))
 }
 
@@ -368,6 +369,38 @@ async fn get_lane_head(
         .map_err(|err| bad_request(format!("{err:#}")))?
         .map(Json)
         .ok_or_else(|| ApiError(StatusCode::NOT_FOUND, format!("lane {lane} has no head")))
+}
+
+#[derive(serde::Deserialize)]
+struct InboxParams {
+    scope: String,
+    #[serde(default)]
+    since: Option<String>,
+}
+
+async fn inbox(
+    State(state): State<SharedState>,
+    Path(repo): Path<String>,
+    Query(params): Query<InboxParams>,
+    headers: HeaderMap,
+) -> Result<Json<InboxReport>, ApiError> {
+    let subject = subject(&state, &headers)?;
+    let authz = authorize(
+        state.meta.as_ref(),
+        &subject,
+        &repo,
+        &params.scope,
+        Capability::Read,
+    )
+    .map_err(|err| forbidden(format!("{err:#}")))?;
+    let engine = Engine {
+        meta: state.meta.as_ref(),
+        objects: state.objects.as_ref(),
+    };
+    let report = engine
+        .inbox(&authz, params.since.as_deref())
+        .map_err(|err| bad_request(format!("{err:#}")))?;
+    Ok(Json(report))
 }
 
 async fn get_bundle(
