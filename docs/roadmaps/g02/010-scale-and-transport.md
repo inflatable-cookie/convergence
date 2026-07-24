@@ -1,17 +1,17 @@
 # 010 Scale and Transport
 
-Status: planned
+Status: active
 Owner: repo maintainers
 Updated: 2026-07-24
 
-Opens after `g02.009`.
+
 
 ## Context
 
 The slice's simplifications that won't survive scale, staged deliberately
 last because none of them change product semantics.
 
-## Planned Batches
+## Execution Plan (batch details in cards)
 
 - **10.1 Canonical binary encoding**: manifests/records move from JSON to a
   canonical binary form with a stable hashing encoding; chunked manifests
@@ -30,4 +30,5 @@ last because none of them change product semantics.
 
 ## Next Task
 
-Compile into batches with a ready card when `g02.009` closes.
+Execute the ready Batch 10.1 card
+(`batch-cards/034-canonical-binary-encoding.md`).

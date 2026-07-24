@@ -1,6 +1,6 @@
 # 009 Git Interop
 
-Status: active
+Status: complete
 Updated: 2026-07-24
 Roadmap: `g02.009`
 
@@ -23,8 +23,7 @@ never let the two systems fight over the same files.
 - Batch 9.1 (interop architecture) complete; doc 18 promoted.
 - Batch 9.2 (export) complete.
 - Batch 9.3 (import) complete.
-- Batch 9.4 has a ready card:
-  `docs/roadmaps/g02/batch-cards/033-coexistence.md`
+- All four batches complete; roadmap `g02.009` closed.
 
 ## Exit Condition
 
@@ -32,4 +31,4 @@ Roadmap `g02.009` exit criteria met.
 
 ## Next Task
 
-Execute the ready Batch 9.4 card.
+Superseded by `docs/specs/010-scale-and-transport.md`.

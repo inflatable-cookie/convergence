@@ -17,10 +17,10 @@ repo needs tighter execution grammar than the roadmap alone provides.
 
 ## Active Spec Set
 
-- [`009-git-interop.md`](./009-git-interop.md)
+- [`010-scale-and-transport.md`](./010-scale-and-transport.md)
 
 Archived specs live in [`archive/`](./archive/).
 
 ## Next Task
 
-Execute the ready `g02.009` Batch 9.4 coexistence card.
+Execute the ready `g02.010` Batch 10.1 encoding card.

@@ -938,12 +938,38 @@ fn run(cli: &Cli, mode: OutputMode) -> Result<serde_json::Value> {
                 None => serde_json::json!({ "configured": false }),
             };
 
+            let git_block = if ws.root.join(".git").exists() {
+                let branch = std::process::Command::new("git")
+                    .args(["rev-parse", "--abbrev-ref", "HEAD"])
+                    .current_dir(&ws.root)
+                    .output()
+                    .ok()
+                    .filter(|o| o.status.success())
+                    .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string());
+                let head_mirrored = head
+                    .as_ref()
+                    .map(|h| {
+                        converge_client::git_export::load_map_public(&ws.store)
+                            .map(|m| m.contains_key(&h.id))
+                            .unwrap_or(false)
+                    })
+                    .unwrap_or(false);
+                serde_json::json!({
+                    "present": true,
+                    "branch": branch,
+                    "head_mirrored": head_mirrored,
+                })
+            } else {
+                serde_json::json!({ "present": false })
+            };
+
             #[derive(Serialize)]
             struct StatusReport {
                 pending: serde_json::Value,
                 head: Option<serde_json::Value>,
                 snaps: serde_json::Value,
                 remote: serde_json::Value,
+                git: serde_json::Value,
             }
             let report = StatusReport {
                 pending: serde_json::json!({
@@ -963,6 +989,7 @@ fn run(cli: &Cli, mode: OutputMode) -> Result<serde_json::Value> {
                     "explicit": snaps.len() - automatic,
                 }),
                 remote: remote_status,
+                git: git_block,
             };
             emit(mode, report, |r| {
                 println!(
@@ -985,6 +1012,13 @@ fn run(cli: &Cli, mode: OutputMode) -> Result<serde_json::Value> {
                     println!("remote: {}", r.remote["target"].as_str().unwrap_or(""));
                 } else {
                     println!("remote: not configured");
+                }
+                if r.git["present"].as_bool().unwrap_or(false) {
+                    println!(
+                        "git: branch {}  head mirrored: {}",
+                        r.git["branch"].as_str().unwrap_or("?"),
+                        r.git["head_mirrored"]
+                    );
                 }
             })
         }

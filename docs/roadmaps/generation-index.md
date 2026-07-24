@@ -8,7 +8,8 @@
     (002), rebuild vertical slice (003), TUI rebuild (004), semantics
     revision (005), continuous capture and workspace UX (006), lanes and
     collaboration (007), releases/retention/GC (008) — all complete.
-    Git interop (009, active); scale and transport (010, planned).
+    Git interop (009, complete); scale and transport (010, active —
+    final program roadmap).
 
 - `g01`
   - Status: complete

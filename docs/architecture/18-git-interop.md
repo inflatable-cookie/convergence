@@ -99,6 +99,23 @@ equality is the 9.2 test.
 - Both are client-side (`converge-client` + CLI verbs `git export`,
   `import`); the server knows nothing about git.
 
+## 6. Coexistence quickstart
+
+```bash
+cd my-git-repo            # existing git project
+converge init
+converge git import --all # first-parent history becomes snap lineage
+converge login --url ... --repo ... --scope ... --gate ...
+converge watch &          # continuous capture from here on
+# ... work; publish/promote/release through Convergence ...
+converge git export       # mirror lineage to converge/lane/local
+git log converge/lane/local   # plain git consumes the mirror
+```
+
+Rules that keep the two systems from fighting: capture ignores `.git`;
+export excludes `.converge` from git; mirror branches are read-only and
+force-moved; the workspace root must be the git worktree root.
+
 ## Next Task
 
 Implement export (9.2), import (9.3), coexistence polish (9.4) against

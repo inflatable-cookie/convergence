@@ -38,6 +38,26 @@ pub fn export_lineage(
             git_workdir.display()
         );
     }
+    // Doc 18 §4: refuse nested confusion — the workspace root must be the
+    // git worktree root.
+    let toplevel = Command::new("git")
+        .args(["rev-parse", "--show-toplevel"])
+        .current_dir(git_workdir)
+        .output()
+        .context("run git rev-parse")?;
+    if toplevel.status.success() {
+        let top = String::from_utf8_lossy(&toplevel.stdout).trim().to_string();
+        let canonical_top = std::fs::canonicalize(&top).unwrap_or_else(|_| top.clone().into());
+        let canonical_workdir =
+            std::fs::canonicalize(git_workdir).unwrap_or_else(|_| git_workdir.to_path_buf());
+        if canonical_top != canonical_workdir {
+            bail!(
+                "workspace root {} is not the git worktree root {} — run from the git root",
+                canonical_workdir.display(),
+                canonical_top.display()
+            );
+        }
+    }
 
     let mut map = load_map(store)?;
 

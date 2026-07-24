@@ -1,6 +1,6 @@
 # 033 Coexistence
 
-Status: ready
+Status: complete
 Updated: 2026-07-24
 Roadmap: `g02.009`
 Spec: `docs/specs/009-git-interop.md`
@@ -40,6 +40,19 @@ the roadmap-closing e2e.
 
 - none specific
 
+## Outcome
+
+- roadmap exit e2e green: real 2-commit git repo -> `import --all` ->
+  snap/publish/release against a live server -> export adds exactly one
+  commit on top of the un-duplicated imports -> plain git rev-list/log/
+  show consume the mirror
+- `converge status` gains a git block (present, branch, head-mirrored via
+  the map) in JSON and human output
+- nested-workspace export refused (guard: `.git` required at the
+  workspace root, plus a worktree-toplevel cross-check)
+- doc 18 §6 coexistence quickstart appended
+- 92 workspace tests green
+
 ## Next Task
 
-On completion, close roadmap `g02.009` against its exit criteria.
+Close roadmap `g02.009`; open `g02.010` (scale and transport).

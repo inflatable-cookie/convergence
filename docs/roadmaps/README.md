@@ -29,10 +29,11 @@ records the closed state.
 
 ## Active strict lane
 
-- `g02.009` (git interop) is the active roadmap.
-- `docs/specs/009-git-interop.md` is the active strict planning lane;
-  `g02.010` remains planned.
-- ready card: `g02/batch-cards/033-coexistence.md`
+- `g02.010` (scale and transport) is the active roadmap — the final
+  roadmap of the improvement program.
+- `docs/specs/010-scale-and-transport.md` is the active strict planning
+  lane.
+- ready card: `g02/batch-cards/034-canonical-binary-encoding.md`
 
 ## Rollover guardrail
 
@@ -46,4 +47,4 @@ Before rollover:
 
 ## Next Task
 
-Execute the ready `g02.009` Batch 9.4 coexistence card.
+Execute the ready `g02.010` Batch 10.1 encoding card.

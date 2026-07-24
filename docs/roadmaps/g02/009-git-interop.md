@@ -1,6 +1,6 @@
 # 009 Git Interop
 
-Status: active
+Status: complete
 Owner: repo maintainers
 Updated: 2026-07-24
 
@@ -30,6 +30,13 @@ item (was archived g01 doc 11).
 - a real git repo imports, works under Convergence, and exports a mirror
   branch git tooling can consume
 
+## Outcome
+
+All four batches complete; exit criteria met — a real git repo imports
+with full first-parent lineage, works under Convergence against a live
+server, and exports a mirror branch plain git consumes, with identity
+carried by trailers and zero duplicated history.
+
 ## Next Task
 
-Execute the ready Batch 9.4 card (`batch-cards/033-coexistence.md`).
+Open `g02.010` (scale and transport).
