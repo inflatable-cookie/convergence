@@ -290,11 +290,14 @@ impl Engine<'_> {
             bundle_hash(gate_id, w_root.as_ref(), &input_ids, &strategy, root)
         };
 
-        let bundle = match inputs
-            .and_then(|inputs| merge_window(self.objects, w_root.as_ref(), &inputs, &strategy))
-        {
-            Ok(root) => {
-                let has_superpositions = self.manifest_has_superpositions(&root)?;
+        let bundle = match inputs.and_then(|inputs| {
+            crate::merge::merge_window_outcome(self.objects, w_root.as_ref(), &inputs, &strategy)
+        }) {
+            // The fold reports its own superpositions (batch 15.1, audit
+            // 2.2) — no second walk over the merged tree.
+            Ok(outcome) => {
+                let root = outcome.root;
+                let has_superpositions = outcome.has_superpositions;
                 StoredBundle {
                     bundle_id: hash_id(Some(&root)),
                     repo_id: authz.repo_id().to_string(),
@@ -328,26 +331,6 @@ impl Engine<'_> {
             },
         };
         Ok(bundle)
-    }
-
-    fn manifest_has_superpositions(&self, root: &ObjectId) -> Result<bool> {
-        let bytes = self
-            .objects
-            .get(crate::storage::ObjectKind::Manifest, root)?;
-        let manifest: converge_model::Manifest = converge_model::encoding::decode_manifest(&bytes)?;
-        for entry in &manifest.entries {
-            let nested = match &entry.kind {
-                converge_model::ManifestEntryKind::Superposition { .. } => true,
-                converge_model::ManifestEntryKind::Dir { manifest } => {
-                    self.manifest_has_superpositions(manifest)?
-                }
-                _ => false,
-            };
-            if nested {
-                return Ok(true);
-            }
-        }
-        Ok(false)
     }
 
     /// Resolve `lane_id` to a registered lane the subject may write:

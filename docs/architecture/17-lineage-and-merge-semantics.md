@@ -98,6 +98,25 @@ For each input publication `i`, the server computes
 unchanged — manifest-recursively with Merkle short-circuit (identical
 subtree hashes prune).
 
+Cost follows from that, in all three phases:
+
+- **Read**: the diff returns as soon as two subtree ids match, so an
+  untouched directory is never opened. The values the fold needs from W
+  or from another input's base are fetched by walking down the specific
+  contested path, not by flattening a tree.
+- **Write**: the merged tree rewrites only the manifests along changed
+  paths; every untouched subtree keeps its existing manifest id, so it
+  is neither re-hashed nor re-stored.
+- **Classification**: whether the result carries superpositions is
+  known from the fold itself — W is superposition-free by construction
+  (promote refuses a non-promotable bundle), so no second walk is
+  needed to find out.
+
+The measurable consequence, pinned by tests: a one-file publish costs
+the same number of manifest reads against a 5-directory tree and a
+50-directory one, and a publish whose tree equals its base reads a
+single manifest.
+
 Per path, fold deltas onto W:
 
 | Situation | Result |

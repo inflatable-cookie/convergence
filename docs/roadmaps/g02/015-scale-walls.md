@@ -1,6 +1,6 @@
 # 015 Scale Walls
 
-Status: planned
+Status: in progress (15.1 complete)
 Owner: repo maintainers
 Updated: 2026-07-24
 
@@ -29,10 +29,11 @@ and removes the unbounded surfaces.
 
 ## Execution Plan (batch details in cards)
 
-- **15.1 Merkle merge**: identical-subtree pruning in `merge_window`
-  (doc 17 §2 made true); superposition flag computed during the merge
-  fold instead of a second walk; incremental fold onto the previous
-  bundle where the window grew by one
+- **15.1 Merkle merge** (complete, card 053): sparse diff with
+  identical-subtree pruning, path-walk lookups, and structural reuse on
+  write (doc 17 §2 made true); superposition flag from the fold instead
+  of a second walk. Incremental fold across successive publishes was
+  split out as its own follow-up rather than bundled here
 - **15.2 Pagination**: cursor + limit on every list endpoint and the
   inbox; client/TUI paging support; wire DTO changes in doc 16
 - **15.3 TUI refresh economics**: long-lived client/workspace handle in
@@ -52,4 +53,4 @@ and removes the unbounded surfaces.
 
 ## Next Task
 
-Blocked behind g02.014 completion.
+Open batch card 15.2 (pagination).

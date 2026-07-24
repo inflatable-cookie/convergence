@@ -27,51 +27,70 @@ enum Op {
     Delete,
 }
 
+/// Result of a fold: the merged root plus what the fold learned along
+/// the way, so callers need no second walk (audit 2.2).
+pub struct MergeOutcome {
+    pub root: ObjectId,
+    /// A superposition was written (or folded through from an input).
+    /// W itself is superposition-free by construction — promote refuses a
+    /// non-promotable bundle — so this is the complete answer.
+    pub has_superpositions: bool,
+}
+
 /// Base-aware fold (doc 17 §2-3): compute each input's delta against its
 /// declared base, fold the opinions onto W. Unchanged paths express no
 /// opinion; clean deletions remove paths; delete-vs-modify superposes with
 /// a `Tombstone` variant. Deterministic: all maps are ordered.
+///
+/// Cost is bounded by *changed* paths (doc 17 §2): input deltas come from
+/// a diff that prunes on equal subtree ids, the values the fold needs from
+/// W or another input's base are fetched by path walk, and the merged tree
+/// rewrites only the manifests on changed paths — untouched subtrees keep
+/// their existing ids.
 pub fn merge_window(
     objects: &dyn ObjectStore,
     w_root: Option<&ObjectId>,
     inputs: &[MergeInput],
     strategy: &str,
 ) -> Result<ObjectId> {
-    let mut result: BTreeMap<String, ManifestEntryKind> = match w_root {
-        Some(root) => flatten(objects, root)?,
-        None => BTreeMap::new(),
-    };
+    Ok(merge_window_outcome(objects, w_root, inputs, strategy)?.root)
+}
 
-    // path -> ordered opinions (input index, lane, op)
+pub fn merge_window_outcome(
+    objects: &dyn ObjectStore,
+    w_root: Option<&ObjectId>,
+    inputs: &[MergeInput],
+    strategy: &str,
+) -> Result<MergeOutcome> {
+    // path -> ordered opinions (input index, lane, op). Sparse: only
+    // paths some input actually changed appear here.
     let mut opinions: BTreeMap<String, Vec<(usize, String, Op)>> = BTreeMap::new();
-    let mut base_flats: Vec<BTreeMap<String, ManifestEntryKind>> = Vec::new();
     for (index, input) in inputs.iter().enumerate() {
-        let base = match &input.base {
-            Some(root) => flatten(objects, root)?,
-            None => BTreeMap::new(),
-        };
-        let tree = flatten(objects, &input.tree)?;
+        let mut delta = BTreeMap::new();
+        diff_trees(
+            objects,
+            input.base.as_ref(),
+            Some(&input.tree),
+            "",
+            &mut delta,
+        )?;
+        for (path, op) in delta {
+            opinions
+                .entry(path)
+                .or_default()
+                .push((index, input.lane.clone(), op));
+        }
+    }
 
-        for (path, kind) in &tree {
-            match base.get(path) {
-                Some(base_kind) if base_kind == kind => {} // no opinion
-                base_kind => opinions.entry(path.clone()).or_default().push((
-                    index,
-                    input.lane.clone(),
-                    Op::Set(kind.clone(), base_kind.cloned()),
-                )),
-            }
-        }
-        for path in base.keys() {
-            if !tree.contains_key(path) {
-                opinions.entry(path.clone()).or_default().push((
-                    index,
-                    input.lane.clone(),
-                    Op::Delete,
-                ));
-            }
-        }
-        base_flats.push(base);
+    // Values from W are needed only at contested paths, so they are read
+    // by path walk rather than by flattening the whole tree.
+    let mut w_at: BTreeMap<String, Option<ManifestEntryKind>> = BTreeMap::new();
+    for path in opinions.keys() {
+        let value = match w_root {
+            Some(root) => lookup_path(objects, root, path)?,
+            None => None,
+        };
+        w_at.insert(path.clone(), value);
     }
 
     // Supersession by base containment (doc 17 §2): drop a Set(k) when a
@@ -80,28 +99,46 @@ pub fn merge_window(
     let paths: Vec<String> = opinions.keys().cloned().collect();
     for path in paths {
         let ops = opinions.get(&path).expect("path present").clone();
-        let retained: Vec<(usize, String, Op)> = ops
-            .iter()
-            .filter(|(index, _, op)| match op {
+        let current = w_at.get(&path).and_then(|v| v.as_ref());
+        let mut retained: Vec<(usize, String, Op)> = Vec::new();
+        for (index, lane, op) in &ops {
+            let keep = match op {
                 Op::Delete => true,
                 Op::Set(kind, _) => {
-                    let superseded = base_flats.iter().enumerate().any(|(other, base)| {
-                        other != *index
-                            && base.get(&path) == Some(kind)
-                            && (result.get(&path) == Some(kind)
-                                || ops.iter().any(|(op_index, _, other_op)| {
-                                    *op_index == other
-                                        && !matches!(other_op, Op::Set(k, _) if k == kind)
-                                }))
-                    });
+                    let mut superseded = false;
+                    for (other, other_input) in inputs.iter().enumerate() {
+                        if other == *index {
+                            continue;
+                        }
+                        let other_base = match &other_input.base {
+                            Some(root) => lookup_path(objects, root, &path)?,
+                            None => None,
+                        };
+                        if other_base.as_ref() != Some(kind) {
+                            continue;
+                        }
+                        let other_has_own_opinion = ops.iter().any(|(op_index, _, other_op)| {
+                            *op_index == other && !matches!(other_op, Op::Set(k, _) if k == kind)
+                        });
+                        if current == Some(kind) || other_has_own_opinion {
+                            superseded = true;
+                            break;
+                        }
+                    }
                     !superseded
                 }
-            })
-            .cloned()
-            .collect();
+            };
+            if keep {
+                retained.push((*index, lane.clone(), op.clone()));
+            }
+        }
         opinions.insert(path, retained);
     }
     opinions.retain(|_, ops| !ops.is_empty());
+
+    // path -> new value (None = remove). Only changed paths appear.
+    let mut changes: BTreeMap<String, Option<ManifestEntryKind>> = BTreeMap::new();
+    let mut has_superpositions = false;
 
     for (path, ops) in opinions {
         // Distinct sets (dedup identical content, keep first source).
@@ -124,7 +161,7 @@ pub fn merge_window(
         // when no deletion contests the path (doc 17 §2, audit H4):
         // against a Delete, restating W is an explicit keep opinion and
         // must survive into the superposition.
-        let current = result.get(&path).cloned();
+        let current = w_at.get(&path).cloned().flatten();
         let (sets, set_bases) = if deleters.is_empty() {
             let kept: Vec<(usize, (String, ManifestEntryKind))> = sets
                 .into_iter()
@@ -141,11 +178,12 @@ pub fn merge_window(
         match (sets.len(), deleters.is_empty()) {
             (0, true) => {} // all opinions collapsed into W's value
             (0, false) => {
-                result.remove(&path); // clean deletion
+                changes.insert(path, None); // clean deletion
             }
             (1, true) => {
                 let (_, kind) = sets.into_iter().next().expect("one set");
-                result.insert(path, kind);
+                has_superpositions |= matches!(kind, ManifestEntryKind::Superposition { .. });
+                changes.insert(path, Some(kind));
             }
             _ => {
                 // True divergence: dispatch to the gate's strategy first
@@ -163,7 +201,7 @@ pub fn merge_window(
                     && deleters.is_empty()
                     && let Some(merged) = try_text_line_merge(objects, ancestor.as_ref(), &sets)?
                 {
-                    result.insert(path, merged);
+                    changes.insert(path, Some(merged));
                     continue;
                 }
                 let mut variants: Vec<SuperpositionVariant> = sets
@@ -176,12 +214,201 @@ pub fn merge_window(
                         kind: SuperpositionVariantKind::Tombstone,
                     });
                 }
-                result.insert(path, ManifestEntryKind::Superposition { variants });
+                has_superpositions = true;
+                changes.insert(path, Some(ManifestEntryKind::Superposition { variants }));
             }
         }
     }
 
-    build_tree(objects, &result)
+    // Rewrite only the manifests on changed paths; untouched subtrees
+    // keep their existing ids, so nothing is re-hashed or re-stored for a
+    // directory nobody edited.
+    let root = apply_changes(objects, w_root, &changes)?;
+    Ok(MergeOutcome {
+        root,
+        has_superpositions,
+    })
+}
+
+/// Per-input delta with Merkle short-circuit (doc 17 §2): equal subtree
+/// ids mean that whole subtree expresses no opinion and is never read.
+fn diff_trees(
+    objects: &dyn ObjectStore,
+    base: Option<&ObjectId>,
+    tree: Option<&ObjectId>,
+    prefix: &str,
+    out: &mut BTreeMap<String, Op>,
+) -> Result<()> {
+    if base == tree {
+        return Ok(());
+    }
+    let base_entries = match base {
+        Some(id) => entries_by_name(objects, id)?,
+        None => BTreeMap::new(),
+    };
+    let tree_entries = match tree {
+        Some(id) => entries_by_name(objects, id)?,
+        None => BTreeMap::new(),
+    };
+
+    let names: std::collections::BTreeSet<&String> =
+        base_entries.keys().chain(tree_entries.keys()).collect();
+    for name in names {
+        let path = if prefix.is_empty() {
+            name.clone()
+        } else {
+            format!("{prefix}/{name}")
+        };
+        let before = base_entries.get(name);
+        let after = tree_entries.get(name);
+        match (before, after) {
+            (
+                Some(ManifestEntryKind::Dir { manifest: b }),
+                Some(ManifestEntryKind::Dir { manifest: t }),
+            ) => {
+                diff_trees(objects, Some(b), Some(t), &path, out)?;
+            }
+            // A directory replaced by a leaf (or vice versa): the leaves
+            // under the directory read as deleted, the leaf as set.
+            (Some(ManifestEntryKind::Dir { manifest: b }), after) => {
+                diff_trees(objects, Some(b), None, &path, out)?;
+                if let Some(kind) = after {
+                    out.insert(path, Op::Set(kind.clone(), None));
+                }
+            }
+            (before, Some(ManifestEntryKind::Dir { manifest: t })) => {
+                if before.is_some() {
+                    out.insert(path.clone(), Op::Delete);
+                }
+                diff_trees(objects, None, Some(t), &path, out)?;
+            }
+            (before, Some(kind)) => {
+                if before != Some(kind) {
+                    out.insert(path, Op::Set(kind.clone(), before.cloned()));
+                }
+            }
+            (Some(_), None) => {
+                out.insert(path, Op::Delete);
+            }
+            (None, None) => unreachable!("name came from one of the maps"),
+        }
+    }
+    Ok(())
+}
+
+/// The value at `path`, walking only the manifests along it.
+fn lookup_path(
+    objects: &dyn ObjectStore,
+    root: &ObjectId,
+    path: &str,
+) -> Result<Option<ManifestEntryKind>> {
+    let mut current = root.clone();
+    let mut segments = path.split('/').peekable();
+    while let Some(segment) = segments.next() {
+        let entries = entries_by_name(objects, &current)?;
+        let Some(kind) = entries.get(segment) else {
+            return Ok(None);
+        };
+        if segments.peek().is_none() {
+            return Ok(Some(kind.clone()));
+        }
+        match kind {
+            ManifestEntryKind::Dir { manifest } => current = manifest.clone(),
+            _ => return Ok(None),
+        }
+    }
+    Ok(None)
+}
+
+/// Apply path changes to `base`, rewriting only affected manifests.
+fn apply_changes(
+    objects: &dyn ObjectStore,
+    base: Option<&ObjectId>,
+    changes: &BTreeMap<String, Option<ManifestEntryKind>>,
+) -> Result<ObjectId> {
+    // Split each change into (first segment, rest) so a directory is
+    // visited once with all of its pending edits.
+    let mut here: BTreeMap<String, Option<ManifestEntryKind>> = BTreeMap::new();
+    let mut nested: BTreeMap<String, BTreeMap<String, Option<ManifestEntryKind>>> = BTreeMap::new();
+    for (path, value) in changes {
+        match path.split_once('/') {
+            None => {
+                here.insert(path.clone(), value.clone());
+            }
+            Some((dir, rest)) => {
+                nested
+                    .entry(dir.to_string())
+                    .or_default()
+                    .insert(rest.to_string(), value.clone());
+            }
+        }
+    }
+
+    let mut entries = match base {
+        Some(id) => entries_by_name(objects, id)?,
+        None => BTreeMap::new(),
+    };
+
+    for (name, value) in here {
+        match value {
+            Some(kind) => {
+                entries.insert(name, kind);
+            }
+            None => {
+                entries.remove(&name);
+            }
+        }
+    }
+
+    for (dir, child_changes) in nested {
+        let child_base = match entries.get(&dir) {
+            Some(ManifestEntryKind::Dir { manifest }) => Some(manifest.clone()),
+            // A leaf being replaced by a subtree starts from nothing.
+            _ => None,
+        };
+        let rewritten = apply_changes(objects, child_base.as_ref(), &child_changes)?;
+        if manifest_is_empty(objects, &rewritten)? {
+            // A directory emptied by deletions disappears rather than
+            // lingering as an empty entry.
+            entries.remove(&dir);
+        } else {
+            entries.insert(
+                dir,
+                ManifestEntryKind::Dir {
+                    manifest: rewritten,
+                },
+            );
+        }
+    }
+
+    let mut out: Vec<ManifestEntry> = entries
+        .into_iter()
+        .map(|(name, kind)| ManifestEntry { name, kind })
+        .collect();
+    out.sort_by(|a, b| a.name.cmp(&b.name));
+    let manifest = Manifest {
+        version: 1,
+        entries: out,
+    };
+    objects.put(
+        ObjectKind::Manifest,
+        &converge_model::encoding::encode_manifest(&manifest),
+    )
+}
+
+fn manifest_is_empty(objects: &dyn ObjectStore, id: &ObjectId) -> Result<bool> {
+    Ok(load_manifest(objects, id)?.entries.is_empty())
+}
+
+fn entries_by_name(
+    objects: &dyn ObjectStore,
+    id: &ObjectId,
+) -> Result<BTreeMap<String, ManifestEntryKind>> {
+    Ok(load_manifest(objects, id)?
+        .entries
+        .into_iter()
+        .map(|e| (e.name, e.kind))
+        .collect())
 }
 
 /// `text-line-merge` (doc 17 §4): diff3 the divergent variants against the
@@ -264,84 +491,6 @@ fn file_text(objects: &dyn ObjectStore, kind: &ManifestEntryKind) -> Result<Opti
         return Ok(None);
     }
     Ok(String::from_utf8(bytes).ok())
-}
-
-/// Leaf entries by path; directories recursed, superpositions kept as
-/// leaves. Merkle short-circuit lives in the flatten cache of identical
-/// subtree ids.
-fn flatten(
-    objects: &dyn ObjectStore,
-    root: &ObjectId,
-) -> Result<BTreeMap<String, ManifestEntryKind>> {
-    let mut out = BTreeMap::new();
-    flatten_into(objects, root, "", &mut out)?;
-    Ok(out)
-}
-
-fn flatten_into(
-    objects: &dyn ObjectStore,
-    id: &ObjectId,
-    prefix: &str,
-    out: &mut BTreeMap<String, ManifestEntryKind>,
-) -> Result<()> {
-    let manifest = load_manifest(objects, id)?;
-    for entry in manifest.entries {
-        let path = if prefix.is_empty() {
-            entry.name.clone()
-        } else {
-            format!("{prefix}/{}", entry.name)
-        };
-        match entry.kind {
-            ManifestEntryKind::Dir { manifest } => {
-                flatten_into(objects, &manifest, &path, out)?;
-            }
-            other => {
-                out.insert(path, other);
-            }
-        }
-    }
-    Ok(())
-}
-
-/// Rebuild nested manifests from a flat path map. BTreeMap ordering makes
-/// the result deterministic.
-fn build_tree(
-    objects: &dyn ObjectStore,
-    entries: &BTreeMap<String, ManifestEntryKind>,
-) -> Result<ObjectId> {
-    let mut leaves: Vec<ManifestEntry> = Vec::new();
-    let mut subdirs: BTreeMap<String, BTreeMap<String, ManifestEntryKind>> = BTreeMap::new();
-
-    for (path, kind) in entries {
-        match path.split_once('/') {
-            None => leaves.push(ManifestEntry {
-                name: path.clone(),
-                kind: kind.clone(),
-            }),
-            Some((dir, rest)) => {
-                subdirs
-                    .entry(dir.to_string())
-                    .or_default()
-                    .insert(rest.to_string(), kind.clone());
-            }
-        }
-    }
-
-    for (dir, children) in subdirs {
-        let manifest = build_tree(objects, &children)?;
-        leaves.push(ManifestEntry {
-            name: dir,
-            kind: ManifestEntryKind::Dir { manifest },
-        });
-    }
-
-    leaves.sort_by(|a, b| a.name.cmp(&b.name));
-    let manifest = Manifest {
-        version: 1,
-        entries: leaves,
-    };
-    let bytes = converge_model::encoding::encode_manifest(&manifest);
-    objects.put(ObjectKind::Manifest, &bytes)
 }
 
 fn load_manifest(objects: &dyn ObjectStore, id: &ObjectId) -> Result<Manifest> {
