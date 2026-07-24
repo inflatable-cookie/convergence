@@ -70,6 +70,10 @@ within the same wire version (additive change).
 - `POST /api/repos/{repo}/objects/batch-get` — body: JSON `ObjectSet`;
   response: CBOR `ObjectFrame` sequence
 - batches are size-capped (default 8 MiB); clients split
+- server-side caps are part of the wire contract (g02.011): at most
+  4096 frames per batch upload, at most 4096 requested ids per
+  batch-get, 64 MiB request body limit — over-cap requests get a clear
+  400 naming the cap, and clients split both uploads and fetches
 - resumability is unchanged: batches are idempotent puts, and a failed
   batch is simply renegotiated
 

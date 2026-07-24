@@ -1,6 +1,6 @@
 # 011 Server Trust Boundaries
 
-Status: in progress (11.1-11.2 complete)
+Status: complete
 Owner: repo maintainers
 Updated: 2026-07-24
 
@@ -41,11 +41,12 @@ in the audit program matters while they stand.
   explicit implication (publish subsumes sync); sync surface (snaps,
   lane heads, object writes, negotiate) regated; `add_lane_member`
   inside `authorize`
-- **11.3 Read-only means read-only**: `verify` merges into a throwaway
-  in-memory object store; error responses carry stable public messages
-  with internals logged server-side only
-- **11.4 Transport discipline**: body limits, frame-count and cumulative
-  byte caps on batch endpoints, bounded `list_events` responses
+- **11.3 Read-only means read-only** (complete, card 040): `verify`
+  merges into a `ScratchObjects` overlay; store-touching handler errors
+  return stable public messages with internals logged server-side
+- **11.4 Transport discipline** (complete, card 041): 64 MiB body
+  limit, 4096-frame/id caps on batch endpoints with client-side
+  splitting, event listing paged at 1000 with a continuing cursor
 
 ## Exit Criteria
 
@@ -56,6 +57,14 @@ in the audit program matters while they stand.
 - `verify` leaves the object store byte-identical; asserted by test
 - oversized batch requests rejected with a clear error
 
+## Outcome
+
+All four batches complete; exit criteria met — every route authorizes
+(or resolves its bundle's repo and authorizes there) with cross-repo
+denial proven by regression tests, `personal/*` squatting refused,
+verify leaves the store byte-identical under test, and over-cap batch
+requests get clear 400s while clients split and continue.
+
 ## Next Task
 
-Open batch card 11.3 (read-only means read-only).
+Open batch card 12.1 (safe restore) under `g02.012`.

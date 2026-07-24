@@ -127,10 +127,12 @@ The server records convergence events (`bundle` built, `lane` head moved,
   the inbox/status surfaces; a missed event costs freshness, not
   correctness. At-most-once delivery is therefore acceptable.
 - Exposure: `GET /api/repos/:repo/events?since=<seq>` (read capability),
-  returning events after the cursor. Poll is the v1 transport; an SSE
-  stream over the same feed is deliberate follow-up once external
-  backends land (the feed contract — seq cursor + reconcile-on-gap —
-  does not change).
+  returning at most one page (1000 events) after the cursor per call
+  (g02.011) — the cursor continues, so a gap-recovery poll pages
+  through rather than replaying the whole history in one response.
+  Poll is the v1 transport; an SSE stream over the same feed is
+  deliberate follow-up once external backends land (the feed contract —
+  seq cursor + reconcile-on-gap — does not change).
 
 ## 5c. Backend selection (operators)
 

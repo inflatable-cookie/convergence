@@ -31,9 +31,9 @@ records the closed state.
 
 - The audit hardening program `g02.011`-`g02.018` is open (from the
   2026-07-24 four-part audit), sequenced security-first.
-- Active roadmap: `g02.011` server trust boundaries; batches 11.1-11.2
-  complete.
-- next: batch card 11.3 (read-only means read-only)
+- `g02.011` server trust boundaries **complete** (cards 038-041).
+- Active roadmap: `g02.012` data safety.
+- next: batch card 12.1 (safe restore)
 
 ## Rollover guardrail
 
@@ -47,4 +47,4 @@ Before rollover:
 
 ## Next Task
 
-Open batch card 11.3 (read-only means read-only) under `g02.011`.
+Open batch card 12.1 (safe restore) under `g02.012`.

@@ -214,3 +214,78 @@ impl ObjectStore for AssociatingObjects<'_> {
         self.inner.delete(kind, id)
     }
 }
+
+/// Copy-on-write scratch view (g02.011 batch 11.3): reads fall through to
+/// the shared store, writes stay in memory and vanish with the value.
+/// `verify` replays merges through this so a GET never mutates storage.
+pub struct ScratchObjects<'a> {
+    inner: &'a dyn ObjectStore,
+    scratch: std::sync::Mutex<std::collections::HashMap<(ObjectKind, String), Vec<u8>>>,
+}
+
+impl<'a> ScratchObjects<'a> {
+    pub fn over(inner: &'a dyn ObjectStore) -> Self {
+        Self {
+            inner,
+            scratch: std::sync::Mutex::new(std::collections::HashMap::new()),
+        }
+    }
+}
+
+impl ObjectStore for ScratchObjects<'_> {
+    fn put(&self, kind: ObjectKind, bytes: &[u8]) -> Result<ObjectId> {
+        let id = ObjectId(blake3::hash(bytes).to_hex().to_string());
+        self.put_bytes(kind, &id, bytes)?;
+        Ok(id)
+    }
+
+    fn put_bytes(&self, kind: ObjectKind, id: &ObjectId, bytes: &[u8]) -> Result<()> {
+        let actual = ObjectId(blake3::hash(bytes).to_hex().to_string());
+        if actual != *id {
+            anyhow::bail!(
+                "{} hash mismatch (expected {}, got {})",
+                kind.dir(),
+                id.as_str(),
+                actual.as_str()
+            );
+        }
+        self.scratch
+            .lock()
+            .expect("scratch lock")
+            .insert((kind, id.as_str().to_string()), bytes.to_vec());
+        Ok(())
+    }
+
+    fn get(&self, kind: ObjectKind, id: &ObjectId) -> Result<Vec<u8>> {
+        if let Some(bytes) = self
+            .scratch
+            .lock()
+            .expect("scratch lock")
+            .get(&(kind, id.as_str().to_string()))
+        {
+            return Ok(bytes.clone());
+        }
+        self.inner.get(kind, id)
+    }
+
+    fn has(&self, kind: ObjectKind, id: &ObjectId) -> bool {
+        self.scratch
+            .lock()
+            .expect("scratch lock")
+            .contains_key(&(kind, id.as_str().to_string()))
+            || self.inner.has(kind, id)
+    }
+
+    fn list(&self, kind: ObjectKind) -> Result<Vec<(ObjectId, u64, std::time::SystemTime)>> {
+        // Scratch views never feed GC; underlying listing is enough.
+        self.inner.list(kind)
+    }
+
+    fn delete(&self, kind: ObjectKind, id: &ObjectId) -> Result<()> {
+        self.scratch
+            .lock()
+            .expect("scratch lock")
+            .remove(&(kind, id.as_str().to_string()));
+        Ok(())
+    }
+}

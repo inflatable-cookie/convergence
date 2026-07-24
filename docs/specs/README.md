@@ -18,10 +18,10 @@ repo needs tighter execution grammar than the roadmap alone provides.
 ## Active Spec Set
 
 Active spec: [`011-server-trust-boundaries.md`](./011-server-trust-boundaries.md)
-(`g02.011` hardening program).
+(complete — archive with the next spec's arrival).
 
 Archived specs live in [`archive/`](./archive/).
 
 ## Next Task
 
-Open batch card 11.3 (read-only means read-only) under `g02.011`.
+Open batch card 12.1 (safe restore) under `g02.012`.

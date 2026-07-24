@@ -30,6 +30,11 @@ pub struct AppState {
 
 type SharedState = Arc<AppState>;
 
+/// Wire-contract caps (doc 16 §1c, batch 11.4).
+const MAX_BATCH_FRAMES: usize = 4096;
+const MAX_BATCH_IDS: usize = 4096;
+const MAX_BODY_BYTES: usize = 64 * 1024 * 1024;
+
 pub fn router(state: AppState) -> Router {
     Router::new()
         .route("/api/healthz", get(healthz))
@@ -64,6 +69,7 @@ pub fn router(state: AppState) -> Router {
             get(get_retention).put(set_retention),
         )
         .route("/api/repos/:repo/gc", post(run_gc))
+        .layer(axum::extract::DefaultBodyLimit::max(MAX_BODY_BYTES))
         .with_state(Arc::new(state))
 }
 
@@ -81,6 +87,13 @@ fn bad_request(msg: impl Into<String>) -> ApiError {
 
 fn forbidden(msg: impl Into<String>) -> ApiError {
     ApiError(StatusCode::FORBIDDEN, msg.into())
+}
+
+/// Storage-layer failure (batch 11.3): the chain is logged server-side;
+/// only a stable public message crosses the wire.
+fn internal_error(err: anyhow::Error) -> ApiError {
+    eprintln!("internal error: {err:#}");
+    ApiError(StatusCode::INTERNAL_SERVER_ERROR, "internal error".into())
 }
 
 fn subject(state: &AppState, headers: &HeaderMap) -> Result<String, ApiError> {
@@ -207,7 +220,7 @@ async fn get_object(
     if !state
         .meta
         .object_in_repo(&repo, kind, &id)
-        .map_err(|err| bad_request(format!("{err:#}")))?
+        .map_err(internal_error)?
     {
         return Err(not_found_object(kind, &id));
     }
@@ -235,6 +248,12 @@ async fn put_batch(
     authorize_repo(&state, &headers, &repo, Capability::SnapSync)?;
     let frames: Vec<ObjectFrame> = ciborium::from_reader(body.as_ref())
         .map_err(|err| bad_request(format!("decode batch: {err}")))?;
+    if frames.len() > MAX_BATCH_FRAMES {
+        return Err(bad_request(format!(
+            "batch of {} frames exceeds the {MAX_BATCH_FRAMES}-frame cap; split the upload",
+            frames.len()
+        )));
+    }
     let scoped = scoped_objects(&state, &repo);
     let mut stored = 0u64;
     for frame in frames {
@@ -255,13 +274,19 @@ async fn get_batch(
     Json(request): Json<ObjectSet>,
 ) -> Result<Bytes, ApiError> {
     authorize_repo(&state, &headers, &repo, Capability::Read)?;
+    let requested = request.blobs.len() + request.manifests.len() + request.recipes.len();
+    if requested > MAX_BATCH_IDS {
+        return Err(bad_request(format!(
+            "batch-get of {requested} ids exceeds the {MAX_BATCH_IDS}-id cap; split the request"
+        )));
+    }
     let mut frames: Vec<ObjectFrame> = Vec::new();
     let mut collect = |kind: ObjectKind, name: &str, ids: &[ObjectId]| -> Result<(), ApiError> {
         for id in ids {
             if !state
                 .meta
                 .object_in_repo(&repo, kind, id)
-                .map_err(|err| bad_request(format!("{err:#}")))?
+                .map_err(internal_error)?
             {
                 return Err(not_found_object(kind, id));
             }
@@ -377,10 +402,7 @@ async fn list_lanes(
     let subject = subject(&state, &headers)?;
     authorize(state.meta.as_ref(), &subject, &repo, "*", Capability::Read)
         .map_err(|err| forbidden(format!("{err:#}")))?;
-    let lanes = state
-        .meta
-        .list_lanes(&repo)
-        .map_err(|err| bad_request(format!("{err:#}")))?;
+    let lanes = state.meta.list_lanes(&repo).map_err(internal_error)?;
     Ok(Json(lanes))
 }
 
@@ -397,7 +419,7 @@ async fn add_lane_member(
     let record = state
         .meta
         .get_lane(&repo, &lane)
-        .map_err(|err| bad_request(format!("{err:#}")))?
+        .map_err(internal_error)?
         .ok_or_else(|| ApiError(StatusCode::NOT_FOUND, format!("no lane {lane}")))?;
     // Membership is managed by the owner.
     if record.owner != subject {
@@ -441,7 +463,7 @@ async fn get_snap(
     state
         .meta
         .get_snap_record(&repo, &id)
-        .map_err(|err| bad_request(format!("{err:#}")))?
+        .map_err(internal_error)?
         .map(Json)
         .ok_or_else(|| ApiError(StatusCode::NOT_FOUND, format!("no snap {id}")))
 }
@@ -481,7 +503,7 @@ async fn get_lane_head(
     state
         .meta
         .get_lane_head(&repo, &lane)
-        .map_err(|err| bad_request(format!("{err:#}")))?
+        .map_err(internal_error)?
         .map(Json)
         .ok_or_else(|| ApiError(StatusCode::NOT_FOUND, format!("lane {lane} has no head")))
 }
@@ -536,7 +558,7 @@ async fn list_events(
     let events = state
         .meta
         .list_events(&repo, params.since)
-        .map_err(|err| bad_request(format!("{err:#}")))?;
+        .map_err(internal_error)?;
     Ok(Json(events))
 }
 
@@ -582,7 +604,7 @@ async fn get_provenance(
         if let Some(publication) = state
             .meta
             .get_publication(publication_id)
-            .map_err(|err| bad_request(format!("{err:#}")))?
+            .map_err(internal_error)?
         {
             inputs.push(publication);
         }
@@ -598,13 +620,13 @@ async fn verify_bundle(
     Path(id): Path<String>,
     headers: HeaderMap,
 ) -> Result<Json<VerifyReport>, ApiError> {
-    let bundle = readable_bundle(&state, &headers, &id)?;
-    // Replay writes intermediate objects (until 11.3 gives verify a
-    // throwaway store); scope them to the bundle's own repo.
-    let scoped = scoped_objects(&state, &bundle.repo_id);
+    readable_bundle(&state, &headers, &id)?;
+    // Read-only means read-only (batch 11.3): the replay merges into a
+    // scratch overlay; the shared store is untouched by this GET.
+    let scratch = crate::storage::ScratchObjects::over(state.objects.as_ref());
     let engine = Engine {
         meta: state.meta.as_ref(),
-        objects: &scoped,
+        objects: &scratch,
     };
     let report = engine
         .verify(&id)
@@ -670,10 +692,7 @@ async fn list_releases(
     let subject = subject(&state, &headers)?;
     authorize(state.meta.as_ref(), &subject, &repo, "*", Capability::Read)
         .map_err(|err| forbidden(format!("{err:#}")))?;
-    let releases = state
-        .meta
-        .list_releases(&repo)
-        .map_err(|err| bad_request(format!("{err:#}")))?;
+    let releases = state.meta.list_releases(&repo).map_err(internal_error)?;
     Ok(Json(releases))
 }
 
@@ -688,7 +707,7 @@ async fn channel_head(
     state
         .meta
         .get_channel_head(&repo, &channel)
-        .map_err(|err| bad_request(format!("{err:#}")))?
+        .map_err(internal_error)?
         .map(Json)
         .ok_or_else(|| {
             ApiError(
@@ -706,10 +725,7 @@ async fn get_retention(
     let subject = subject(&state, &headers)?;
     authorize(state.meta.as_ref(), &subject, &repo, "*", Capability::Read)
         .map_err(|err| forbidden(format!("{err:#}")))?;
-    let policy = state
-        .meta
-        .get_retention(&repo)
-        .map_err(|err| bad_request(format!("{err:#}")))?;
+    let policy = state.meta.get_retention(&repo).map_err(internal_error)?;
     Ok(Json(policy))
 }
 

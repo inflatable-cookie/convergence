@@ -26,4 +26,5 @@ tokio.workspace = true
 [dev-dependencies]
 converge-client.workspace = true
 reqwest.workspace = true
+serde_bytes.workspace = true
 tempfile.workspace = true

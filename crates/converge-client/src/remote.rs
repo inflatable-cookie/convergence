@@ -59,7 +59,9 @@ impl RemoteClient {
             Ok(())
         };
         for frame in frames {
-            if batch_bytes + frame.bytes.len() > self.batch_cap && !batch.is_empty() {
+            if (batch_bytes + frame.bytes.len() > self.batch_cap || batch.len() >= MAX_BATCH_FRAMES)
+                && !batch.is_empty()
+            {
                 flush(&mut batch)?;
                 batch_bytes = 0;
             }
@@ -69,22 +71,25 @@ impl RemoteClient {
         flush(&mut batch)
     }
 
-    /// Download a set of objects as CBOR frames (single batch request;
-    /// callers keep requests bounded by walking in waves).
+    /// Download a set of objects as CBOR frames, splitting requests above
+    /// the server's id cap (doc 16 §1c).
     fn get_frames(&self, repo_id: &str, request: &ObjectSet) -> Result<Vec<ObjectFrame>> {
-        if request.is_empty() {
-            return Ok(Vec::new());
+        let mut frames = Vec::new();
+        for chunk in split_object_set(request, MAX_BATCH_FRAMES) {
+            let response = Self::check(
+                self.http
+                    .post(self.url(&format!("/api/repos/{repo_id}/objects/batch-get")))
+                    .bearer_auth(&self.token)
+                    .json(&chunk)
+                    .send()
+                    .context("download batch")?,
+            )?;
+            let bytes = response.bytes().context("read batch body")?;
+            let mut decoded: Vec<ObjectFrame> =
+                ciborium::from_reader(bytes.as_ref()).context("decode batch")?;
+            frames.append(&mut decoded);
         }
-        let response = Self::check(
-            self.http
-                .post(self.url(&format!("/api/repos/{repo_id}/objects/batch-get")))
-                .bearer_auth(&self.token)
-                .json(request)
-                .send()
-                .context("download batch")?,
-        )?;
-        let bytes = response.bytes().context("read batch body")?;
-        ciborium::from_reader(bytes.as_ref()).context("decode batch")
+        Ok(frames)
     }
 
     fn url(&self, path: &str) -> String {
@@ -626,6 +631,41 @@ pub struct UploadStats {
 }
 
 /// All manifest ids reachable from `root`, root first.
+/// Server-side per-request id/frame cap (doc 16 §1c).
+const MAX_BATCH_FRAMES: usize = 4096;
+
+/// Split a request set into chunks the server accepts, preserving kinds.
+fn split_object_set(request: &ObjectSet, cap: usize) -> Vec<ObjectSet> {
+    let mut chunks: Vec<ObjectSet> = Vec::new();
+    let mut current = ObjectSet::default();
+    let mut count = 0usize;
+    let push = |current: &mut ObjectSet, count: &mut usize, chunks: &mut Vec<ObjectSet>| {
+        if !current.is_empty() {
+            chunks.push(std::mem::take(current));
+            *count = 0;
+        }
+    };
+    for (kind, ids) in [
+        (0, &request.blobs),
+        (1, &request.manifests),
+        (2, &request.recipes),
+    ] {
+        for id in ids {
+            if count >= cap {
+                push(&mut current, &mut count, &mut chunks);
+            }
+            match kind {
+                0 => current.blobs.push(id.clone()),
+                1 => current.manifests.push(id.clone()),
+                _ => current.recipes.push(id.clone()),
+            }
+            count += 1;
+        }
+    }
+    push(&mut current, &mut count, &mut chunks);
+    chunks
+}
+
 fn collect_manifests(store: &LocalStore, root: &ObjectId) -> Result<Vec<ObjectId>> {
     let mut out = Vec::new();
     let mut stack = vec![root.clone()];

@@ -620,7 +620,7 @@ impl MetadataStore for SqliteMetadataStore {
         let conn = self.conn.lock().expect("meta lock");
         let mut stmt = conn.prepare(
             "SELECT seq, kind, subject_id, created_at FROM events
-             WHERE repo_id = ?1 AND seq > ?2 ORDER BY seq ASC",
+             WHERE repo_id = ?1 AND seq > ?2 ORDER BY seq ASC LIMIT 1000",
         )?;
         let rows = stmt.query_map(params![repo_id, since as i64], |row| {
             Ok(EventRecord {

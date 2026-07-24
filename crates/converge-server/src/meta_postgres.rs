@@ -346,7 +346,7 @@ impl MetadataStore for PostgresMetadataStore {
         let mut c = self.client.lock().expect("pg lock");
         let rows = c.query(
             "SELECT seq, kind, subject_id, created_at FROM events
-             WHERE repo_id = $1 AND seq > $2 ORDER BY seq ASC",
+             WHERE repo_id = $1 AND seq > $2 ORDER BY seq ASC LIMIT 1000",
             &[&repo_id, &(since as i64)],
         )?;
         Ok(rows

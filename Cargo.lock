@@ -494,6 +494,7 @@ dependencies = [
  "rusqlite",
  "rust-s3",
  "serde",
+ "serde_bytes",
  "serde_json",
  "tempfile",
  "time",

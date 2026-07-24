@@ -17,8 +17,8 @@ architecture/docs/tests) produced the hardening program `g02.011`-
 correctness → architecture honesty → scale walls → workflow completion
 → TUI spec parity → adversarial test hardening.
 
-Active roadmap: `g02.011`; batches 11.1 (card 038) and 11.2 (card 039)
-complete. Next: batch card 11.3.
+`g02.011` server trust boundaries complete (cards 038-041). Active
+roadmap: `g02.012` data safety; next is batch card 12.1.
 
 ## Lanes
 
@@ -32,8 +32,8 @@ complete. Next: batch card 11.3.
 - [`008-releases-retention-and-gc.md`](./008-releases-retention-and-gc.md) — complete
 - [`009-git-interop.md`](./009-git-interop.md) — complete
 - [`010-scale-and-transport.md`](./010-scale-and-transport.md) — complete
-- [`011-server-trust-boundaries.md`](./011-server-trust-boundaries.md) — in progress (11.1-11.2 complete)
-- [`012-data-safety.md`](./012-data-safety.md) — planned
+- [`011-server-trust-boundaries.md`](./011-server-trust-boundaries.md) — complete
+- [`012-data-safety.md`](./012-data-safety.md) — planned (active)
 - [`013-transactional-and-merge-correctness.md`](./013-transactional-and-merge-correctness.md) — planned
 - [`014-architecture-honesty.md`](./014-architecture-honesty.md) — planned
 - [`015-scale-walls.md`](./015-scale-walls.md) — planned
@@ -43,4 +43,4 @@ complete. Next: batch card 11.3.
 
 ## Next Task
 
-Open batch card 11.3 (read-only means read-only) under `g02.011`.
+Open batch card 12.1 (safe restore) under `g02.012`.
