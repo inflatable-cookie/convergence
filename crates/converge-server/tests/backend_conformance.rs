@@ -5,8 +5,11 @@
 
 use anyhow::Result;
 
-use converge_model::{GateGraph, GateNode, LaneHead, ObjectId, RetentionPolicy};
-use converge_server::{FsObjectStore, MetadataStore, ObjectKind, ObjectStore, SqliteMetadataStore};
+use converge_model::{GateGraph, GateNode, LaneHead, ObjectId, PublicationRecord, RetentionPolicy};
+use converge_server::{
+    BatchConflict, FsObjectStore, MetaOp, MetadataStore, ObjectKind, ObjectStore, PartitionState,
+    SqliteMetadataStore, StoredBundle,
+};
 
 fn conform_metadata(meta: &dyn MetadataStore) -> Result<()> {
     meta.create_repo("conf")?;
@@ -85,6 +88,94 @@ fn conform_metadata(meta: &dyn MetadataStore) -> Result<()> {
     assert!(meta.is_object_pinned(ObjectKind::Blob, &pid)?);
     meta.unpin_object("other", ObjectKind::Blob, &pid)?;
     assert!(!meta.is_object_pinned(ObjectKind::Blob, &pid)?);
+
+    // atomic batches (batch 13.1): all-or-nothing with guard rollback
+    let scope = "batch-scope";
+    let publication = PublicationRecord {
+        publication_id: "batch-p1".into(),
+        snap_id: "batch-s1".into(),
+        root_manifest: ObjectId("cc".repeat(32)),
+        base_bundle_id: None,
+        snap_parents: vec![],
+        repo_id: "conf".into(),
+        scope_id: scope.into(),
+        target_gate_id: "g".into(),
+        lane_id: "l".into(),
+        publisher: "alice".into(),
+        created_at: "2026-07-25T00:00:00Z".into(),
+        notes: None,
+    };
+    let bundle = StoredBundle {
+        bundle_id: "batch-b1".into(),
+        repo_id: "conf".into(),
+        scope_id: scope.into(),
+        gate_id: "g".into(),
+        inputs: vec!["batch-p1".into()],
+        root_manifest: None,
+        base_bundle_id: None,
+        window: (1, 1),
+        strategy: "whole-file".into(),
+        status: converge_model::BundleStatus::Ready { promotable: true },
+        created_at: "2026-07-25T00:00:00Z".into(),
+    };
+    meta.apply_batch(&[
+        MetaOp::AssertPartitionState {
+            repo_id: "conf".into(),
+            scope_id: scope.into(),
+            gate_id: "g".into(),
+            expected: PartitionState::default(),
+        },
+        MetaOp::AssertPublicationCount {
+            repo_id: "conf".into(),
+            scope_id: scope.into(),
+            gate_id: "g".into(),
+            after_seq: 0,
+            expected: 0,
+        },
+        MetaOp::AddPublication(publication),
+        MetaOp::PutBundle(bundle),
+        MetaOp::SetPartitionState {
+            repo_id: "conf".into(),
+            scope_id: scope.into(),
+            gate_id: "g".into(),
+            state: PartitionState {
+                window_floor: 1,
+                base_bundle_id: Some("batch-b1".into()),
+            },
+        },
+    ])?;
+    let listed = meta.list_publications_after("conf", scope, "g", 0)?;
+    assert_eq!(listed.len(), 1, "batched publication committed");
+    assert_eq!(listed[0].0, 1, "seq assigned inside the transaction");
+    assert_eq!(meta.get_bundle("batch-b1")?.window, (1, 1));
+    assert_eq!(
+        meta.get_partition_state("conf", scope, "g")?.window_floor,
+        1
+    );
+
+    // A failed guard rolls back every write in the batch, including ones
+    // that already executed before the guard.
+    let err = meta
+        .apply_batch(&[
+            MetaOp::RecordPromotion {
+                bundle_id: "batch-b1".into(),
+                from_gate: "g".into(),
+                to_gate: "g2".into(),
+                at: "2026-07-25T00:00:01Z".into(),
+            },
+            MetaOp::AssertPartitionState {
+                repo_id: "conf".into(),
+                scope_id: scope.into(),
+                gate_id: "g".into(),
+                expected: PartitionState::default(), // stale
+            },
+        ])
+        .expect_err("stale guard must fail the batch");
+    assert!(err.is::<BatchConflict>(), "typed conflict: {err}");
+    assert!(
+        meta.list_promotions("batch-b1")?.is_empty(),
+        "write before failed guard rolled back"
+    );
     Ok(())
 }
 

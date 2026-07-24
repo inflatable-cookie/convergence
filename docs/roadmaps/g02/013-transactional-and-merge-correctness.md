@@ -1,6 +1,6 @@
 # 013 Transactional and Merge Correctness
 
-Status: planned
+Status: in progress (13.1 complete)
 Owner: repo maintainers
 Updated: 2026-07-24
 
@@ -37,10 +37,10 @@ These corrupt promoted history silently — worse than crashing.
 
 ## Execution Plan (batch details in cards)
 
-- **13.1 Transactions**: transactional write paths in both backends
-  (SQLite `BEGIN IMMEDIATE`, Postgres explicit transactions); publish
-  and promote each become one atomic operation with partition-state
-  guards inside the transaction
+- **13.1 Transactions** (complete, card 046): `MetaOp`/`apply_batch`
+  with guard ops in both backends (SQLite `BEGIN IMMEDIATE`, Postgres
+  explicit transactions); publish and promote each one atomic guarded
+  batch, publish retries on conflict, floor-aware publication seq
 - **13.2 Promotion guards**: monotonic window floor, base-must-match-W
   check; doc 14 §3 amended to state the actual serialization mechanism
 - **13.3 Merge decision-table fix**: modify-vs-delete superposes per
@@ -62,4 +62,4 @@ These corrupt promoted history silently — worse than crashing.
 
 ## Next Task
 
-Blocked behind g02.012 completion.
+Open batch card 13.2 (promotion guards).

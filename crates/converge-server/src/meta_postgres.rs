@@ -13,7 +13,7 @@ use converge_model::{
     ReleaseRecord, RetentionPolicy, SnapRecord,
 };
 
-use crate::storage::{MetadataStore, PartitionState, StoredBundle};
+use crate::storage::{BatchConflict, MetaOp, MetadataStore, PartitionState, StoredBundle};
 
 pub struct PostgresMetadataStore {
     client: Mutex<Client>,
@@ -177,25 +177,19 @@ impl MetadataStore for PostgresMetadataStore {
         Ok(serde_json::from_str(row.get(0))?)
     }
 
-    fn add_publication(&self, publication: &PublicationRecord) -> Result<()> {
-        let json = serde_json::to_string(publication)?;
+    fn apply_batch(&self, ops: &[MetaOp]) -> Result<()> {
         let mut c = self.client.lock().expect("pg lock");
-        c.execute(
-            "INSERT INTO publications
-               (publication_id, repo_id, scope_id, gate_id, seq, record_json)
-             VALUES ($1, $2, $3, $4,
-               (SELECT COALESCE(MAX(seq), 0) + 1 FROM publications
-                 WHERE repo_id = $2 AND scope_id = $3 AND gate_id = $4),
-               $5)",
-            &[
-                &publication.publication_id,
-                &publication.repo_id,
-                &publication.scope_id,
-                &publication.target_gate_id,
-                &json,
-            ],
-        )?;
+        let mut tx = c.transaction().context("begin metadata batch")?;
+        for op in ops {
+            apply_op_pg(&mut tx, op)?;
+        }
+        tx.commit().context("commit metadata batch")?;
         Ok(())
+    }
+
+    fn add_publication(&self, publication: &PublicationRecord) -> Result<()> {
+        let mut c = self.client.lock().expect("pg lock");
+        add_publication_pg(&mut *c, publication)
     }
 
     fn get_publication(&self, publication_id: &str) -> Result<Option<PublicationRecord>> {
@@ -338,12 +332,7 @@ impl MetadataStore for PostgresMetadataStore {
         created_at: &str,
     ) -> Result<u64> {
         let mut c = self.client.lock().expect("pg lock");
-        let row = c.query_one(
-            "INSERT INTO events (repo_id, kind, subject_id, created_at)
-             VALUES ($1, $2, $3, $4) RETURNING seq",
-            &[&repo_id, &kind, &subject_id, &created_at],
-        )?;
-        Ok(row.get::<_, i64>(0) as u64)
+        add_event_pg(&mut *c, repo_id, kind, subject_id, created_at)
     }
 
     fn list_events(&self, repo_id: &str, since: u64) -> Result<Vec<EventRecord>> {
@@ -466,12 +455,7 @@ impl MetadataStore for PostgresMetadataStore {
         at: &str,
     ) -> Result<()> {
         let mut c = self.client.lock().expect("pg lock");
-        c.execute(
-            "INSERT INTO promotions (bundle_id, from_gate, to_gate, promoted_at)
-             VALUES ($1, $2, $3, $4)",
-            &[&bundle_id, &from_gate, &to_gate, &at],
-        )?;
-        Ok(())
+        record_promotion_pg(&mut *c, bundle_id, from_gate, to_gate, at)
     }
 
     fn list_promotions(&self, bundle_id: &str) -> Result<Vec<(String, String, String)>> {
@@ -570,38 +554,8 @@ impl MetadataStore for PostgresMetadataStore {
     }
 
     fn put_bundle(&self, bundle: &StoredBundle) -> Result<()> {
-        let inputs = serde_json::to_string(&bundle.inputs)?;
-        let status = serde_json::to_string(&bundle.status)?;
-        let root = bundle
-            .root_manifest
-            .as_ref()
-            .map(|id| id.as_str().to_string());
         let mut c = self.client.lock().expect("pg lock");
-        c.execute(
-            "INSERT INTO bundles
-               (bundle_id, repo_id, scope_id, gate_id, inputs_json, root_manifest,
-                base_bundle_id, window_first, window_last, strategy,
-                status_json, created_at)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
-             ON CONFLICT (bundle_id) DO UPDATE SET
-               root_manifest = EXCLUDED.root_manifest,
-               status_json = EXCLUDED.status_json",
-            &[
-                &bundle.bundle_id,
-                &bundle.repo_id,
-                &bundle.scope_id,
-                &bundle.gate_id,
-                &inputs,
-                &root,
-                &bundle.base_bundle_id,
-                &(bundle.window.0 as i64),
-                &(bundle.window.1 as i64),
-                &bundle.strategy,
-                &status,
-                &bundle.created_at,
-            ],
-        )?;
-        Ok(())
+        put_bundle_pg(&mut *c, bundle)
     }
 
     fn get_bundle(&self, bundle_id: &str) -> Result<StoredBundle> {
@@ -704,21 +658,7 @@ impl MetadataStore for PostgresMetadataStore {
         state: &PartitionState,
     ) -> Result<()> {
         let mut c = self.client.lock().expect("pg lock");
-        c.execute(
-            "INSERT INTO partitions (repo_id, scope_id, gate_id, window_floor, base_bundle_id)
-             VALUES ($1, $2, $3, $4, $5)
-             ON CONFLICT (repo_id, scope_id, gate_id) DO UPDATE SET
-               window_floor = EXCLUDED.window_floor,
-               base_bundle_id = EXCLUDED.base_bundle_id",
-            &[
-                &repo_id,
-                &scope_id,
-                &gate_id,
-                &(state.window_floor as i64),
-                &state.base_bundle_id,
-            ],
-        )?;
-        Ok(())
+        set_partition_state_pg(&mut *c, repo_id, scope_id, gate_id, state)
     }
 
     fn add_approval(&self, bundle_id: &str, approver: &str) -> Result<()> {
@@ -739,4 +679,200 @@ impl MetadataStore for PostgresMetadataStore {
         )?;
         Ok(row.get::<_, i64>(0) as u32)
     }
+}
+
+// Statement helpers shared by the single-op trait methods and the
+// transactional batch path (batch 13.1) — one SQL source of truth.
+// Generic over `GenericClient` so they run on a Client or a Transaction.
+
+fn apply_op_pg(c: &mut impl postgres::GenericClient, op: &MetaOp) -> Result<()> {
+    match op {
+        MetaOp::AddPublication(publication) => add_publication_pg(c, publication),
+        MetaOp::PutBundle(bundle) => put_bundle_pg(c, bundle),
+        MetaOp::SetPartitionState {
+            repo_id,
+            scope_id,
+            gate_id,
+            state,
+        } => set_partition_state_pg(c, repo_id, scope_id, gate_id, state),
+        MetaOp::RecordPromotion {
+            bundle_id,
+            from_gate,
+            to_gate,
+            at,
+        } => record_promotion_pg(c, bundle_id, from_gate, to_gate, at),
+        MetaOp::AddEvent {
+            repo_id,
+            kind,
+            subject_id,
+            created_at,
+        } => add_event_pg(c, repo_id, kind, subject_id, created_at).map(|_| ()),
+        MetaOp::AssertPartitionState {
+            repo_id,
+            scope_id,
+            gate_id,
+            expected,
+        } => {
+            let row = c.query_opt(
+                "SELECT window_floor, base_bundle_id FROM partitions
+                 WHERE repo_id = $1 AND scope_id = $2 AND gate_id = $3",
+                &[repo_id, scope_id, gate_id],
+            )?;
+            let actual = row
+                .map(|r| PartitionState {
+                    window_floor: r.get::<_, i64>(0) as u64,
+                    base_bundle_id: r.get(1),
+                })
+                .unwrap_or_default();
+            if actual != *expected {
+                return Err(BatchConflict(format!(
+                    "partition {repo_id}/{scope_id}/{gate_id} moved: expected floor {} base {:?}, found floor {} base {:?}",
+                    expected.window_floor,
+                    expected.base_bundle_id,
+                    actual.window_floor,
+                    actual.base_bundle_id
+                ))
+                .into());
+            }
+            Ok(())
+        }
+        MetaOp::AssertPublicationCount {
+            repo_id,
+            scope_id,
+            gate_id,
+            after_seq,
+            expected,
+        } => {
+            let row = c.query_one(
+                "SELECT COUNT(*) FROM publications
+                 WHERE repo_id = $1 AND scope_id = $2 AND gate_id = $3 AND seq > $4",
+                &[repo_id, scope_id, gate_id, &(*after_seq as i64)],
+            )?;
+            let actual = row.get::<_, i64>(0);
+            if actual as u64 != *expected {
+                return Err(BatchConflict(format!(
+                    "publication window for {repo_id}/{scope_id}/{gate_id} moved: expected {expected} after seq {after_seq}, found {actual}"
+                ))
+                .into());
+            }
+            Ok(())
+        }
+    }
+}
+
+fn add_publication_pg(
+    c: &mut impl postgres::GenericClient,
+    publication: &PublicationRecord,
+) -> Result<()> {
+    let json = serde_json::to_string(publication)?;
+    // Floor-aware seq: stays monotonic even after GC deletes old
+    // publications below the window floor.
+    c.execute(
+        "INSERT INTO publications
+           (publication_id, repo_id, scope_id, gate_id, seq, record_json)
+         VALUES ($1, $2, $3, $4,
+           GREATEST(
+             (SELECT COALESCE(MAX(seq), 0) FROM publications
+               WHERE repo_id = $2 AND scope_id = $3 AND gate_id = $4),
+             (SELECT COALESCE(MAX(window_floor), 0) FROM partitions
+               WHERE repo_id = $2 AND scope_id = $3 AND gate_id = $4)
+           ) + 1,
+           $5)",
+        &[
+            &publication.publication_id,
+            &publication.repo_id,
+            &publication.scope_id,
+            &publication.target_gate_id,
+            &json,
+        ],
+    )?;
+    Ok(())
+}
+
+fn put_bundle_pg(c: &mut impl postgres::GenericClient, bundle: &StoredBundle) -> Result<()> {
+    let inputs = serde_json::to_string(&bundle.inputs)?;
+    let status = serde_json::to_string(&bundle.status)?;
+    let root = bundle
+        .root_manifest
+        .as_ref()
+        .map(|id| id.as_str().to_string());
+    c.execute(
+        "INSERT INTO bundles
+           (bundle_id, repo_id, scope_id, gate_id, inputs_json, root_manifest,
+            base_bundle_id, window_first, window_last, strategy,
+            status_json, created_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+         ON CONFLICT (bundle_id) DO UPDATE SET
+           root_manifest = EXCLUDED.root_manifest,
+           status_json = EXCLUDED.status_json",
+        &[
+            &bundle.bundle_id,
+            &bundle.repo_id,
+            &bundle.scope_id,
+            &bundle.gate_id,
+            &inputs,
+            &root,
+            &bundle.base_bundle_id,
+            &(bundle.window.0 as i64),
+            &(bundle.window.1 as i64),
+            &bundle.strategy,
+            &status,
+            &bundle.created_at,
+        ],
+    )?;
+    Ok(())
+}
+
+fn set_partition_state_pg(
+    c: &mut impl postgres::GenericClient,
+    repo_id: &str,
+    scope_id: &str,
+    gate_id: &str,
+    state: &PartitionState,
+) -> Result<()> {
+    c.execute(
+        "INSERT INTO partitions (repo_id, scope_id, gate_id, window_floor, base_bundle_id)
+         VALUES ($1, $2, $3, $4, $5)
+         ON CONFLICT (repo_id, scope_id, gate_id) DO UPDATE SET
+           window_floor = EXCLUDED.window_floor,
+           base_bundle_id = EXCLUDED.base_bundle_id",
+        &[
+            &repo_id,
+            &scope_id,
+            &gate_id,
+            &(state.window_floor as i64),
+            &state.base_bundle_id,
+        ],
+    )?;
+    Ok(())
+}
+
+fn record_promotion_pg(
+    c: &mut impl postgres::GenericClient,
+    bundle_id: &str,
+    from_gate: &str,
+    to_gate: &str,
+    at: &str,
+) -> Result<()> {
+    c.execute(
+        "INSERT INTO promotions (bundle_id, from_gate, to_gate, promoted_at)
+         VALUES ($1, $2, $3, $4)",
+        &[&bundle_id, &from_gate, &to_gate, &at],
+    )?;
+    Ok(())
+}
+
+fn add_event_pg(
+    c: &mut impl postgres::GenericClient,
+    repo_id: &str,
+    kind: &str,
+    subject_id: &str,
+    created_at: &str,
+) -> Result<u64> {
+    let row = c.query_one(
+        "INSERT INTO events (repo_id, kind, subject_id, created_at)
+         VALUES ($1, $2, $3, $4) RETURNING seq",
+        &[&repo_id, &kind, &subject_id, &created_at],
+    )?;
+    Ok(row.get::<_, i64>(0) as u64)
 }

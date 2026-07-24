@@ -54,7 +54,7 @@ pub struct StoredBundle {
 }
 
 /// Per-(repo, scope, gate) window state (doc 17 §3).
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct PartitionState {
     /// Highest publication seq consumed by the last promoted bundle.
     pub window_floor: u64,
@@ -62,9 +62,70 @@ pub struct PartitionState {
     pub base_bundle_id: Option<String>,
 }
 
+/// One write (or guard) inside an atomic metadata batch (g02.013 batch
+/// 13.1, audit H2). Guards abort the whole batch when violated, so a
+/// batch composed against stale reads rolls back instead of committing
+/// inconsistent partition state.
+#[derive(Clone, Debug)]
+pub enum MetaOp {
+    AddPublication(PublicationRecord),
+    PutBundle(StoredBundle),
+    SetPartitionState {
+        repo_id: String,
+        scope_id: String,
+        gate_id: String,
+        state: PartitionState,
+    },
+    RecordPromotion {
+        bundle_id: String,
+        from_gate: String,
+        to_gate: String,
+        at: String,
+    },
+    AddEvent {
+        repo_id: String,
+        kind: String,
+        subject_id: String,
+        created_at: String,
+    },
+    /// Fail the batch unless the partition still has this exact state.
+    AssertPartitionState {
+        repo_id: String,
+        scope_id: String,
+        gate_id: String,
+        expected: PartitionState,
+    },
+    /// Fail the batch unless exactly `expected` publications exist with
+    /// seq > `after_seq` (pins the in-memory window and the next seq).
+    AssertPublicationCount {
+        repo_id: String,
+        scope_id: String,
+        gate_id: String,
+        after_seq: u64,
+        expected: u64,
+    },
+}
+
+/// Raised by `apply_batch` when a guard op fails; the batch rolled
+/// back. Callers re-read and rebuild (publish) or surface the conflict
+/// (promote).
+#[derive(Debug)]
+pub struct BatchConflict(pub String);
+
+impl std::fmt::Display for BatchConflict {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "metadata batch guard failed: {}", self.0)
+    }
+}
+
+impl std::error::Error for BatchConflict {}
+
 /// Control-plane + partition metadata. Embedded impl is SQLite; every
 /// mutation is a scoped transaction (arch 14: no whole-repo rewrites).
 pub trait MetadataStore: Send + Sync {
+    /// Apply every op in one transaction: all writes commit together or
+    /// none do. A failed guard rolls back and returns [`BatchConflict`].
+    fn apply_batch(&self, ops: &[MetaOp]) -> Result<()>;
     // control plane
     fn upsert_user(&self, handle: &str) -> Result<()>;
     fn add_grant(

@@ -23,4 +23,6 @@ pub use meta_sqlite::SqliteMetadataStore;
 pub use object_fs::FsObjectStore;
 #[cfg(feature = "backend-s3")]
 pub use object_s3::S3ObjectStore;
-pub use storage::{MetadataStore, ObjectKind, ObjectStore, PartitionState, StoredBundle};
+pub use storage::{
+    BatchConflict, MetaOp, MetadataStore, ObjectKind, ObjectStore, PartitionState, StoredBundle,
+};

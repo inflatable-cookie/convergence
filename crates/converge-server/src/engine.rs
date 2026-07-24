@@ -9,7 +9,9 @@ use converge_model::{
 
 use crate::authz::{AuthzContext, Capability};
 use crate::merge::{MergeInput, merge_window};
-use crate::storage::{MetadataStore, ObjectStore, PartitionState, StoredBundle};
+use crate::storage::{
+    BatchConflict, MetaOp, MetadataStore, ObjectStore, PartitionState, StoredBundle,
+};
 
 /// The convergence engine: publish intake, deterministic bundle builds, and
 /// policy-checked promotion. Every method takes an [`AuthzContext`] minted by
@@ -78,38 +80,98 @@ impl Engine<'_> {
         // only. No lane -> the publisher's personal lane, auto-provisioned.
         let lane_id = self.resolve_writable_lane(&authz, &input.lane_id)?;
 
-        let created_at = now();
-        let publication_id = {
-            let mut hasher = blake3::Hasher::new();
-            hasher.update(authz.repo_id().as_bytes());
-            hasher.update(authz.scope_id().as_bytes());
-            hasher.update(input.gate_id.as_bytes());
-            hasher.update(input.snap.id.as_bytes());
-            hasher.update(authz.subject().as_bytes());
-            hasher.update(created_at.as_bytes());
-            hasher.finalize().to_hex().to_string()
-        };
-        self.meta.add_publication(&PublicationRecord {
-            publication_id,
-            snap_id: input.snap.id.clone(),
-            root_manifest: input.snap.root_manifest.clone(),
-            base_bundle_id: input.base_bundle_id.clone(),
-            snap_parents: input.snap.parents.clone(),
-            repo_id: authz.repo_id().to_string(),
-            scope_id: authz.scope_id().to_string(),
-            target_gate_id: input.gate_id.clone(),
-            lane_id,
-            publisher: authz.subject().to_string(),
-            created_at,
-            notes: input.notes.clone(),
-        })?;
+        // One atomic operation per attempt (batch 13.1, audit H2): read the
+        // partition, compute the publication + merged bundle in memory, then
+        // commit everything in a single guarded batch. A concurrent publish
+        // trips a guard, rolls the batch back, and we rebuild against the
+        // fresh window instead of committing a stale one.
+        // Rebuilds are cheap (in-memory merge against the fresh window);
+        // the cap only guards against pathological livelock.
+        const ATTEMPTS: usize = 32;
+        for _ in 0..ATTEMPTS {
+            let partition =
+                self.meta
+                    .get_partition_state(authz.repo_id(), authz.scope_id(), &input.gate_id)?;
+            let existing = self.meta.list_publications_after(
+                authz.repo_id(),
+                authz.scope_id(),
+                &input.gate_id,
+                partition.window_floor,
+            )?;
+            // Mirrors the backends' floor-aware seq assignment.
+            let next_seq = existing
+                .last()
+                .map(|(seq, _)| *seq)
+                .unwrap_or(0)
+                .max(partition.window_floor)
+                + 1;
 
-        let bundle = self.build_bundle(&authz, &input.gate_id)?;
-        // The publication now references the uploaded tree durably: release
-        // its upload pins (batch 12.2). Reachable objects are GC-marked, so
-        // unpinning never drops protection.
-        self.unpin_tree(authz.repo_id(), &input.snap.root_manifest)?;
-        Ok(bundle)
+            let created_at = now();
+            let publication_id = {
+                let mut hasher = blake3::Hasher::new();
+                hasher.update(authz.repo_id().as_bytes());
+                hasher.update(authz.scope_id().as_bytes());
+                hasher.update(input.gate_id.as_bytes());
+                hasher.update(input.snap.id.as_bytes());
+                hasher.update(authz.subject().as_bytes());
+                hasher.update(created_at.as_bytes());
+                hasher.finalize().to_hex().to_string()
+            };
+            let publication = PublicationRecord {
+                publication_id,
+                snap_id: input.snap.id.clone(),
+                root_manifest: input.snap.root_manifest.clone(),
+                base_bundle_id: input.base_bundle_id.clone(),
+                snap_parents: input.snap.parents.clone(),
+                repo_id: authz.repo_id().to_string(),
+                scope_id: authz.scope_id().to_string(),
+                target_gate_id: input.gate_id.clone(),
+                lane_id: lane_id.clone(),
+                publisher: authz.subject().to_string(),
+                created_at,
+                notes: input.notes.clone(),
+            };
+
+            let mut window = existing.clone();
+            window.push((next_seq, publication.clone()));
+            let bundle = self.build_bundle(&authz, &input.gate_id, &partition, &window)?;
+
+            let ops = [
+                MetaOp::AssertPartitionState {
+                    repo_id: authz.repo_id().to_string(),
+                    scope_id: authz.scope_id().to_string(),
+                    gate_id: input.gate_id.clone(),
+                    expected: partition.clone(),
+                },
+                MetaOp::AssertPublicationCount {
+                    repo_id: authz.repo_id().to_string(),
+                    scope_id: authz.scope_id().to_string(),
+                    gate_id: input.gate_id.clone(),
+                    after_seq: partition.window_floor,
+                    expected: existing.len() as u64,
+                },
+                MetaOp::AddPublication(publication),
+                MetaOp::PutBundle(bundle.clone()),
+                // Event hint (doc 14 §5b): bundle state changed.
+                MetaOp::AddEvent {
+                    repo_id: authz.repo_id().to_string(),
+                    kind: "bundle".to_string(),
+                    subject_id: bundle.bundle_id.clone(),
+                    created_at: now(),
+                },
+            ];
+            match self.meta.apply_batch(&ops) {
+                Ok(()) => {
+                    // The publication now references the uploaded tree
+                    // durably: release its upload pins (batch 12.2).
+                    self.unpin_tree(authz.repo_id(), &input.snap.root_manifest)?;
+                    return Ok(bundle);
+                }
+                Err(err) if err.is::<BatchConflict>() => continue,
+                Err(err) => return Err(err),
+            }
+        }
+        bail!("publish kept losing to concurrent publishes after {ATTEMPTS} attempts")
     }
 
     /// Release upload pins for every object reachable from `root` (batch
@@ -176,19 +238,17 @@ impl Engine<'_> {
         Ok(())
     }
 
-    /// Deterministic bundle build over the partition's current window
-    /// (doc 17 §3): fold the window's publications onto W.
-    fn build_bundle(&self, authz: &AuthzContext, gate_id: &str) -> Result<StoredBundle> {
-        let partition =
-            self.meta
-                .get_partition_state(authz.repo_id(), authz.scope_id(), gate_id)?;
-        let window = self.meta.list_publications_after(
-            authz.repo_id(),
-            authz.scope_id(),
-            gate_id,
-            partition.window_floor,
-        )?;
-        assert!(!window.is_empty(), "publish just added one");
+    /// Deterministic bundle build over the given window (doc 17 §3): fold
+    /// the window's publications onto W. Pure compute against the object
+    /// store — metadata writes happen in the caller's atomic batch.
+    fn build_bundle(
+        &self,
+        authz: &AuthzContext,
+        gate_id: &str,
+        partition: &PartitionState,
+        window: &[(u64, PublicationRecord)],
+    ) -> Result<StoredBundle> {
+        assert!(!window.is_empty(), "publish composes at least its own");
 
         let graph = self.meta.get_gate_graph(authz.repo_id())?;
         let strategy = graph
@@ -267,10 +327,6 @@ impl Engine<'_> {
                 created_at: now(),
             },
         };
-        self.meta.put_bundle(&bundle)?;
-        // Event hint (doc 14 §5b): bundle state changed.
-        self.meta
-            .add_event(authz.repo_id(), "bundle", &bundle.bundle_id, &now())?;
         Ok(bundle)
     }
 
@@ -666,20 +722,47 @@ impl Engine<'_> {
             );
         }
 
-        self.meta
-            .record_promotion(bundle_id, &bundle.gate_id, to_gate, &now())?;
-
-        // Promotion advances the window (doc 17 §3): the promoted bundle
-        // becomes W and its window's publications leave the pool.
-        self.meta.set_partition_state(
-            authz.repo_id(),
-            authz.scope_id(),
-            &bundle.gate_id,
-            &PartitionState {
-                window_floor: bundle.window.1,
-                base_bundle_id: Some(bundle.bundle_id.clone()),
+        // One atomic operation (batch 13.1, audit H2): the promotion record
+        // and the window advance commit together, guarded against the
+        // partition moving under us — conflict is a clear error, not silent
+        // last-writer-wins.
+        let partition =
+            self.meta
+                .get_partition_state(authz.repo_id(), authz.scope_id(), &bundle.gate_id)?;
+        let ops = [
+            MetaOp::AssertPartitionState {
+                repo_id: authz.repo_id().to_string(),
+                scope_id: authz.scope_id().to_string(),
+                gate_id: bundle.gate_id.clone(),
+                expected: partition,
             },
-        )
+            MetaOp::RecordPromotion {
+                bundle_id: bundle_id.to_string(),
+                from_gate: bundle.gate_id.clone(),
+                to_gate: to_gate.to_string(),
+                at: now(),
+            },
+            // Promotion advances the window (doc 17 §3): the promoted bundle
+            // becomes W and its window's publications leave the pool.
+            MetaOp::SetPartitionState {
+                repo_id: authz.repo_id().to_string(),
+                scope_id: authz.scope_id().to_string(),
+                gate_id: bundle.gate_id.clone(),
+                state: PartitionState {
+                    window_floor: bundle.window.1,
+                    base_bundle_id: Some(bundle.bundle_id.clone()),
+                },
+            },
+        ];
+        self.meta.apply_batch(&ops).map_err(|err| {
+            if err.is::<BatchConflict>() {
+                anyhow::anyhow!(
+                    "partition advanced concurrently; re-check and retry promote: {err}"
+                )
+            } else {
+                err
+            }
+        })
     }
 }
 

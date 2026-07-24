@@ -9,7 +9,7 @@ use converge_model::{
     ReleaseRecord, RetentionPolicy, SnapRecord,
 };
 
-use crate::storage::{MetadataStore, PartitionState, StoredBundle};
+use crate::storage::{BatchConflict, MetaOp, MetadataStore, PartitionState, StoredBundle};
 
 /// Embedded metadata store. A single mutex-guarded connection serializes all
 /// writers, which trivially satisfies the per-partition write serialization
@@ -241,26 +241,19 @@ impl MetadataStore for SqliteMetadataStore {
         serde_json::from_str(&json).context("parse gate graph")
     }
 
-    fn add_publication(&self, publication: &PublicationRecord) -> Result<()> {
-        let json = serde_json::to_string(publication).context("serialize publication")?;
-        let conn = self.conn.lock().expect("meta lock");
-        // seq gives publications a total order within their partition.
-        conn.execute(
-            "INSERT INTO publications
-               (publication_id, repo_id, scope_id, gate_id, seq, record_json)
-             VALUES (?1, ?2, ?3, ?4,
-               (SELECT COALESCE(MAX(seq), 0) + 1 FROM publications
-                 WHERE repo_id = ?2 AND scope_id = ?3 AND gate_id = ?4),
-               ?5)",
-            params![
-                publication.publication_id,
-                publication.repo_id,
-                publication.scope_id,
-                publication.target_gate_id,
-                json
-            ],
-        )?;
+    fn apply_batch(&self, ops: &[MetaOp]) -> Result<()> {
+        let mut conn = self.conn.lock().expect("meta lock");
+        let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+        for op in ops {
+            apply_op_conn(&tx, op)?;
+        }
+        tx.commit().context("commit metadata batch")?;
         Ok(())
+    }
+
+    fn add_publication(&self, publication: &PublicationRecord) -> Result<()> {
+        let conn = self.conn.lock().expect("meta lock");
+        add_publication_conn(&conn, publication)
     }
 
     fn get_publication(&self, publication_id: &str) -> Result<Option<PublicationRecord>> {
@@ -440,55 +433,12 @@ impl MetadataStore for SqliteMetadataStore {
         state: &PartitionState,
     ) -> Result<()> {
         let conn = self.conn.lock().expect("meta lock");
-        conn.execute(
-            "INSERT INTO partitions (repo_id, scope_id, gate_id, window_floor, base_bundle_id)
-             VALUES (?1, ?2, ?3, ?4, ?5)
-             ON CONFLICT(repo_id, scope_id, gate_id) DO UPDATE SET
-               window_floor = excluded.window_floor,
-               base_bundle_id = excluded.base_bundle_id",
-            params![
-                repo_id,
-                scope_id,
-                gate_id,
-                state.window_floor as i64,
-                state.base_bundle_id
-            ],
-        )?;
-        Ok(())
+        set_partition_state_conn(&conn, repo_id, scope_id, gate_id, state)
     }
 
     fn put_bundle(&self, bundle: &StoredBundle) -> Result<()> {
-        let inputs = serde_json::to_string(&bundle.inputs)?;
-        let status = serde_json::to_string(&bundle.status)?;
         let conn = self.conn.lock().expect("meta lock");
-        conn.execute(
-            "INSERT INTO bundles
-               (bundle_id, repo_id, scope_id, gate_id, inputs_json, root_manifest,
-                base_bundle_id, window_first, window_last, strategy,
-                status_json, created_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)
-             ON CONFLICT(bundle_id) DO UPDATE SET
-               root_manifest = excluded.root_manifest,
-               status_json = excluded.status_json",
-            params![
-                bundle.bundle_id,
-                bundle.repo_id,
-                bundle.scope_id,
-                bundle.gate_id,
-                inputs,
-                bundle
-                    .root_manifest
-                    .as_ref()
-                    .map(|id| id.as_str().to_string()),
-                bundle.base_bundle_id,
-                bundle.window.0 as i64,
-                bundle.window.1 as i64,
-                bundle.strategy,
-                status,
-                bundle.created_at
-            ],
-        )?;
-        Ok(())
+        put_bundle_conn(&conn, bundle)
     }
 
     fn get_bundle(&self, bundle_id: &str) -> Result<StoredBundle> {
@@ -614,11 +564,7 @@ impl MetadataStore for SqliteMetadataStore {
         created_at: &str,
     ) -> Result<u64> {
         let conn = self.conn.lock().expect("meta lock");
-        conn.execute(
-            "INSERT INTO events (repo_id, kind, subject_id, created_at)
-             VALUES (?1, ?2, ?3, ?4)",
-            params![repo_id, kind, subject_id, created_at],
-        )?;
+        add_event_conn(&conn, repo_id, kind, subject_id, created_at)?;
         Ok(conn.last_insert_rowid() as u64)
     }
 
@@ -756,12 +702,7 @@ impl MetadataStore for SqliteMetadataStore {
         at: &str,
     ) -> Result<()> {
         let conn = self.conn.lock().expect("meta lock");
-        conn.execute(
-            "INSERT INTO promotions (bundle_id, from_gate, to_gate, promoted_at)
-             VALUES (?1, ?2, ?3, ?4)",
-            params![bundle_id, from_gate, to_gate, at],
-        )?;
-        Ok(())
+        record_promotion_conn(&conn, bundle_id, from_gate, to_gate, at)
     }
 
     fn list_promotions(&self, bundle_id: &str) -> Result<Vec<(String, String, String)>> {
@@ -859,4 +800,208 @@ impl MetadataStore for SqliteMetadataStore {
         )?;
         Ok(n > 0)
     }
+}
+
+// Per-connection statement helpers shared by the single-op trait methods
+// and the transactional batch path (batch 13.1) — one SQL source of truth.
+
+fn apply_op_conn(conn: &Connection, op: &MetaOp) -> Result<()> {
+    match op {
+        MetaOp::AddPublication(publication) => add_publication_conn(conn, publication),
+        MetaOp::PutBundle(bundle) => put_bundle_conn(conn, bundle),
+        MetaOp::SetPartitionState {
+            repo_id,
+            scope_id,
+            gate_id,
+            state,
+        } => set_partition_state_conn(conn, repo_id, scope_id, gate_id, state),
+        MetaOp::RecordPromotion {
+            bundle_id,
+            from_gate,
+            to_gate,
+            at,
+        } => record_promotion_conn(conn, bundle_id, from_gate, to_gate, at),
+        MetaOp::AddEvent {
+            repo_id,
+            kind,
+            subject_id,
+            created_at,
+        } => add_event_conn(conn, repo_id, kind, subject_id, created_at),
+        MetaOp::AssertPartitionState {
+            repo_id,
+            scope_id,
+            gate_id,
+            expected,
+        } => {
+            let actual = get_partition_state_conn(conn, repo_id, scope_id, gate_id)?;
+            if actual != *expected {
+                return Err(BatchConflict(format!(
+                    "partition {repo_id}/{scope_id}/{gate_id} moved: expected floor {} base {:?}, found floor {} base {:?}",
+                    expected.window_floor,
+                    expected.base_bundle_id,
+                    actual.window_floor,
+                    actual.base_bundle_id
+                ))
+                .into());
+            }
+            Ok(())
+        }
+        MetaOp::AssertPublicationCount {
+            repo_id,
+            scope_id,
+            gate_id,
+            after_seq,
+            expected,
+        } => {
+            let actual: i64 = conn.query_row(
+                "SELECT COUNT(*) FROM publications
+                 WHERE repo_id = ?1 AND scope_id = ?2 AND gate_id = ?3 AND seq > ?4",
+                params![repo_id, scope_id, gate_id, *after_seq as i64],
+                |row| row.get(0),
+            )?;
+            if actual as u64 != *expected {
+                return Err(BatchConflict(format!(
+                    "publication window for {repo_id}/{scope_id}/{gate_id} moved: expected {expected} after seq {after_seq}, found {actual}"
+                ))
+                .into());
+            }
+            Ok(())
+        }
+    }
+}
+
+fn add_publication_conn(conn: &Connection, publication: &PublicationRecord) -> Result<()> {
+    let json = serde_json::to_string(publication).context("serialize publication")?;
+    // seq gives publications a total order within their partition. The
+    // window floor participates so seq stays monotonic even after old
+    // publications are GC-deleted below the floor.
+    conn.execute(
+        "INSERT INTO publications
+           (publication_id, repo_id, scope_id, gate_id, seq, record_json)
+         VALUES (?1, ?2, ?3, ?4,
+           (SELECT MAX(
+              COALESCE((SELECT MAX(seq) FROM publications
+                         WHERE repo_id = ?2 AND scope_id = ?3 AND gate_id = ?4), 0),
+              COALESCE((SELECT window_floor FROM partitions
+                         WHERE repo_id = ?2 AND scope_id = ?3 AND gate_id = ?4), 0)
+            ) + 1),
+           ?5)",
+        params![
+            publication.publication_id,
+            publication.repo_id,
+            publication.scope_id,
+            publication.target_gate_id,
+            json
+        ],
+    )?;
+    Ok(())
+}
+
+fn put_bundle_conn(conn: &Connection, bundle: &StoredBundle) -> Result<()> {
+    let inputs = serde_json::to_string(&bundle.inputs)?;
+    let status = serde_json::to_string(&bundle.status)?;
+    conn.execute(
+        "INSERT INTO bundles
+           (bundle_id, repo_id, scope_id, gate_id, inputs_json, root_manifest,
+            base_bundle_id, window_first, window_last, strategy,
+            status_json, created_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)
+         ON CONFLICT(bundle_id) DO UPDATE SET
+           root_manifest = excluded.root_manifest,
+           status_json = excluded.status_json",
+        params![
+            bundle.bundle_id,
+            bundle.repo_id,
+            bundle.scope_id,
+            bundle.gate_id,
+            inputs,
+            bundle
+                .root_manifest
+                .as_ref()
+                .map(|id| id.as_str().to_string()),
+            bundle.base_bundle_id,
+            bundle.window.0 as i64,
+            bundle.window.1 as i64,
+            bundle.strategy,
+            status,
+            bundle.created_at
+        ],
+    )?;
+    Ok(())
+}
+
+fn set_partition_state_conn(
+    conn: &Connection,
+    repo_id: &str,
+    scope_id: &str,
+    gate_id: &str,
+    state: &PartitionState,
+) -> Result<()> {
+    conn.execute(
+        "INSERT INTO partitions (repo_id, scope_id, gate_id, window_floor, base_bundle_id)
+         VALUES (?1, ?2, ?3, ?4, ?5)
+         ON CONFLICT(repo_id, scope_id, gate_id) DO UPDATE SET
+           window_floor = excluded.window_floor,
+           base_bundle_id = excluded.base_bundle_id",
+        params![
+            repo_id,
+            scope_id,
+            gate_id,
+            state.window_floor as i64,
+            state.base_bundle_id
+        ],
+    )?;
+    Ok(())
+}
+
+fn get_partition_state_conn(
+    conn: &Connection,
+    repo_id: &str,
+    scope_id: &str,
+    gate_id: &str,
+) -> Result<PartitionState> {
+    let row = conn
+        .query_row(
+            "SELECT window_floor, base_bundle_id FROM partitions
+             WHERE repo_id = ?1 AND scope_id = ?2 AND gate_id = ?3",
+            params![repo_id, scope_id, gate_id],
+            |row| Ok((row.get::<_, i64>(0)?, row.get::<_, Option<String>>(1)?)),
+        )
+        .ok();
+    Ok(row
+        .map(|(floor, base)| PartitionState {
+            window_floor: floor as u64,
+            base_bundle_id: base,
+        })
+        .unwrap_or_default())
+}
+
+fn record_promotion_conn(
+    conn: &Connection,
+    bundle_id: &str,
+    from_gate: &str,
+    to_gate: &str,
+    at: &str,
+) -> Result<()> {
+    conn.execute(
+        "INSERT INTO promotions (bundle_id, from_gate, to_gate, promoted_at)
+         VALUES (?1, ?2, ?3, ?4)",
+        params![bundle_id, from_gate, to_gate, at],
+    )?;
+    Ok(())
+}
+
+fn add_event_conn(
+    conn: &Connection,
+    repo_id: &str,
+    kind: &str,
+    subject_id: &str,
+    created_at: &str,
+) -> Result<()> {
+    conn.execute(
+        "INSERT INTO events (repo_id, kind, subject_id, created_at)
+         VALUES (?1, ?2, ?3, ?4)",
+        params![repo_id, kind, subject_id, created_at],
+    )?;
+    Ok(())
 }
