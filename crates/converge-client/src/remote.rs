@@ -3,8 +3,9 @@ use std::collections::BTreeSet;
 use anyhow::{Context, Result, bail};
 
 use crate::model::{
-    ApproveRequest, BundleRecord, Manifest, ManifestEntryKind, NegotiateRequest, NegotiateResponse,
-    ObjectId, ObjectSet, PromoteRequest, PublishRequest, SuperpositionVariantKind, WIRE_VERSION,
+    AddLaneMemberRequest, ApproveRequest, BundleRecord, CreateLaneRequest, LaneRecord, Manifest,
+    ManifestEntryKind, NegotiateRequest, NegotiateResponse, ObjectId, ObjectSet, PromoteRequest,
+    PublishRequest, SuperpositionVariantKind, WIRE_VERSION,
 };
 use crate::store::LocalStore;
 
@@ -132,7 +133,7 @@ impl RemoteClient {
         snap_id: &str,
         root_manifest: &ObjectId,
         base_bundle_id: Option<String>,
-        lane_id: &str,
+        lane_id: Option<String>,
         notes: Option<String>,
     ) -> Result<(BundleRecord, UploadStats)> {
         let stats = self.upload_tree(store, root_manifest)?;
@@ -148,7 +149,7 @@ impl RemoteClient {
                     snap_id: snap_id.into(),
                     root_manifest: root_manifest.clone(),
                     base_bundle_id,
-                    lane_id: lane_id.into(),
+                    lane_id,
                     notes,
                 })
                 .send()
@@ -214,6 +215,55 @@ impl RemoteClient {
         Ok(())
     }
 
+    pub fn create_lane(
+        &self,
+        repo_id: &str,
+        lane_id: &str,
+        visibility: &str,
+    ) -> Result<LaneRecord> {
+        let response = Self::check(
+            self.http
+                .post(self.url(&format!("/api/repos/{repo_id}/lanes")))
+                .bearer_auth(&self.token)
+                .json(&CreateLaneRequest {
+                    lane_id: lane_id.into(),
+                    visibility: visibility.into(),
+                })
+                .send()
+                .context("create lane")?,
+        )?;
+        response.json().context("parse lane")
+    }
+
+    pub fn list_lanes(&self, repo_id: &str) -> Result<Vec<LaneRecord>> {
+        let response = Self::check(
+            self.http
+                .get(self.url(&format!("/api/repos/{repo_id}/lanes")))
+                .bearer_auth(&self.token)
+                .send()
+                .context("list lanes")?,
+        )?;
+        response.json().context("parse lanes")
+    }
+
+    pub fn add_lane_member(&self, repo_id: &str, lane_id: &str, member: &str) -> Result<()> {
+        // Lane ids may contain '/'; encode the path segment.
+        let lane_segment = lane_id.replace('%', "%25").replace('/', "%2F");
+        Self::check(
+            self.http
+                .post(self.url(&format!(
+                    "/api/repos/{repo_id}/lanes/{lane_segment}/members"
+                )))
+                .bearer_auth(&self.token)
+                .json(&AddLaneMemberRequest {
+                    member: member.into(),
+                })
+                .send()
+                .context("add lane member")?,
+        )?;
+        Ok(())
+    }
+
     pub fn approve(&self, bundle_id: &str, repo_id: &str, scope_id: &str) -> Result<()> {
         Self::check(
             self.http
@@ -252,6 +302,7 @@ impl RemoteClient {
     }
 }
 
+#[derive(Debug)]
 pub struct UploadStats {
     pub negotiated_manifests: usize,
     pub uploaded: usize,

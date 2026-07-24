@@ -60,6 +60,26 @@ fn put_file(fx: &Fixture, name: &str, content: &[u8]) -> Result<ObjectId> {
         .put(ObjectKind::Manifest, &serde_json::to_vec(&manifest)?)
 }
 
+fn ensure_lane(fx: &Fixture, lane: &str) {
+    if fx
+        .meta
+        .get_lane("repo", lane)
+        .expect("lane query")
+        .is_none()
+    {
+        fx.meta
+            .create_lane(&converge_model::LaneRecord {
+                lane_id: lane.into(),
+                repo_id: "repo".into(),
+                owner: "alice".into(),
+                members: vec!["bob".into()],
+                visibility: "repo".into(),
+                created_at: "2026-07-24T00:00:00Z".into(),
+            })
+            .expect("create lane");
+    }
+}
+
 fn publish(
     fx: &Fixture,
     lane: &str,
@@ -71,6 +91,7 @@ fn publish(
         meta: &fx.meta,
         objects: &fx.objects,
     };
+    ensure_lane(fx, lane);
     let authz = authorize(&fx.meta, "alice", "repo", "scope", Capability::Publish)?;
     engine.publish(
         authz,
@@ -79,7 +100,7 @@ fn publish(
             snap_id: snap.into(),
             root_manifest: root,
             base_bundle_id: base,
-            lane_id: lane.into(),
+            lane_id: Some(lane.into()),
             notes: None,
         },
     )

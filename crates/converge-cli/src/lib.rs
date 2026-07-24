@@ -98,9 +98,9 @@ enum Command {
         /// Target gate; defaults to the configured gate.
         #[arg(long)]
         gate: Option<String>,
-        /// Lane identity for provenance.
-        #[arg(long, default_value = "default")]
-        lane: String,
+        /// Lane for provenance; defaults to your personal lane.
+        #[arg(long)]
+        lane: Option<String>,
         #[arg(long)]
         notes: Option<String>,
     },
@@ -117,6 +117,11 @@ enum Command {
     Status,
     /// Set or replace a snap's message (identity is unaffected).
     Annotate { snap_id: String, message: String },
+    /// Lane registry operations.
+    Lane {
+        #[command(subcommand)]
+        command: LaneCommand,
+    },
     /// Show the configured remote for this workspace.
     Remote,
     /// Watch the workspace and capture automatic snaps on quiet periods.
@@ -128,6 +133,20 @@ enum Command {
         #[arg(long)]
         once: bool,
     },
+}
+
+#[derive(Subcommand)]
+enum LaneCommand {
+    /// Register a lane you will own.
+    Create {
+        lane_id: String,
+        #[arg(long, default_value = "private")]
+        visibility: String,
+    },
+    /// List the repo's lanes.
+    List,
+    /// Add a member to a lane you own.
+    AddMember { lane_id: String, member: String },
 }
 
 #[derive(Subcommand)]
@@ -357,7 +376,7 @@ fn run(cli: &Cli, mode: OutputMode) -> Result<serde_json::Value> {
                 &snap.id,
                 &snap.root_manifest,
                 base,
-                lane,
+                lane.clone(),
                 notes.clone(),
             )?;
             ws.store
@@ -498,6 +517,41 @@ fn run(cli: &Cli, mode: OutputMode) -> Result<serde_json::Value> {
             emit(mode, bundle, |b| {
                 println!("bundle {}: {:?}", b.bundle_id, b.status);
             })
+        }
+        Command::Lane { command } => {
+            let ws = open_workspace()?;
+            let (client, remote) = remote_client(&ws)?;
+            match command {
+                LaneCommand::Create {
+                    lane_id,
+                    visibility,
+                } => {
+                    let lane = client.create_lane(&remote.repo_id, lane_id, visibility)?;
+                    emit(mode, lane, |l| {
+                        println!("lane {} created ({})", l.lane_id, l.visibility);
+                    })
+                }
+                LaneCommand::List => {
+                    let lanes = client.list_lanes(&remote.repo_id)?;
+                    emit(mode, lanes, |lanes| {
+                        for lane in lanes {
+                            println!(
+                                "{}  owner={}  members={}  {}",
+                                lane.lane_id,
+                                lane.owner,
+                                lane.members.len(),
+                                lane.visibility
+                            );
+                        }
+                    })
+                }
+                LaneCommand::AddMember { lane_id, member } => {
+                    client.add_lane_member(&remote.repo_id, lane_id, member)?;
+                    emit(mode, format!("{member} -> {lane_id}"), |m| {
+                        println!("added {m}");
+                    })
+                }
+            }
         }
         Command::Annotate { snap_id, message } => {
             let ws = open_workspace()?;

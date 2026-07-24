@@ -1,6 +1,6 @@
 # 022 Lane Model and Registry
 
-Status: ready
+Status: complete
 Updated: 2026-07-24
 Roadmap: `g02.007`
 Spec: `docs/specs/007-lanes-and-collaboration.md`
@@ -43,6 +43,23 @@ provenance references registered lanes only.
 
 - lane visibility semantics get murky — route through architecture first
 
+## Outcome
+
+- `LaneRecord` wire type (owner, members, visibility private|repo);
+  lane routes (`POST/GET /api/repos/:repo/lanes`, member add with
+  slash-safe lane segments); lanes table in the metadata store
+- publish rejects unregistered lanes; named lanes require owner/member;
+  `lane_id` now `Option` — omitted lane auto-provisions
+  `personal/<subject>` (private, subject-owned)
+- membership managed by the owner only (403 otherwise); duplicate lane
+  creation rejected
+- client `create_lane`/`list_lanes`/`add_lane_member`; CLI
+  `lane create|list|add-member`; publish `--lane` optional, defaulting to
+  the personal lane
+- 3 HTTP lane tests (lifecycle + enforcement, personal auto-provision,
+  private-lane intrusion denial); fixtures across suites register their
+  lanes; 69 workspace tests green
+
 ## Next Task
 
-On completion, open the Batch 7.2 unpublished-sync card.
+Execute the Batch 7.2 unpublished-sync card (`023-unpublished-sync.md`).

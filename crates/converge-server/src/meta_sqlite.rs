@@ -4,7 +4,7 @@ use std::sync::Mutex;
 use anyhow::{Context, Result, anyhow};
 use rusqlite::{Connection, params};
 
-use converge_model::{BundleStatus, GateGraph, ObjectId, PublicationRecord};
+use converge_model::{BundleStatus, GateGraph, LaneRecord, ObjectId, PublicationRecord};
 
 use crate::storage::{MetadataStore, PartitionState, StoredBundle};
 
@@ -74,6 +74,12 @@ impl SqliteMetadataStore {
                 bundle_id TEXT NOT NULL,
                 approver TEXT NOT NULL,
                 PRIMARY KEY (bundle_id, approver)
+            );
+            CREATE TABLE IF NOT EXISTS lanes (
+                repo_id TEXT NOT NULL,
+                lane_id TEXT NOT NULL,
+                record_json TEXT NOT NULL,
+                PRIMARY KEY (repo_id, lane_id)
             );
             CREATE TABLE IF NOT EXISTS partitions (
                 repo_id TEXT NOT NULL,
@@ -230,6 +236,60 @@ impl MetadataStore for SqliteMetadataStore {
             ));
         }
         Ok(out)
+    }
+
+    fn create_lane(&self, lane: &LaneRecord) -> Result<()> {
+        let json = serde_json::to_string(lane)?;
+        let conn = self.conn.lock().expect("meta lock");
+        let inserted = conn.execute(
+            "INSERT OR IGNORE INTO lanes (repo_id, lane_id, record_json) VALUES (?1, ?2, ?3)",
+            params![lane.repo_id, lane.lane_id, json],
+        )?;
+        if inserted == 0 {
+            return Err(anyhow!("lane {} already exists", lane.lane_id));
+        }
+        Ok(())
+    }
+
+    fn get_lane(&self, repo_id: &str, lane_id: &str) -> Result<Option<LaneRecord>> {
+        let conn = self.conn.lock().expect("meta lock");
+        let json: Option<String> = conn
+            .query_row(
+                "SELECT record_json FROM lanes WHERE repo_id = ?1 AND lane_id = ?2",
+                params![repo_id, lane_id],
+                |row| row.get(0),
+            )
+            .ok();
+        json.map(|j| serde_json::from_str(&j).context("parse lane"))
+            .transpose()
+    }
+
+    fn list_lanes(&self, repo_id: &str) -> Result<Vec<LaneRecord>> {
+        let conn = self.conn.lock().expect("meta lock");
+        let mut stmt =
+            conn.prepare("SELECT record_json FROM lanes WHERE repo_id = ?1 ORDER BY lane_id ASC")?;
+        let rows = stmt.query_map(params![repo_id], |row| row.get::<_, String>(0))?;
+        let mut out = Vec::new();
+        for row in rows {
+            out.push(serde_json::from_str(&row?).context("parse lane")?);
+        }
+        Ok(out)
+    }
+
+    fn add_lane_member(&self, repo_id: &str, lane_id: &str, member: &str) -> Result<()> {
+        let mut lane = self
+            .get_lane(repo_id, lane_id)?
+            .ok_or_else(|| anyhow!("no lane {lane_id}"))?;
+        if !lane.members.contains(&member.to_string()) {
+            lane.members.push(member.to_string());
+        }
+        let json = serde_json::to_string(&lane)?;
+        let conn = self.conn.lock().expect("meta lock");
+        conn.execute(
+            "UPDATE lanes SET record_json = ?3 WHERE repo_id = ?1 AND lane_id = ?2",
+            params![repo_id, lane_id, json],
+        )?;
+        Ok(())
     }
 
     fn get_partition_state(

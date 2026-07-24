@@ -48,7 +48,9 @@ pub struct PublishRequest {
     pub root_manifest: ObjectId,
     #[serde(default)]
     pub base_bundle_id: Option<String>,
-    pub lane_id: String,
+    /// `None` -> the publisher's auto-provisioned personal lane.
+    #[serde(default)]
+    pub lane_id: Option<String>,
     pub notes: Option<String>,
 }
 
@@ -108,6 +110,31 @@ pub struct BundleRecord {
     pub strategy: String,
     pub status: BundleStatus,
     pub created_at: String,
+}
+
+/// A registered lane (g02.007): ownership and visibility for the
+/// breadth/visibility partition. Publications may only name registered
+/// lanes; `personal/<subject>` lanes auto-provision on first use.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct LaneRecord {
+    pub lane_id: String,
+    pub repo_id: String,
+    pub owner: String,
+    pub members: Vec<String>,
+    /// "private" (owner + members) or "repo" (visible to repo readers).
+    pub visibility: String,
+    pub created_at: String,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct CreateLaneRequest {
+    pub lane_id: String,
+    pub visibility: String,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct AddLaneMemberRequest {
+    pub member: String,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

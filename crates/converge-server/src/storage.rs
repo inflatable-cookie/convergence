@@ -1,6 +1,6 @@
 use anyhow::Result;
 
-use converge_model::{BundleStatus, GateGraph, ObjectId, PublicationRecord};
+use converge_model::{BundleStatus, GateGraph, LaneRecord, ObjectId, PublicationRecord};
 
 /// Content-addressed object storage (blobs, manifests, recipes). Embedded
 /// impl is sharded local FS; external impls (S3) arrive later (arch 14).
@@ -78,6 +78,12 @@ pub trait MetadataStore: Send + Sync {
     fn repo_exists(&self, repo_id: &str) -> Result<bool>;
     fn set_gate_graph(&self, repo_id: &str, graph: &GateGraph) -> Result<()>;
     fn get_gate_graph(&self, repo_id: &str) -> Result<GateGraph>;
+
+    // lanes (g02.007)
+    fn create_lane(&self, lane: &LaneRecord) -> Result<()>;
+    fn get_lane(&self, repo_id: &str, lane_id: &str) -> Result<Option<LaneRecord>>;
+    fn list_lanes(&self, repo_id: &str) -> Result<Vec<LaneRecord>>;
+    fn add_lane_member(&self, repo_id: &str, lane_id: &str, member: &str) -> Result<()>;
 
     // partition state (repo, scope, gate)
     fn add_publication(&self, publication: &PublicationRecord) -> Result<()>;

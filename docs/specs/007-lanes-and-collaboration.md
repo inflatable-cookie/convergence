@@ -20,8 +20,9 @@ doc 17 before code.
 
 ## Current State
 
-- Batch 7.1 has a ready card:
-  `docs/roadmaps/g02/batch-cards/022-lane-model-and-registry.md`
+- Batch 7.1 (lane model and registry) complete.
+- Batch 7.2 has a ready card:
+  `docs/roadmaps/g02/batch-cards/023-unpublished-sync.md`
 
 ## Exit Condition
 
@@ -29,4 +30,4 @@ Roadmap `g02.007` exit criteria met.
 
 ## Next Task
 
-Execute the ready Batch 7.1 card.
+Execute the ready Batch 7.2 card.

@@ -2,7 +2,7 @@ use anyhow::{Result, bail};
 use time::OffsetDateTime;
 use time::format_description::well_known::Rfc3339;
 
-use converge_model::{BundleStatus, ObjectId, PublicationRecord};
+use converge_model::{BundleStatus, LaneRecord, ObjectId, PublicationRecord};
 
 use crate::authz::{AuthzContext, Capability};
 use crate::merge::{MergeInput, merge_window};
@@ -22,7 +22,8 @@ pub struct PublishInput {
     pub root_manifest: ObjectId,
     /// The bundle the publisher last saw for this target (doc 17 §2).
     pub base_bundle_id: Option<String>,
-    pub lane_id: String,
+    /// `None` -> the publisher's auto-provisioned personal lane.
+    pub lane_id: Option<String>,
     pub notes: Option<String>,
 }
 
@@ -67,6 +68,40 @@ impl Engine<'_> {
             }
         }
 
+        // Lane resolution (g02.007): publications name registered lanes
+        // only. No lane -> the publisher's personal lane, auto-provisioned.
+        let lane_id = match &input.lane_id {
+            Some(lane_id) => {
+                let lane = self
+                    .meta
+                    .get_lane(authz.repo_id(), lane_id)?
+                    .ok_or_else(|| anyhow::anyhow!("lane {lane_id} is not registered"))?;
+                if lane.owner != authz.subject()
+                    && !lane.members.contains(&authz.subject().to_string())
+                {
+                    bail!(
+                        "{} is not an owner or member of lane {lane_id}",
+                        authz.subject()
+                    );
+                }
+                lane_id.clone()
+            }
+            None => {
+                let personal = format!("personal/{}", authz.subject());
+                if self.meta.get_lane(authz.repo_id(), &personal)?.is_none() {
+                    self.meta.create_lane(&LaneRecord {
+                        lane_id: personal.clone(),
+                        repo_id: authz.repo_id().to_string(),
+                        owner: authz.subject().to_string(),
+                        members: Vec::new(),
+                        visibility: "private".to_string(),
+                        created_at: now(),
+                    })?;
+                }
+                personal
+            }
+        };
+
         let created_at = now();
         let publication_id = {
             let mut hasher = blake3::Hasher::new();
@@ -86,7 +121,7 @@ impl Engine<'_> {
             repo_id: authz.repo_id().to_string(),
             scope_id: authz.scope_id().to_string(),
             target_gate_id: input.gate_id.clone(),
-            lane_id: input.lane_id.clone(),
+            lane_id,
             publisher: authz.subject().to_string(),
             created_at,
             notes: input.notes.clone(),

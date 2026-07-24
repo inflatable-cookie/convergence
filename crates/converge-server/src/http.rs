@@ -10,8 +10,9 @@ use axum::{Json, Router};
 use serde_json::json;
 
 use converge_model::{
-    ApproveRequest, BundleRecord, NegotiateRequest, NegotiateResponse, ObjectId, ObjectSet,
-    PromoteRequest, PublishRequest, WIRE_VERSION,
+    AddLaneMemberRequest, ApproveRequest, BundleRecord, CreateLaneRequest, LaneRecord,
+    NegotiateRequest, NegotiateResponse, ObjectId, ObjectSet, PromoteRequest, PublishRequest,
+    WIRE_VERSION,
 };
 
 use crate::authz::{Capability, authorize};
@@ -37,6 +38,11 @@ pub fn router(state: AppState) -> Router {
         .route("/api/bundles/:id", get(get_bundle))
         .route("/api/bundles/:id/approve", post(approve))
         .route("/api/bundles/:id/promote", post(promote))
+        .route("/api/repos/:repo/lanes", post(create_lane).get(list_lanes))
+        .route(
+            "/api/repos/:repo/lanes/:lane/members",
+            post(add_lane_member),
+        )
         .with_state(Arc::new(state))
 }
 
@@ -190,6 +196,83 @@ async fn publish(
         )
         .map_err(|err| bad_request(format!("{err:#}")))?;
     Ok(Json(bundle_record(&bundle)))
+}
+
+async fn create_lane(
+    State(state): State<SharedState>,
+    Path(repo): Path<String>,
+    headers: HeaderMap,
+    Json(request): Json<CreateLaneRequest>,
+) -> Result<Json<LaneRecord>, ApiError> {
+    let subject = subject(&state, &headers)?;
+    // Creating a lane is a publish-capability act on the repo.
+    authorize(
+        state.meta.as_ref(),
+        &subject,
+        &repo,
+        "*",
+        Capability::Publish,
+    )
+    .map_err(|err| forbidden(format!("{err:#}")))?;
+    if !matches!(request.visibility.as_str(), "private" | "repo") {
+        return Err(bad_request(format!(
+            "unknown visibility {}",
+            request.visibility
+        )));
+    }
+    let lane = LaneRecord {
+        lane_id: request.lane_id,
+        repo_id: repo,
+        owner: subject,
+        members: Vec::new(),
+        visibility: request.visibility,
+        created_at: time::OffsetDateTime::now_utc()
+            .format(&time::format_description::well_known::Rfc3339)
+            .unwrap_or_default(),
+    };
+    state
+        .meta
+        .create_lane(&lane)
+        .map_err(|err| bad_request(format!("{err:#}")))?;
+    Ok(Json(lane))
+}
+
+async fn list_lanes(
+    State(state): State<SharedState>,
+    Path(repo): Path<String>,
+    headers: HeaderMap,
+) -> Result<Json<Vec<LaneRecord>>, ApiError> {
+    let subject = subject(&state, &headers)?;
+    authorize(state.meta.as_ref(), &subject, &repo, "*", Capability::Read)
+        .map_err(|err| forbidden(format!("{err:#}")))?;
+    let lanes = state
+        .meta
+        .list_lanes(&repo)
+        .map_err(|err| bad_request(format!("{err:#}")))?;
+    Ok(Json(lanes))
+}
+
+async fn add_lane_member(
+    State(state): State<SharedState>,
+    Path((repo, lane)): Path<(String, String)>,
+    headers: HeaderMap,
+    Json(request): Json<AddLaneMemberRequest>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let subject = subject(&state, &headers)?;
+    let record = state
+        .meta
+        .get_lane(&repo, &lane)
+        .map_err(|err| bad_request(format!("{err:#}")))?
+        .ok_or_else(|| ApiError(StatusCode::NOT_FOUND, format!("no lane {lane}")))?;
+    // Membership is managed by the owner.
+    if record.owner != subject {
+        return Err(forbidden(format!("only {} may add members", record.owner)));
+    }
+    state
+        .meta
+        .add_lane_member(&repo, &lane, &request.member)
+        .map_err(|err| bad_request(format!("{err:#}")))?;
+    Ok(Json(json!({"ok": true})))
 }
 
 async fn get_bundle(

@@ -39,6 +39,16 @@ fn start_server(data_dir: &std::path::Path) -> Result<String> {
             meta.add_grant(subject, "repo", "*", capability)?;
         }
     }
+    for (lane, owner) in [("lane-a", "alice"), ("lane-b", "bob")] {
+        meta.create_lane(&converge_model::LaneRecord {
+            lane_id: lane.into(),
+            repo_id: "repo".into(),
+            owner: owner.into(),
+            members: vec![],
+            visibility: "repo".into(),
+            created_at: "2026-07-24T00:00:00Z".into(),
+        })?;
+    }
 
     let state = AppState {
         meta: Arc::new(meta),
@@ -92,7 +102,7 @@ fn full_vertical_slice_over_http() -> Result<()> {
         &snap_a.id,
         &snap_a.root_manifest,
         None,
-        "lane-a",
+        Some("lane-a".into()),
         None,
     )?;
     assert!(stats_a.uploaded > 0);
@@ -106,7 +116,7 @@ fn full_vertical_slice_over_http() -> Result<()> {
         &snap_b.id,
         &snap_b.root_manifest,
         None,
-        "lane-b",
+        Some("lane-b".into()),
         None,
     )?;
     // Dedup: only B's divergent blob + manifest travel; common blob is known.
@@ -152,7 +162,7 @@ fn full_vertical_slice_over_http() -> Result<()> {
         "resolved-snap",
         &resolved_root,
         None,
-        "lane-a",
+        Some("lane-a".into()),
         Some("resolution of shared.txt".into()),
     )?;
     assert_eq!(
