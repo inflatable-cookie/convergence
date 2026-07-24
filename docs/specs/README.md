@@ -17,13 +17,12 @@ repo needs tighter execution grammar than the roadmap alone provides.
 
 ## Active Spec Set
 
-There is no active spec; the lane is in planning awaiting operator intent.
+There is no active spec; the `g02.011`-`g02.018` hardening program is
+open and roadmap-driven. Specs/batch cards open per batch as work
+starts.
 
 Archived specs live in [`archive/`](./archive/).
 
 ## Next Task
 
-Intent checkpoint: the g02.005-g02.010 improvement program is complete
-and there is no ready card. Candidate next boundaries (operator's call):
-backlog items (manifest paging, workflow profiles, edge nodes, real
-identity, SSE transport), or a v1.0 hardening/release boundary.
+Open batch card 11.1 (read authorization) under `g02.011`.

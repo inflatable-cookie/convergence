@@ -55,7 +55,6 @@ cargo nextest run -P ci
 
 ## Next task
 
-Intent checkpoint: the g02.005-g02.010 improvement program is complete
-and there is no ready card. Candidate next boundaries (operator's call):
-backlog items (manifest paging, workflow profiles, edge nodes, real
-identity, SSE transport), or a v1.0 hardening/release boundary.002` Batch 2.4 rebuild-architecture card.
+The audit hardening program `g02.011`-`g02.018` is open. Active
+roadmap: `g02.011` server trust boundaries; next move is batch card
+11.1 (read authorization).

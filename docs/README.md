@@ -47,7 +47,7 @@ prefers `cargo nextest` when it is available on the machine.
 
 ## Next Task
 
-Intent checkpoint: the g02.005-g02.010 improvement program is complete
-and there is no ready card. Candidate next boundaries (operator's call):
-backlog items (manifest paging, workflow profiles, edge nodes, real
-identity, SSE transport), or a v1.0 hardening/release boundary.
+The audit hardening program `g02.011`-`g02.018` is open (findings
+record: `logs/2026-07/24-180000-audit-findings-and-hardening-program.md`).
+Active roadmap: `g02.011` server trust boundaries. Next move: open
+batch card 11.1 (read authorization).

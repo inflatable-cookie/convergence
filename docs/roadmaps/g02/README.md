@@ -10,11 +10,14 @@ runs the rebuild improvement program.
 
 ## Current State
 
-The g02.005-g02.010 improvement program is **complete** — all ten g02
-roadmaps are closed. The lane is in planning awaiting the next operator
-boundary.
+The g02.005-g02.010 improvement program is **complete**. The 2026-07-24
+four-part audit (server security, client/sync/git correctness, UX,
+architecture/docs/tests) produced the hardening program `g02.011`-
+`g02.018`, sequenced security → data safety → transactional/merge
+correctness → architecture honesty → scale walls → workflow completion
+→ TUI spec parity → adversarial test hardening.
 
-There is no ready card.
+Active roadmap: `g02.011`. No ready card yet — open batch card 11.1.
 
 ## Lanes
 
@@ -28,10 +31,15 @@ There is no ready card.
 - [`008-releases-retention-and-gc.md`](./008-releases-retention-and-gc.md) — complete
 - [`009-git-interop.md`](./009-git-interop.md) — complete
 - [`010-scale-and-transport.md`](./010-scale-and-transport.md) — complete
+- [`011-server-trust-boundaries.md`](./011-server-trust-boundaries.md) — planned (active)
+- [`012-data-safety.md`](./012-data-safety.md) — planned
+- [`013-transactional-and-merge-correctness.md`](./013-transactional-and-merge-correctness.md) — planned
+- [`014-architecture-honesty.md`](./014-architecture-honesty.md) — planned
+- [`015-scale-walls.md`](./015-scale-walls.md) — planned
+- [`016-workflow-completion.md`](./016-workflow-completion.md) — planned
+- [`017-tui-spec-parity.md`](./017-tui-spec-parity.md) — planned
+- [`018-adversarial-test-hardening.md`](./018-adversarial-test-hardening.md) — planned
 
 ## Next Task
 
-Intent checkpoint: the g02.005-g02.010 improvement program is complete
-and there is no ready card. Candidate next boundaries (operator's call):
-backlog items (manifest paging, workflow profiles, edge nodes, real
-identity, SSE transport), or a v1.0 hardening/release boundary.
+Open batch card 11.1 (read authorization) under `g02.011`.

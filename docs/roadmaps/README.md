@@ -16,7 +16,7 @@ Convergence roadmaps hold executable milestone work.
 ## Current generation
 
 - Active generation: `g02`
-- Next roadmap ID: `g02.011`
+- Next roadmap ID: `g02.019`
 
 ## Index
 
@@ -29,9 +29,10 @@ records the closed state.
 
 ## Active strict lane
 
-- The g02.005-g02.010 improvement program is complete; every g02
-  roadmap is closed. The lane is in planning awaiting operator intent.
-- no ready card
+- The audit hardening program `g02.011`-`g02.018` is open (from the
+  2026-07-24 four-part audit), sequenced security-first.
+- Active roadmap: `g02.011` server trust boundaries.
+- no ready card yet — next move is opening batch card 11.1
 
 ## Rollover guardrail
 
@@ -45,7 +46,4 @@ Before rollover:
 
 ## Next Task
 
-Intent checkpoint: the g02.005-g02.010 improvement program is complete
-and there is no ready card. Candidate next boundaries (operator's call):
-backlog items (manifest paging, workflow profiles, edge nodes, real
-identity, SSE transport), or a v1.0 hardening/release boundary.
+Open batch card 11.1 (read authorization) under `g02.011`.

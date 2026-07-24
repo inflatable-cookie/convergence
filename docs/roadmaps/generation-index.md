@@ -2,14 +2,19 @@
 
 - `g02`
   - Status: active
-  - Range: `001` to `010`
+  - Range: `001` to `018`
   - Notes: |
     Post-research planning gate (001), archive-and-rebuild boundary
     (002), rebuild vertical slice (003), TUI rebuild (004), semantics
     revision (005), continuous capture and workspace UX (006), lanes and
-    collaboration (007), releases/retention/GC (008) — all complete.
-    Git interop (009) and scale and transport (010) — complete.
-    The g02.005-g02.010 improvement program is closed.
+    collaboration (007), releases/retention/GC (008), git interop (009),
+    scale and transport (010) — all complete.
+    Audit hardening program (011-018, opened 2026-07-24 from the
+    four-part audit): server trust boundaries (011), data safety (012),
+    transactional and merge correctness (013), architecture honesty
+    (014), scale walls (015), workflow completion (016), TUI spec
+    parity (017), adversarial test hardening (018) — planned; 011
+    active.
 
 - `g01`
   - Status: complete
