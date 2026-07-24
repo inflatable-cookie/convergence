@@ -32,6 +32,7 @@ fn fixture() -> Result<Fixture> {
                 upstreams: vec![],
                 required_approvals: 0,
                 strategy: "text-line-merge".into(),
+                may_release: false,
             }],
         },
     )?;

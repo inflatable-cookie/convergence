@@ -20,8 +20,10 @@ anger.
 
 ## Current State
 
-- Batch 8.1 has a ready card:
-  `docs/roadmaps/g02/batch-cards/026-release-channels.md`
+- Batch 8.1 (release channels) complete — the six-verb contract is now
+  fully implemented end to end.
+- Batch 8.2 has a ready card:
+  `docs/roadmaps/g02/batch-cards/027-retention-policy.md`
 
 ## Exit Condition
 
@@ -29,4 +31,4 @@ Roadmap `g02.008` exit criteria met.
 
 ## Next Task
 
-Execute the ready Batch 8.1 card.
+Execute the ready Batch 8.2 card.

@@ -22,6 +22,7 @@ fn start_server(data_dir: &std::path::Path) -> Result<String> {
                     upstreams: vec![],
                     required_approvals: 1,
                     strategy: "whole-file".into(),
+                    may_release: false,
                 },
                 GateNode {
                     gate_id: "main".into(),
@@ -29,6 +30,7 @@ fn start_server(data_dir: &std::path::Path) -> Result<String> {
                     upstreams: vec!["intake".into()],
                     required_approvals: 0,
                     strategy: "whole-file".into(),
+                    may_release: false,
                 },
             ],
         },

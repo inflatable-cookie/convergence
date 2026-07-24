@@ -12,7 +12,8 @@ use serde_json::json;
 use converge_model::{
     AddLaneMemberRequest, ApproveRequest, BundleProvenance, BundleRecord, CreateLaneRequest,
     InboxReport, LaneHead, LaneRecord, NegotiateRequest, NegotiateResponse, ObjectId, ObjectSet,
-    PromoteRequest, PublishRequest, SetLaneHeadRequest, SnapRecord, WIRE_VERSION,
+    PromoteRequest, PublishRequest, ReleaseRecord, ReleaseRequest, SetLaneHeadRequest, SnapRecord,
+    WIRE_VERSION,
 };
 
 use crate::authz::{Capability, authorize};
@@ -48,6 +49,9 @@ pub fn router(state: AppState) -> Router {
         .route("/api/repos/:repo/lane-head", post(set_lane_head))
         .route("/api/repos/:repo/lane-head/:lane", get(get_lane_head))
         .route("/api/repos/:repo/inbox", get(inbox))
+        .route("/api/bundles/:id/release", post(release))
+        .route("/api/repos/:repo/releases", get(list_releases))
+        .route("/api/repos/:repo/release/:channel", get(channel_head))
         .with_state(Arc::new(state))
 }
 
@@ -465,6 +469,67 @@ async fn approve(
         .approve(authz, &id)
         .map_err(|err| bad_request(format!("{err:#}")))?;
     Ok(Json(json!({"ok": true, "approvals": approvals})))
+}
+
+async fn release(
+    State(state): State<SharedState>,
+    Path(id): Path<String>,
+    headers: HeaderMap,
+    Json(request): Json<ReleaseRequest>,
+) -> Result<Json<ReleaseRecord>, ApiError> {
+    let subject = subject(&state, &headers)?;
+    let authz = authorize(
+        state.meta.as_ref(),
+        &subject,
+        &request.repo_id,
+        &request.scope_id,
+        Capability::Release,
+    )
+    .map_err(|err| forbidden(format!("{err:#}")))?;
+    let engine = Engine {
+        meta: state.meta.as_ref(),
+        objects: state.objects.as_ref(),
+    };
+    let release = engine
+        .release(authz, &id, &request.channel, request.notes)
+        .map_err(|err| bad_request(format!("{err:#}")))?;
+    Ok(Json(release))
+}
+
+async fn list_releases(
+    State(state): State<SharedState>,
+    Path(repo): Path<String>,
+    headers: HeaderMap,
+) -> Result<Json<Vec<ReleaseRecord>>, ApiError> {
+    let subject = subject(&state, &headers)?;
+    authorize(state.meta.as_ref(), &subject, &repo, "*", Capability::Read)
+        .map_err(|err| forbidden(format!("{err:#}")))?;
+    let releases = state
+        .meta
+        .list_releases(&repo)
+        .map_err(|err| bad_request(format!("{err:#}")))?;
+    Ok(Json(releases))
+}
+
+async fn channel_head(
+    State(state): State<SharedState>,
+    Path((repo, channel)): Path<(String, String)>,
+    headers: HeaderMap,
+) -> Result<Json<ReleaseRecord>, ApiError> {
+    let subject = subject(&state, &headers)?;
+    authorize(state.meta.as_ref(), &subject, &repo, "*", Capability::Read)
+        .map_err(|err| forbidden(format!("{err:#}")))?;
+    state
+        .meta
+        .get_channel_head(&repo, &channel)
+        .map_err(|err| bad_request(format!("{err:#}")))?
+        .map(Json)
+        .ok_or_else(|| {
+            ApiError(
+                StatusCode::NOT_FOUND,
+                format!("channel {channel} has no release"),
+            )
+        })
 }
 
 async fn promote(

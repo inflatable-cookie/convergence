@@ -4,7 +4,7 @@ use time::format_description::well_known::Rfc3339;
 
 use converge_model::{
     BundleStatus, InboxBundle, InboxLane, InboxPublication, InboxReport, LaneHead, LaneRecord,
-    ObjectId, PublicationRecord, SnapRecord,
+    ObjectId, PublicationRecord, ReleaseRecord, SnapRecord,
 };
 
 use crate::authz::{AuthzContext, Capability};
@@ -439,6 +439,49 @@ impl Engine<'_> {
         ensure_partition(&authz, &bundle)?;
         self.meta.add_approval(bundle_id, authz.subject())?;
         self.meta.count_approvals(bundle_id)
+    }
+
+    /// The sixth verb: designate a ready, promotable bundle for
+    /// consumption on a named channel. Policy: the producing gate must be
+    /// marked `may_release` (vision: release is a policy-driven output,
+    /// not the terminal gate by definition).
+    pub fn release(
+        &self,
+        authz: AuthzContext,
+        bundle_id: &str,
+        channel: &str,
+        notes: Option<String>,
+    ) -> Result<ReleaseRecord> {
+        require(&authz, Capability::Release)?;
+        let bundle = self.meta.get_bundle(bundle_id)?;
+        ensure_partition(&authz, &bundle)?;
+        match &bundle.status {
+            BundleStatus::Ready { promotable: true } => {}
+            BundleStatus::Ready { promotable: false } => {
+                bail!("bundle {bundle_id} has unresolved superpositions")
+            }
+            other => bail!("bundle {bundle_id} is not ready: {other:?}"),
+        }
+        let graph = self.meta.get_gate_graph(authz.repo_id())?;
+        let gate = graph
+            .gates
+            .iter()
+            .find(|g| g.gate_id == bundle.gate_id)
+            .ok_or_else(|| anyhow::anyhow!("unknown producing gate {}", bundle.gate_id))?;
+        if !gate.may_release {
+            bail!("gate {} may not release", bundle.gate_id);
+        }
+        let release = ReleaseRecord {
+            channel: channel.to_string(),
+            repo_id: authz.repo_id().to_string(),
+            scope_id: authz.scope_id().to_string(),
+            bundle_id: bundle_id.to_string(),
+            released_by: authz.subject().to_string(),
+            notes,
+            created_at: now(),
+        };
+        self.meta.add_release(&release)?;
+        Ok(release)
     }
 
     /// Policy-checked promotion (arch 14 §3): target gate must list the

@@ -5,7 +5,8 @@ use anyhow::{Context, Result, anyhow};
 use rusqlite::{Connection, params};
 
 use converge_model::{
-    BundleStatus, GateGraph, LaneHead, LaneRecord, ObjectId, PublicationRecord, SnapRecord,
+    BundleStatus, GateGraph, LaneHead, LaneRecord, ObjectId, PublicationRecord, ReleaseRecord,
+    SnapRecord,
 };
 
 use crate::storage::{MetadataStore, PartitionState, StoredBundle};
@@ -103,6 +104,12 @@ impl SqliteMetadataStore {
                 window_floor INTEGER NOT NULL DEFAULT 0,
                 base_bundle_id TEXT,
                 PRIMARY KEY (repo_id, scope_id, gate_id)
+            );
+            CREATE TABLE IF NOT EXISTS releases (
+                repo_id TEXT NOT NULL,
+                channel TEXT NOT NULL,
+                seq INTEGER PRIMARY KEY AUTOINCREMENT,
+                record_json TEXT NOT NULL
             );
             CREATE TABLE IF NOT EXISTS promotions (
                 bundle_id TEXT NOT NULL,
@@ -529,6 +536,43 @@ impl MetadataStore for SqliteMetadataStore {
             |row| row.get(0),
         )?;
         Ok(n)
+    }
+
+    fn add_release(&self, release: &ReleaseRecord) -> Result<()> {
+        let json = serde_json::to_string(release)?;
+        let conn = self.conn.lock().expect("meta lock");
+        conn.execute(
+            "INSERT INTO releases (repo_id, channel, record_json) VALUES (?1, ?2, ?3)",
+            params![release.repo_id, release.channel, json],
+        )?;
+        Ok(())
+    }
+
+    fn list_releases(&self, repo_id: &str) -> Result<Vec<ReleaseRecord>> {
+        let conn = self.conn.lock().expect("meta lock");
+        let mut stmt =
+            conn.prepare("SELECT record_json FROM releases WHERE repo_id = ?1 ORDER BY seq ASC")?;
+        let rows = stmt.query_map(params![repo_id], |row| row.get::<_, String>(0))?;
+        let mut out = Vec::new();
+        for row in rows {
+            out.push(serde_json::from_str(&row?).context("parse release")?);
+        }
+        Ok(out)
+    }
+
+    fn get_channel_head(&self, repo_id: &str, channel: &str) -> Result<Option<ReleaseRecord>> {
+        let conn = self.conn.lock().expect("meta lock");
+        let json: Option<String> = conn
+            .query_row(
+                "SELECT record_json FROM releases
+                 WHERE repo_id = ?1 AND channel = ?2
+                 ORDER BY seq DESC LIMIT 1",
+                params![repo_id, channel],
+                |row| row.get(0),
+            )
+            .ok();
+        json.map(|j| serde_json::from_str(&j).context("parse release"))
+            .transpose()
     }
 
     fn record_promotion(

@@ -15,7 +15,7 @@ lane registry with ACLs, unpublished sync, inbox, verified provenance.
 `g02.009`-`g02.010` remain planned.
 
 Ready batch card:
-[`batch-cards/026-release-channels.md`](./batch-cards/026-release-channels.md)
+[`batch-cards/027-retention-policy.md`](./batch-cards/027-retention-policy.md)
 
 The paused posture is over. The lane is capture → archive cut → docs spine
 restructure → rebuild architecture definition. Batch 2.1 (capture) is
@@ -40,4 +40,4 @@ restructure) complete: docs tree reduced to the keeper spine.
 
 ## Next Task
 
-Execute the ready `g02.008` Batch 8.1 release-channels card.002` Batch 2.4 rebuild-architecture card.
+Execute the ready `g02.008` Batch 8.2 retention-policy card.002` Batch 2.4 rebuild-architecture card.

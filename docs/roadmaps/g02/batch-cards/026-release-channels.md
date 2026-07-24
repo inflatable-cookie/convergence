@@ -1,6 +1,6 @@
 # 026 Release Channels
 
-Status: ready
+Status: complete
 Updated: 2026-07-24
 Roadmap: `g02.008`
 Spec: `docs/specs/008-releases-retention-and-gc.md`
@@ -43,6 +43,21 @@ The sixth verb: cut a bundle to a named channel under gate policy.
 
 - release semantics need doc 17 changes — doc first
 
+## Outcome
+
+- `ReleaseRecord` + releases table; engine `release` op: Release
+  capability, ready+promotable bundle, producing gate must be
+  `may_release` (new `GateNode` flag, serde default false)
+- HTTP: release/list/channel-head routes; client + CLI `release`,
+  `releases`, `fetch --release <channel>` (channel-head fetch)
+- policy refusals tested: non-releasing gate, read-only subject,
+  superposed bundle; channel head advances across two releases;
+  fetch-by-channel materializes the released tree byte-exact
+- bonus merge fix caught by the e2e: supersession was keyed on lane, so
+  sequential publishes from the same (personal) lane false-superposed —
+  now keyed on input index
+- 78 workspace tests green
+
 ## Next Task
 
-On completion, open the Batch 8.2 retention-policy card.
+Execute the Batch 8.2 retention-policy card (`027-retention-policy.md`).

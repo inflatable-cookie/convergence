@@ -5,8 +5,8 @@ use anyhow::{Context, Result, bail};
 use crate::model::{
     AddLaneMemberRequest, ApproveRequest, BundleRecord, CreateLaneRequest, InboxReport, LaneRecord,
     Manifest, ManifestEntryKind, NegotiateRequest, NegotiateResponse, ObjectId, ObjectSet,
-    PromoteRequest, PublishRequest, SetLaneHeadRequest, SnapRecord, SuperpositionVariantKind,
-    WIRE_VERSION,
+    PromoteRequest, PublishRequest, ReleaseRecord, ReleaseRequest, SetLaneHeadRequest, SnapRecord,
+    SuperpositionVariantKind, WIRE_VERSION,
 };
 use crate::store::LocalStore;
 
@@ -387,6 +387,52 @@ impl RemoteClient {
                 .context("approve")?,
         )?;
         Ok(())
+    }
+
+    pub fn release(
+        &self,
+        bundle_id: &str,
+        repo_id: &str,
+        scope_id: &str,
+        channel: &str,
+        notes: Option<String>,
+    ) -> Result<ReleaseRecord> {
+        let response = Self::check(
+            self.http
+                .post(self.url(&format!("/api/bundles/{bundle_id}/release")))
+                .bearer_auth(&self.token)
+                .json(&ReleaseRequest {
+                    repo_id: repo_id.into(),
+                    scope_id: scope_id.into(),
+                    channel: channel.into(),
+                    notes,
+                })
+                .send()
+                .context("release")?,
+        )?;
+        response.json().context("parse release")
+    }
+
+    pub fn list_releases(&self, repo_id: &str) -> Result<Vec<ReleaseRecord>> {
+        let response = Self::check(
+            self.http
+                .get(self.url(&format!("/api/repos/{repo_id}/releases")))
+                .bearer_auth(&self.token)
+                .send()
+                .context("list releases")?,
+        )?;
+        response.json().context("parse releases")
+    }
+
+    pub fn get_channel_head(&self, repo_id: &str, channel: &str) -> Result<ReleaseRecord> {
+        let response = Self::check(
+            self.http
+                .get(self.url(&format!("/api/repos/{repo_id}/release/{channel}")))
+                .bearer_auth(&self.token)
+                .send()
+                .context("channel head")?,
+        )?;
+        response.json().context("parse release")
     }
 
     pub fn promote(

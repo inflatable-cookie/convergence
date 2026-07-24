@@ -42,10 +42,10 @@ pub fn merge_window(
         None => BTreeMap::new(),
     };
 
-    // path -> ordered opinions
-    let mut opinions: BTreeMap<String, Vec<(String, Op)>> = BTreeMap::new();
+    // path -> ordered opinions (input index, lane, op)
+    let mut opinions: BTreeMap<String, Vec<(usize, String, Op)>> = BTreeMap::new();
     let mut base_flats: Vec<BTreeMap<String, ManifestEntryKind>> = Vec::new();
-    for input in inputs {
+    for (index, input) in inputs.iter().enumerate() {
         let base = match &input.base {
             Some(root) => flatten(objects, root)?,
             None => BTreeMap::new(),
@@ -56,6 +56,7 @@ pub fn merge_window(
             match base.get(path) {
                 Some(base_kind) if base_kind == kind => {} // no opinion
                 base_kind => opinions.entry(path.clone()).or_default().push((
+                    index,
                     input.lane.clone(),
                     Op::Set(kind.clone(), base_kind.cloned()),
                 )),
@@ -63,10 +64,11 @@ pub fn merge_window(
         }
         for path in base.keys() {
             if !tree.contains_key(path) {
-                opinions
-                    .entry(path.clone())
-                    .or_default()
-                    .push((input.lane.clone(), Op::Delete));
+                opinions.entry(path.clone()).or_default().push((
+                    index,
+                    input.lane.clone(),
+                    Op::Delete,
+                ));
             }
         }
         base_flats.push(base);
@@ -78,17 +80,17 @@ pub fn merge_window(
     let paths: Vec<String> = opinions.keys().cloned().collect();
     for path in paths {
         let ops = opinions.get(&path).expect("path present").clone();
-        let retained: Vec<(String, Op)> = ops
+        let retained: Vec<(usize, String, Op)> = ops
             .iter()
-            .filter(|(lane, op)| match op {
+            .filter(|(index, _, op)| match op {
                 Op::Delete => true,
                 Op::Set(kind, _) => {
-                    let superseded = base_flats.iter().zip(inputs).any(|(base, input)| {
-                        input.lane != *lane
+                    let superseded = base_flats.iter().enumerate().any(|(other, base)| {
+                        other != *index
                             && base.get(&path) == Some(kind)
                             && (result.get(&path) == Some(kind)
-                                || ops.iter().any(|(other_lane, other_op)| {
-                                    *other_lane == input.lane
+                                || ops.iter().any(|(op_index, _, other_op)| {
+                                    *op_index == other
                                         && !matches!(other_op, Op::Set(k, _) if k == kind)
                                 }))
                     });
@@ -106,7 +108,7 @@ pub fn merge_window(
         let mut sets: Vec<(String, ManifestEntryKind)> = Vec::new();
         let mut set_bases: Vec<Option<ManifestEntryKind>> = Vec::new();
         let mut deleters: Vec<String> = Vec::new();
-        for (lane, op) in ops {
+        for (_, lane, op) in ops {
             match op {
                 Op::Set(kind, base_kind) => {
                     if !sets.iter().any(|(_, k)| *k == kind) {

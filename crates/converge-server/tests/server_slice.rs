@@ -32,6 +32,7 @@ fn fixture() -> Result<Fixture> {
                     upstreams: vec![],
                     required_approvals: 1,
                     strategy: "whole-file".into(),
+                    may_release: false,
                 },
                 GateNode {
                     gate_id: "main".into(),
@@ -39,6 +40,7 @@ fn fixture() -> Result<Fixture> {
                     upstreams: vec!["intake".into()],
                     required_approvals: 0,
                     strategy: "whole-file".into(),
+                    may_release: false,
                 },
             ],
         },

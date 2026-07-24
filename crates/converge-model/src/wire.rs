@@ -183,6 +183,26 @@ pub struct InboxBundle {
     pub required_approvals: u32,
 }
 
+/// A release: a bundle designated for consumption on a named channel.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct ReleaseRecord {
+    pub channel: String,
+    pub repo_id: String,
+    pub scope_id: String,
+    pub bundle_id: String,
+    pub released_by: String,
+    pub notes: Option<String>,
+    pub created_at: String,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct ReleaseRequest {
+    pub repo_id: String,
+    pub scope_id: String,
+    pub channel: String,
+    pub notes: Option<String>,
+}
+
 /// A bundle plus its input publications — readable provenance.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct BundleProvenance {
@@ -211,6 +231,9 @@ pub struct GateNode {
     /// "text-line-merge".
     #[serde(default = "default_strategy")]
     pub strategy: String,
+    /// Whether bundles produced by this gate may be released to channels.
+    #[serde(default)]
+    pub may_release: bool,
 }
 
 fn default_strategy() -> String {

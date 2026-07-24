@@ -106,7 +106,11 @@ enum Command {
     },
     /// Fetch a bundle's tree into the local store.
     Fetch {
-        bundle_id: String,
+        /// Bundle id, or omit with --release to fetch a channel head.
+        bundle_id: Option<String>,
+        /// Fetch the latest release on this channel.
+        #[arg(long)]
+        release: Option<String>,
         /// Materialize the fetched tree into a directory.
         #[arg(long)]
         into: Option<PathBuf>,
@@ -131,6 +135,16 @@ enum Command {
         #[arg(long)]
         to: String,
     },
+    /// Release a bundle to a named channel.
+    Release {
+        bundle_id: String,
+        #[arg(long)]
+        channel: String,
+        #[arg(long)]
+        notes: Option<String>,
+    },
+    /// List the repo's releases.
+    Releases,
     /// Share unpublished lineage through lanes.
     Sync {
         #[command(subcommand)]
@@ -438,9 +452,52 @@ fn run(cli: &Cli, mode: OutputMode) -> Result<serde_json::Value> {
                 },
             )
         }
-        Command::Fetch { bundle_id, into } => {
+        Command::Release {
+            bundle_id,
+            channel,
+            notes,
+        } => {
             let ws = open_workspace()?;
             let (client, remote) = remote_client(&ws)?;
+            let release = client.release(
+                bundle_id,
+                &remote.repo_id,
+                &remote.scope,
+                channel,
+                notes.clone(),
+            )?;
+            emit(mode, release, |r| {
+                println!("released {} to channel {}", r.bundle_id, r.channel);
+            })
+        }
+        Command::Releases => {
+            let ws = open_workspace()?;
+            let (client, remote) = remote_client(&ws)?;
+            let releases = client.list_releases(&remote.repo_id)?;
+            emit(mode, releases, |releases| {
+                for r in releases {
+                    println!(
+                        "{}  {}  by {}  {}",
+                        r.channel, r.bundle_id, r.released_by, r.created_at
+                    );
+                }
+            })
+        }
+        Command::Fetch {
+            bundle_id,
+            release,
+            into,
+        } => {
+            let ws = open_workspace()?;
+            let (client, remote) = remote_client(&ws)?;
+            let bundle_id = match (bundle_id, release) {
+                (Some(id), _) => id.clone(),
+                (None, Some(channel)) => {
+                    client.get_channel_head(&remote.repo_id, channel)?.bundle_id
+                }
+                (None, None) => anyhow::bail!("provide a bundle id or --release <channel>"),
+            };
+            let bundle_id = &bundle_id;
             let bundle = client.get_bundle(bundle_id)?;
             let root = client.fetch_bundle(&ws.store, bundle_id)?;
             // A fetched bundle for the configured target becomes the new

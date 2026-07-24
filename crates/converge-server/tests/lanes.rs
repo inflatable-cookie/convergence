@@ -23,6 +23,7 @@ fn start_server(data_dir: &std::path::Path) -> Result<String> {
                 upstreams: vec![],
                 required_approvals: 0,
                 strategy: "whole-file".into(),
+                may_release: false,
             }],
         },
     )?;
@@ -324,6 +325,7 @@ fn inbox_recommends_approval_when_short() -> Result<()> {
                     upstreams: vec![],
                     required_approvals: 2,
                     strategy: "whole-file".into(),
+                    may_release: false,
                 }],
             },
         )?;
