@@ -20,8 +20,9 @@ Rebuild architecture (g02.002 Batch 2.4, 2026-07-23):
 - `13-rebuild-workspace-and-crates.md` — workspace layout, crate boundaries,
   salvage migration map
 - `14-server-authority-and-distribution.md` — central control plane,
-  partitioned data plane, pluggable storage, enforced authz, bundle
-  coalescing at scale
+  partitioned data plane, pluggable storage, enforced authz, deterministic
+  bundle coalescing; §0 and §7 separate the shipped single-process server
+  from the deferred distributed target
 - `15-client-and-tui-architecture.md` — CLI as canonical verb surface, TUI
   as thin front-end per the captured UX spec
 - `16-sync-protocol-and-chunking.md` — wire contract and FastCDC

@@ -1,7 +1,7 @@
 # 17 Lineage and Merge Semantics
 
 Status: active
-Updated: 2026-07-24
+Updated: 2026-07-25
 Roadmap: `g02.005` Batch 5.1
 
 Decision-complete semantics for snap lineage, base-aware merge, bundle

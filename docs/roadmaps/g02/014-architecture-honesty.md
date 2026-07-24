@@ -1,6 +1,6 @@
 # 014 Architecture Honesty
 
-Status: planned
+Status: in progress (14.1 complete)
 Owner: repo maintainers
 Updated: 2026-07-24
 
@@ -33,11 +33,11 @@ so the docs are true again.
 
 ## Execution Plan (batch details in cards)
 
-- **14.1 Doc 14 reconciliation**: rewrite doc 14 to describe the
-  single-node synchronous slice as current state, moving the async /
-  partitioned / edge design into an explicit "target architecture"
-  section with honest gap markers; align doc 16 §1 and doc 17 §2
-  claims; edge nodes and real identity stay backlog
+- **14.1 Doc 14 reconciliation** (complete, card 050): doc 14 §0 states
+  the shipped single-process server, per-section `**Deferred**` markers
+  name each gap's owner, and §7 tables the unbuilt target with
+  triggers; doc 16 corrected (in-request builds, edge claims); edge
+  nodes and real identity stay backlog
 - **14.2 Async bundle builds**: publish enqueues; a build worker
   produces bundles through the `building → ready/failed` status
   machine; clients observe status via events
@@ -58,4 +58,4 @@ so the docs are true again.
 
 ## Next Task
 
-Blocked behind g02.013 completion.
+Open batch card 14.2 (async bundle builds).

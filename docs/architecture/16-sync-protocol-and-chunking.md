@@ -1,7 +1,7 @@
 # 16 Sync Protocol and Chunking
 
 Status: active
-Updated: 2026-07-23
+Updated: 2026-07-25
 Roadmap: `g02.002` Batch 2.4
 
 The wire contract between client and server, and the content-chunking scheme
@@ -17,7 +17,7 @@ them by hand).
 Publish/sync sequence (carried shape):
 
 1. **Negotiate** — client sends the snap's object-ID set (root manifest walk);
-   server (or edge) answers with the missing subset. Merkle short-circuit:
+   the server answers with the missing subset. Merkle short-circuit:
    a known manifest ID prunes its whole subtree from the set.
 2. **Upload** — client streams missing blobs/recipes/manifests, then the snap
    record. All writes idempotent (`write_if_absent`); interrupted uploads
@@ -26,7 +26,9 @@ Publish/sync sequence (carried shape):
    naming `(repo, scope, gate)` and carrying `base_bundle_id`, the last
    bundle it saw for that target (doc 17 §2; the client records it from
    publish responses and fetches). Server authz-checks, validates the base
-   against partition history, and enqueues bundle coalescing (doc 14 §4-5).
+   against partition history, and builds the bundle in-request — the
+   response carries the finished bundle (doc 14 §4-5; async coalescing is
+   deferred, see doc 14 §7).
 
 Wire deltas from doc 17 §5: `SnapRecord` v2 (`parents`,
 `derived_from_bundle`, lineage-derived identity), `base_bundle_id` on
@@ -34,7 +36,8 @@ publish/publication, `window` + `strategy` + `base_bundle_id` on
 `BundleRecord`, `strategy` on `GateNode`.
 
 Fetch is the mirror: resolve a bundle/release/lane ref → walk manifest →
-request missing objects → materialize. Edges serve steps 1-2 from cache.
+request missing objects → materialize. When edge nodes exist they will
+serve steps 1-2 from cache; none are built (doc 14 §7).
 
 Versioning: protocol carries an explicit version; servers refuse unknown
 majors. No silent compatibility shims pre-1.0.
