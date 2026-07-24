@@ -46,6 +46,8 @@ pub struct PublishRequest {
     pub gate_id: String,
     pub snap_id: String,
     pub root_manifest: ObjectId,
+    #[serde(default)]
+    pub base_bundle_id: Option<String>,
     pub lane_id: String,
     pub notes: Option<String>,
 }
@@ -68,6 +70,9 @@ pub struct PublicationRecord {
     pub publication_id: String,
     pub snap_id: String,
     pub root_manifest: ObjectId,
+    /// The bundle the publisher last saw for the target (doc 17 §2).
+    #[serde(default)]
+    pub base_bundle_id: Option<String>,
     pub repo_id: String,
     pub scope_id: String,
     pub target_gate_id: String,
@@ -92,6 +97,15 @@ pub struct BundleRecord {
     pub scope_id: String,
     pub inputs: Vec<String>,
     pub root_manifest: Option<ObjectId>,
+    /// W: the promoted bundle this build folded onto (doc 17 §3).
+    #[serde(default)]
+    pub base_bundle_id: Option<String>,
+    /// (first_seq, last_seq) of the publication window.
+    #[serde(default)]
+    pub window: (u64, u64),
+    /// Coalesce strategy recorded in provenance (doc 17 §4).
+    #[serde(default)]
+    pub strategy: String,
     pub status: BundleStatus,
     pub created_at: String,
 }
@@ -109,6 +123,14 @@ pub struct GateNode {
     pub name: String,
     pub upstreams: Vec<String>,
     pub required_approvals: u32,
+    /// Coalesce strategy (doc 17 §4): "whole-file" (default) or
+    /// "text-line-merge".
+    #[serde(default = "default_strategy")]
+    pub strategy: String,
+}
+
+fn default_strategy() -> String {
+    "whole-file".to_string()
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

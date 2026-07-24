@@ -94,6 +94,9 @@ fn bundle_record(bundle: &StoredBundle) -> BundleRecord {
         scope_id: bundle.scope_id.clone(),
         inputs: bundle.inputs.clone(),
         root_manifest: bundle.root_manifest.clone(),
+        base_bundle_id: bundle.base_bundle_id.clone(),
+        window: bundle.window,
+        strategy: bundle.strategy.clone(),
         status: bundle.status.clone(),
         created_at: bundle.created_at.clone(),
     }
@@ -180,6 +183,7 @@ async fn publish(
                 gate_id: request.gate_id,
                 snap_id: request.snap_id,
                 root_manifest: request.root_manifest,
+                base_bundle_id: request.base_bundle_id,
                 lane_id: request.lane_id,
                 notes: request.notes,
             },

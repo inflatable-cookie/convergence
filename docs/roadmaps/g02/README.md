@@ -17,7 +17,7 @@ continuous capture and workspace UX, lanes and collaboration, releases/
 retention/GC, git interop, scale and transport.
 
 Ready batch card:
-[`batch-cards/017-base-aware-merge-and-windows.md`](./batch-cards/017-base-aware-merge-and-windows.md)
+[`batch-cards/018-gate-strategies.md`](./batch-cards/018-gate-strategies.md)
 
 The paused posture is over. The lane is capture → archive cut → docs spine
 restructure → rebuild architecture definition. Batch 2.1 (capture) is
@@ -42,4 +42,4 @@ restructure) complete: docs tree reduced to the keeper spine.
 
 ## Next Task
 
-Execute the ready `g02.005` Batch 5.3 base-aware-merge card.002` Batch 2.4 rebuild-architecture card.
+Execute the ready `g02.005` Batch 5.4 gate-strategies card.002` Batch 2.4 rebuild-architecture card.

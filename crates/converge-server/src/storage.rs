@@ -37,8 +37,22 @@ pub struct StoredBundle {
     pub gate_id: String,
     pub inputs: Vec<String>,
     pub root_manifest: Option<ObjectId>,
+    /// W: bundle whose root this build folded onto (doc 17 §3).
+    pub base_bundle_id: Option<String>,
+    /// (first_seq, last_seq) of the consumed publication window.
+    pub window: (u64, u64),
+    pub strategy: String,
     pub status: BundleStatus,
     pub created_at: String,
+}
+
+/// Per-(repo, scope, gate) window state (doc 17 §3).
+#[derive(Clone, Debug, Default)]
+pub struct PartitionState {
+    /// Highest publication seq consumed by the last promoted bundle.
+    pub window_floor: u64,
+    /// The last promoted bundle (W for the next build).
+    pub base_bundle_id: Option<String>,
 }
 
 /// Control-plane + partition metadata. Embedded impl is SQLite; every
@@ -67,12 +81,27 @@ pub trait MetadataStore: Send + Sync {
 
     // partition state (repo, scope, gate)
     fn add_publication(&self, publication: &PublicationRecord) -> Result<()>;
-    fn list_publications(
+    /// Publications with seq > `after_seq`, ordered, paired with their seq.
+    fn list_publications_after(
         &self,
         repo_id: &str,
         scope_id: &str,
         gate_id: &str,
-    ) -> Result<Vec<PublicationRecord>>;
+        after_seq: u64,
+    ) -> Result<Vec<(u64, PublicationRecord)>>;
+    fn get_partition_state(
+        &self,
+        repo_id: &str,
+        scope_id: &str,
+        gate_id: &str,
+    ) -> Result<PartitionState>;
+    fn set_partition_state(
+        &self,
+        repo_id: &str,
+        scope_id: &str,
+        gate_id: &str,
+        state: &PartitionState,
+    ) -> Result<()>;
     fn put_bundle(&self, bundle: &StoredBundle) -> Result<()>;
     fn get_bundle(&self, bundle_id: &str) -> Result<StoredBundle>;
     fn add_approval(&self, bundle_id: &str, approver: &str) -> Result<()>;

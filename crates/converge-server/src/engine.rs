@@ -5,8 +5,8 @@ use time::format_description::well_known::Rfc3339;
 use converge_model::{BundleStatus, ObjectId, PublicationRecord};
 
 use crate::authz::{AuthzContext, Capability};
-use crate::merge::merge_manifests;
-use crate::storage::{MetadataStore, ObjectStore, StoredBundle};
+use crate::merge::{MergeInput, merge_window};
+use crate::storage::{MetadataStore, ObjectStore, PartitionState, StoredBundle};
 
 /// The convergence engine: publish intake, deterministic bundle builds, and
 /// policy-checked promotion. Every method takes an [`AuthzContext`] minted by
@@ -20,6 +20,8 @@ pub struct PublishInput {
     pub gate_id: String,
     pub snap_id: String,
     pub root_manifest: ObjectId,
+    /// The bundle the publisher last saw for this target (doc 17 §2).
+    pub base_bundle_id: Option<String>,
     pub lane_id: String,
     pub notes: Option<String>,
 }
@@ -52,6 +54,18 @@ impl Engine<'_> {
                 input.root_manifest.as_str()
             );
         }
+        if let Some(base_id) = &input.base_bundle_id {
+            let base = self
+                .meta
+                .get_bundle(base_id)
+                .map_err(|_| anyhow::anyhow!("declared base bundle {base_id} is unknown"))?;
+            if base.repo_id != authz.repo_id()
+                || base.scope_id != authz.scope_id()
+                || base.gate_id != input.gate_id
+            {
+                bail!("declared base bundle {base_id} belongs to another partition");
+            }
+        }
 
         let created_at = now();
         let publication_id = {
@@ -68,6 +82,7 @@ impl Engine<'_> {
             publication_id,
             snap_id: input.snap_id.clone(),
             root_manifest: input.root_manifest.clone(),
+            base_bundle_id: input.base_bundle_id.clone(),
             repo_id: authz.repo_id().to_string(),
             scope_id: authz.scope_id().to_string(),
             target_gate_id: input.gate_id.clone(),
@@ -80,69 +95,108 @@ impl Engine<'_> {
         self.build_bundle(&authz, &input.gate_id)
     }
 
-    /// Deterministic bundle build over the partition's ordered publications.
+    /// Deterministic bundle build over the partition's current window
+    /// (doc 17 §3): fold the window's publications onto W.
     fn build_bundle(&self, authz: &AuthzContext, gate_id: &str) -> Result<StoredBundle> {
-        let publications =
+        let partition =
             self.meta
-                .list_publications(authz.repo_id(), authz.scope_id(), gate_id)?;
-        assert!(!publications.is_empty(), "publish just added one");
+                .get_partition_state(authz.repo_id(), authz.scope_id(), gate_id)?;
+        let window = self.meta.list_publications_after(
+            authz.repo_id(),
+            authz.scope_id(),
+            gate_id,
+            partition.window_floor,
+        )?;
+        assert!(!window.is_empty(), "publish just added one");
 
-        // Snap roots come from the publications; lane is the provenance
-        // source shown on superposition variants.
-        let inputs: Vec<(String, ObjectId)> = publications
+        let graph = self.meta.get_gate_graph(authz.repo_id())?;
+        let strategy = graph
+            .gates
             .iter()
-            .map(|p| (p.lane_id.clone(), p.root_manifest.clone()))
-            .collect();
-        let input_ids: Vec<String> = publications
-            .iter()
-            .map(|p| p.publication_id.clone())
-            .collect();
+            .find(|g| g.gate_id == gate_id)
+            .map(|g| g.strategy.clone())
+            .unwrap_or_else(|| "whole-file".to_string());
 
-        let bundle = match merge_manifests(self.objects, &inputs) {
-            Ok(root) => {
-                let bundle_id = {
-                    let mut hasher = blake3::Hasher::new();
-                    hasher.update(gate_id.as_bytes());
-                    for id in &input_ids {
-                        hasher.update(id.as_bytes());
-                    }
-                    hasher.update(root.as_str().as_bytes());
-                    hasher.finalize().to_hex().to_string()
+        let w_root = match &partition.base_bundle_id {
+            Some(id) => self.meta.get_bundle(id)?.root_manifest,
+            None => None,
+        };
+
+        let inputs: Result<Vec<MergeInput>> = window
+            .iter()
+            .map(|(_, p)| {
+                let base = match &p.base_bundle_id {
+                    Some(id) => self.meta.get_bundle(id)?.root_manifest,
+                    None => None,
                 };
-                let has_superpositions = self.manifest_has_superpositions(&root)?;
-                StoredBundle {
-                    bundle_id,
+                Ok(MergeInput {
+                    lane: p.lane_id.clone(),
+                    base,
+                    tree: p.root_manifest.clone(),
+                })
+            })
+            .collect();
+        let input_ids: Vec<String> = window
+            .iter()
+            .map(|(_, p)| p.publication_id.clone())
+            .collect();
+        let window_range = (
+            window.first().map(|(s, _)| *s).unwrap_or(0),
+            window.last().map(|(s, _)| *s).unwrap_or(0),
+        );
+
+        let hash_id = |root: Option<&ObjectId>| {
+            let mut hasher = blake3::Hasher::new();
+            hasher.update(gate_id.as_bytes());
+            if let Some(w) = &w_root {
+                hasher.update(w.as_str().as_bytes());
+            }
+            for id in &input_ids {
+                hasher.update(id.as_bytes());
+            }
+            hasher.update(strategy.as_bytes());
+            if let Some(root) = root {
+                hasher.update(root.as_str().as_bytes());
+            }
+            hasher.finalize().to_hex().to_string()
+        };
+
+        let bundle =
+            match inputs.and_then(|inputs| merge_window(self.objects, w_root.as_ref(), &inputs)) {
+                Ok(root) => {
+                    let has_superpositions = self.manifest_has_superpositions(&root)?;
+                    StoredBundle {
+                        bundle_id: hash_id(Some(&root)),
+                        repo_id: authz.repo_id().to_string(),
+                        scope_id: authz.scope_id().to_string(),
+                        gate_id: gate_id.to_string(),
+                        inputs: input_ids,
+                        root_manifest: Some(root),
+                        base_bundle_id: partition.base_bundle_id.clone(),
+                        window: window_range,
+                        strategy,
+                        status: BundleStatus::Ready {
+                            promotable: !has_superpositions,
+                        },
+                        created_at: now(),
+                    }
+                }
+                Err(err) => StoredBundle {
+                    bundle_id: hash_id(None),
                     repo_id: authz.repo_id().to_string(),
                     scope_id: authz.scope_id().to_string(),
                     gate_id: gate_id.to_string(),
                     inputs: input_ids,
-                    root_manifest: Some(root),
-                    status: BundleStatus::Ready {
-                        promotable: !has_superpositions,
+                    root_manifest: None,
+                    base_bundle_id: partition.base_bundle_id.clone(),
+                    window: window_range,
+                    strategy,
+                    status: BundleStatus::Failed {
+                        reason: format!("{err:#}"),
                     },
                     created_at: now(),
-                }
-            }
-            Err(err) => StoredBundle {
-                bundle_id: {
-                    let mut hasher = blake3::Hasher::new();
-                    hasher.update(gate_id.as_bytes());
-                    for id in &input_ids {
-                        hasher.update(id.as_bytes());
-                    }
-                    hasher.finalize().to_hex().to_string()
                 },
-                repo_id: authz.repo_id().to_string(),
-                scope_id: authz.scope_id().to_string(),
-                gate_id: gate_id.to_string(),
-                inputs: input_ids,
-                root_manifest: None,
-                status: BundleStatus::Failed {
-                    reason: format!("{err:#}"),
-                },
-                created_at: now(),
-            },
-        };
+            };
         self.meta.put_bundle(&bundle)?;
         Ok(bundle)
     }
@@ -217,7 +271,19 @@ impl Engine<'_> {
         }
 
         self.meta
-            .record_promotion(bundle_id, &bundle.gate_id, to_gate, &now())
+            .record_promotion(bundle_id, &bundle.gate_id, to_gate, &now())?;
+
+        // Promotion advances the window (doc 17 §3): the promoted bundle
+        // becomes W and its window's publications leave the pool.
+        self.meta.set_partition_state(
+            authz.repo_id(),
+            authz.scope_id(),
+            &bundle.gate_id,
+            &PartitionState {
+                window_floor: bundle.window.1,
+                base_bundle_id: Some(bundle.bundle_id.clone()),
+            },
+        )
     }
 }
 

@@ -19,6 +19,7 @@ impl LocalStore {
                 lane_sync: std::collections::HashMap::new(),
                 remote_tokens: std::collections::HashMap::new(),
                 last_published: std::collections::HashMap::new(),
+                last_seen_bundle: std::collections::HashMap::new(),
             });
         }
         let bytes = fs::read(&path).context("read state.json")?;

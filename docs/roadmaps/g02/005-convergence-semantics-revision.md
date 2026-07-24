@@ -62,11 +62,11 @@ provenance replay as the enterprise feature.
 
 ### Batch 5.3 - Base-Aware Merge and Windows
 
-- [ ] `PublishRequest`/`PublicationRecord` gain `base_bundle_id`
-- [ ] 3-way manifest merge (base vs each input): unchanged-vs-base drops
+- [x] `PublishRequest`/`PublicationRecord` gain `base_bundle_id`
+- [x] 3-way manifest merge (base vs each input): unchanged-vs-base drops
       out, single-sided change wins, true divergence superposes, deletion
       vs base produces `Tombstone`
-- [ ] bundle windows: partition tracks last promoted bundle; builds consume
+- [x] bundle windows: partition tracks last promoted bundle; builds consume
       publications after it; window recorded in provenance
 
 ### Batch 5.4 - Gate Coalesce Strategies
@@ -87,5 +87,4 @@ provenance replay as the enterprise feature.
 
 ## Next Task
 
-Execute the ready Batch 5.3 card
-(`batch-cards/017-base-aware-merge-and-windows.md`).
+Execute the ready Batch 5.4 card (`batch-cards/018-gate-strategies.md`).

@@ -333,6 +333,9 @@ fn run(cli: &Cli, mode: OutputMode) -> Result<serde_json::Value> {
                 None => latest_snap(&ws)?,
             };
             let gate = gate.clone().unwrap_or_else(|| remote.gate.clone());
+            let base = ws
+                .store
+                .get_last_seen_bundle(&remote, &remote.scope, &gate)?;
             let (bundle, stats) = client.publish(
                 &ws.store,
                 &remote.repo_id,
@@ -340,11 +343,14 @@ fn run(cli: &Cli, mode: OutputMode) -> Result<serde_json::Value> {
                 &gate,
                 &snap.id,
                 &snap.root_manifest,
+                base,
                 lane,
                 notes.clone(),
             )?;
             ws.store
                 .set_last_published(&remote, &remote.scope, &gate, &snap.id)?;
+            ws.store
+                .set_last_seen_bundle(&remote, &remote.scope, &gate, &bundle.bundle_id)?;
             #[derive(Serialize)]
             struct PublishSummary {
                 bundle: converge_client::model::BundleRecord,
@@ -366,8 +372,19 @@ fn run(cli: &Cli, mode: OutputMode) -> Result<serde_json::Value> {
         }
         Command::Fetch { bundle_id, into } => {
             let ws = open_workspace()?;
-            let (client, _) = remote_client(&ws)?;
+            let (client, remote) = remote_client(&ws)?;
+            let bundle = client.get_bundle(bundle_id)?;
             let root = client.fetch_bundle(&ws.store, bundle_id)?;
+            // A fetched bundle for the configured target becomes the new
+            // publish base (doc 17 §2).
+            if bundle.scope_id == remote.scope {
+                ws.store.set_last_seen_bundle(
+                    &remote,
+                    &bundle.scope_id,
+                    &bundle.produced_by_gate_id,
+                    &bundle.bundle_id,
+                )?;
+            }
             if let Some(dir) = into {
                 ws.materialize_manifest_to(&root, dir, true)?;
             }

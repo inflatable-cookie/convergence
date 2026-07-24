@@ -55,6 +55,7 @@ impl LocalStore {
             lane_sync: std::collections::HashMap::new(),
             remote_tokens: std::collections::HashMap::new(),
             last_published: std::collections::HashMap::new(),
+            last_seen_bundle: std::collections::HashMap::new(),
         };
         let state_bytes = serde_json::to_vec_pretty(&state).context("serialize workspace state")?;
         write_atomic(&root.join("state.json"), &state_bytes).context("write state.json")?;

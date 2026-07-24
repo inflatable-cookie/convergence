@@ -108,6 +108,11 @@ pub struct WorkspaceState {
     #[serde(default)]
     pub lane_sync: std::collections::HashMap<String, LaneSyncRecord>,
 
+    /// Target key -> last bundle id seen for that (repo, scope, gate);
+    /// sent as `base_bundle_id` on publish (doc 17 §2).
+    #[serde(default)]
+    pub last_seen_bundle: std::collections::HashMap<String, String>,
+
     #[serde(default)]
     pub remote_tokens: std::collections::HashMap<String, String>,
 

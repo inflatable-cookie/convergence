@@ -21,12 +21,14 @@ fn start_server(data_dir: &std::path::Path) -> Result<String> {
                     name: "Intake".into(),
                     upstreams: vec![],
                     required_approvals: 1,
+                    strategy: "whole-file".into(),
                 },
                 GateNode {
                     gate_id: "main".into(),
                     name: "Main".into(),
                     upstreams: vec!["intake".into()],
                     required_approvals: 0,
+                    strategy: "whole-file".into(),
                 },
             ],
         },
@@ -89,6 +91,7 @@ fn full_vertical_slice_over_http() -> Result<()> {
         "intake",
         &snap_a.id,
         &snap_a.root_manifest,
+        None,
         "lane-a",
         None,
     )?;
@@ -102,6 +105,7 @@ fn full_vertical_slice_over_http() -> Result<()> {
         "intake",
         &snap_b.id,
         &snap_b.root_manifest,
+        None,
         "lane-b",
         None,
     )?;
@@ -147,6 +151,7 @@ fn full_vertical_slice_over_http() -> Result<()> {
         "intake",
         "resolved-snap",
         &resolved_root,
+        None,
         "lane-a",
         Some("resolution of shared.txt".into()),
     )?;

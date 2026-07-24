@@ -89,6 +89,17 @@ Per path, fold deltas onto W:
 
 Rules:
 
+- **Supersession by base containment.** A `Set(k)` opinion on path `p` is
+  dropped when another input's declared base already contains exactly `k`
+  at `p` — that publisher demonstrably built on top of the value — **and**
+  the drop cannot lose content: either that other input expresses its own
+  explicit opinion at `p` (a different `Set` or a `Delete`, which is
+  causally newer and wins cleanly), or W already carries `k` at `p` (the
+  fold preserves it). A silent superseder over a value W does not carry
+  leaves the original `Set` in place — it is the only carrier of the
+  content. Supersession applies only to `Set` opinions: deletions cannot
+  be causally ordered this way (an absent path in a base is
+  indistinguishable from never-existed) and always fold per the table.
 - **Tombstones never appear as plain manifest entries.** A resolved
   deletion is an absent path. `Tombstone` exists only as a superposition
   variant, and resolving a superposition to its tombstone variant removes

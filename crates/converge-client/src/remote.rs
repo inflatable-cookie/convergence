@@ -131,6 +131,7 @@ impl RemoteClient {
         gate_id: &str,
         snap_id: &str,
         root_manifest: &ObjectId,
+        base_bundle_id: Option<String>,
         lane_id: &str,
         notes: Option<String>,
     ) -> Result<(BundleRecord, UploadStats)> {
@@ -146,6 +147,7 @@ impl RemoteClient {
                     gate_id: gate_id.into(),
                     snap_id: snap_id.into(),
                     root_manifest: root_manifest.clone(),
+                    base_bundle_id,
                     lane_id: lane_id.into(),
                     notes,
                 })
