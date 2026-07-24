@@ -1,6 +1,6 @@
 # 016 Snap Lineage
 
-Status: ready
+Status: complete
 Updated: 2026-07-24
 Roadmap: `g02.005`
 Spec: `docs/specs/005-convergence-semantics-revision.md`
@@ -41,6 +41,21 @@ Implement doc 17 §1: the snap DAG with lineage-derived identity.
 
 - semantics gap found in doc 17 — revise the doc first
 
+## Outcome
+
+- `SnapRecord` v2: `parents` + `derived_from_bundle`;
+  `compute_snap_id(root, parents, derived)` with domain-separated hash;
+  timestamp/message metadata only
+- capture: parents from head; identical-tree-vs-head recapture returns the
+  head record (doc 17 amended per stop-condition — the original "same id"
+  phrasing was mechanically wrong, outcome unchanged)
+- restore moves head; post-restore capture branches from the restored snap
+- `list_snaps` is lineage-ordered: head-first parent walk, parallel
+  branches appended newest-first; CLI history consumes it
+- 5 lineage tests (identity, idempotent recapture, head movement,
+  lineage-vs-timestamp ordering, message-edit identity stability);
+  48 workspace tests green
+
 ## Next Task
 
-On completion, open the Batch 5.3 base-aware-merge-and-windows card.
+Execute the Batch 5.3 card (`017-base-aware-merge-and-windows.md`).

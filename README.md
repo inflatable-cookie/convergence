@@ -55,4 +55,4 @@ cargo nextest run -P ci
 
 ## Next task
 
-Execute the ready `g02.005` Batch 5.2 snap-lineage card.002` Batch 2.4 rebuild-architecture card.
+Execute the ready `g02.005` Batch 5.3 base-aware-merge card.002` Batch 2.4 rebuild-architecture card.

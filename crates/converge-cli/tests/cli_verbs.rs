@@ -132,10 +132,12 @@ fn resolve_list_validate_apply_over_superposition() -> anyhow::Result<()> {
     let root_manifest = ws.store.put_manifest(&manifest)?;
     let created_at = "2026-07-23T00:00:00Z".to_string();
     let snap = converge_client::model::SnapRecord {
-        version: 1,
-        id: compute_snap_id(&created_at, &root_manifest),
+        version: 2,
+        id: compute_snap_id(&root_manifest, &[], None),
         created_at,
         root_manifest,
+        parents: Vec::new(),
+        derived_from_bundle: None,
         message: Some("superposed".into()),
         stats: SnapStats::default(),
     };

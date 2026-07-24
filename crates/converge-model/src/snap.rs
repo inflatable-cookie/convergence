@@ -14,8 +14,15 @@ pub struct SnapStats {
 pub struct SnapRecord {
     pub version: u32,
     pub id: String,
+    /// Metadata only — never part of identity (arch doc 17 §1).
     pub created_at: String,
     pub root_manifest: ObjectId,
+    /// Ordered, deduplicated; first parent is the primary lineage.
+    #[serde(default)]
+    pub parents: Vec<String>,
+    /// Provenance edge when the tree came from a fetched bundle.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub derived_from_bundle: Option<String>,
     pub message: Option<String>,
     pub stats: SnapStats,
 }
@@ -36,10 +43,20 @@ pub struct FileRecipe {
     pub chunks: Vec<FileRecipeChunk>,
 }
 
-pub fn compute_snap_id(created_at: &str, root_manifest: &ObjectId) -> String {
+/// Identity = content + lineage (arch doc 17 §1). Timestamp and message
+/// are metadata: recapturing an unchanged tree over the same head yields
+/// the same id, and messages stay editable after capture.
+pub fn compute_snap_id(
+    root_manifest: &ObjectId,
+    parents: &[String],
+    derived_from_bundle: Option<&str>,
+) -> String {
     let mut hasher = blake3::Hasher::new();
-    hasher.update(created_at.as_bytes());
-    hasher.update(b"\n");
+    hasher.update(b"converge-snap-v2\n");
     hasher.update(root_manifest.as_str().as_bytes());
+    hasher.update(b"\n");
+    hasher.update(parents.join(",").as_bytes());
+    hasher.update(b"\n");
+    hasher.update(derived_from_bundle.unwrap_or("").as_bytes());
     hasher.finalize().to_hex().to_string()
 }

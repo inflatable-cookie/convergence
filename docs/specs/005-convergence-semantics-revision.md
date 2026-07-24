@@ -33,8 +33,9 @@ each opens with its own spec and ready card at the previous close.
 ## Current State
 
 - Batch 5.1 (architecture and vision revision) complete; doc 17 promoted.
-- Batch 5.2 has a ready card:
-  `docs/roadmaps/g02/batch-cards/016-snap-lineage.md`
+- Batch 5.2 (snap lineage) complete.
+- Batch 5.3 has a ready card:
+  `docs/roadmaps/g02/batch-cards/017-base-aware-merge-and-windows.md`
 
 ## Exit Condition
 
@@ -42,4 +43,4 @@ Roadmap `g02.005` exit criteria met; `g02.006` opens.
 
 ## Next Task
 
-Execute the ready Batch 5.2 card.
+Execute the ready Batch 5.3 card.

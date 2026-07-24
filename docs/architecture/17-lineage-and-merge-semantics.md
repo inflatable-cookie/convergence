@@ -39,8 +39,9 @@ snap_id = blake3("converge-snap-v2\n"
 Consequences (all intended):
 
 - identity is content + lineage; the timestamp can never fork identity
-- capturing an unchanged tree over the same head reproduces the same id —
-  `create_snap` returns the existing record instead of writing a duplicate
+- capturing a tree identical to the head snap's tree creates nothing:
+  `create_snap` returns the head record (a child differing only by lineage
+  would be a duplicate in product terms, so it is never created)
 - `message` is editable after capture without changing identity
 - history rendering orders by lineage (parent walk), falling back to
   `created_at` only for display of parallel branches

@@ -55,9 +55,9 @@ provenance replay as the enterprise feature.
 
 ### Batch 5.2 - Snap Lineage
 
-- [ ] `SnapRecord` gains `parents: Vec<String>`; id = hash(root manifest +
+- [x] `SnapRecord` gains `parents: Vec<String>`; id = hash(root manifest +
       parents); `created_at` metadata only
-- [ ] workspace tracks current head as parent for the next snap; restore
+- [x] workspace tracks current head as parent for the next snap; restore
       sets head; history renders lineage order
 
 ### Batch 5.3 - Base-Aware Merge and Windows
@@ -87,4 +87,5 @@ provenance replay as the enterprise feature.
 
 ## Next Task
 
-Execute the ready Batch 5.2 card (`batch-cards/016-snap-lineage.md`).
+Execute the ready Batch 5.3 card
+(`batch-cards/017-base-aware-merge-and-windows.md`).

@@ -239,8 +239,7 @@ fn run(cli: &Cli, mode: OutputMode) -> Result<serde_json::Value> {
         }
         Command::History => {
             let ws = open_workspace()?;
-            let mut snaps = ws.store.list_snaps()?;
-            snaps.sort_by(|a, b| b.created_at.cmp(&a.created_at));
+            let snaps = ws.list_snaps()?;
             let list: Vec<SnapSummary> = snaps.iter().map(snap_summary).collect();
             emit(mode, list, |list| {
                 for s in list {
