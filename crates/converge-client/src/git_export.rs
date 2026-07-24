@@ -266,6 +266,14 @@ fn lineage_oldest_first(store: &LocalStore, head: &str) -> Result<Vec<SnapRecord
     Ok(newest_first)
 }
 
+pub fn load_map_public(store: &LocalStore) -> Result<BTreeMap<String, String>> {
+    load_map(store)
+}
+
+pub fn save_map_public(store: &LocalStore, map: &BTreeMap<String, String>) -> Result<()> {
+    save_map(store, map)
+}
+
 fn load_map(store: &LocalStore) -> Result<BTreeMap<String, String>> {
     let path = store.root_dir().join(MAP_FILE);
     if !path.exists() {

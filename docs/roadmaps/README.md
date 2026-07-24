@@ -32,7 +32,7 @@ records the closed state.
 - `g02.009` (git interop) is the active roadmap.
 - `docs/specs/009-git-interop.md` is the active strict planning lane;
   `g02.010` remains planned.
-- ready card: `g02/batch-cards/032-git-import.md`
+- ready card: `g02/batch-cards/033-coexistence.md`
 
 ## Rollover guardrail
 
@@ -46,4 +46,4 @@ Before rollover:
 
 ## Next Task
 
-Execute the ready `g02.009` Batch 9.3 git-import card.
+Execute the ready `g02.009` Batch 9.4 coexistence card.

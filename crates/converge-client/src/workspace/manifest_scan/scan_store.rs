@@ -12,7 +12,9 @@ use super::common::{file_mode, read_dir_sorted, should_ignore_name, symlink_targ
 
 pub(super) fn build_manifest_store_impl(
     workspace: &Workspace,
+    scan_root: &Path,
     dir: &Path,
+    root_ignores: &std::collections::HashSet<String>,
     stats: &mut SnapStats,
     policy: ChunkingPolicy,
 ) -> Result<ObjectId> {
@@ -28,13 +30,23 @@ pub(super) fn build_manifest_store_impl(
         if should_ignore_name(&file_name) {
             continue;
         }
+        if dir == scan_root && root_ignores.contains(&file_name) {
+            continue;
+        }
 
         let path = child.path();
         let file_type = child.file_type().context("read file type")?;
 
         let kind = if file_type.is_dir() {
             stats.dirs += 1;
-            let manifest = build_manifest_store_impl(workspace, &path, stats, policy)?;
+            let manifest = build_manifest_store_impl(
+                workspace,
+                scan_root,
+                &path,
+                root_ignores,
+                stats,
+                policy,
+            )?;
             ManifestEntryKind::Dir { manifest }
         } else if file_type.is_file() {
             let mode = file_mode(&path)?;

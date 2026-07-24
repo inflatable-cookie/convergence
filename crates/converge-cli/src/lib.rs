@@ -193,6 +193,15 @@ enum GitCommand {
         #[arg(long, default_value = "converge/lane/local")]
         branch: String,
     },
+    /// Seed this workspace from the enclosing git repository.
+    Import {
+        /// Import the last N first-parent commits as lineage.
+        #[arg(long, conflicts_with = "all")]
+        depth: Option<usize>,
+        /// Import the whole first-parent chain.
+        #[arg(long)]
+        all: bool,
+    },
 }
 
 #[derive(Subcommand)]
@@ -526,6 +535,26 @@ fn run(cli: &Cli, mode: OutputMode) -> Result<serde_json::Value> {
         Command::Git { command } => {
             let ws = open_workspace()?;
             match command {
+                GitCommand::Import { depth, all } => {
+                    let mode_arg = match (depth, all) {
+                        (Some(n), _) => converge_client::git_import::ImportDepth::Depth(*n),
+                        (None, true) => converge_client::git_import::ImportDepth::All,
+                        (None, false) => converge_client::git_import::ImportDepth::Seed,
+                    };
+                    let report = converge_client::git_import::import(&ws, mode_arg)?;
+                    emit(mode, report, |r| {
+                        println!(
+                            "imported {} snap(s); head {}{}",
+                            r.imported_snaps,
+                            r.head_snap_id,
+                            if r.translated_ignores {
+                                " (.convergeignore generated)"
+                            } else {
+                                ""
+                            }
+                        );
+                    })
+                }
                 GitCommand::Export { branch } => {
                     let head = ws
                         .store

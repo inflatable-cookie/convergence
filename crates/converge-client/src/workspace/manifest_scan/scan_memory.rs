@@ -12,7 +12,9 @@ use super::super::chunking::ChunkingPolicy;
 use super::common::{file_mode, read_dir_sorted, should_ignore_name, symlink_target};
 
 pub(super) fn build_manifest_in_memory_impl(
+    scan_root: &Path,
     dir: &Path,
+    root_ignores: &std::collections::HashSet<String>,
     stats: &mut SnapStats,
     manifests: &mut HashMap<ObjectId, Manifest>,
     policy: ChunkingPolicy,
@@ -29,13 +31,23 @@ pub(super) fn build_manifest_in_memory_impl(
         if should_ignore_name(&file_name) {
             continue;
         }
+        if dir == scan_root && root_ignores.contains(&file_name) {
+            continue;
+        }
 
         let path = child.path();
         let file_type = child.file_type().context("read file type")?;
 
         let kind = if file_type.is_dir() {
             stats.dirs += 1;
-            let manifest = build_manifest_in_memory_impl(&path, stats, manifests, policy)?;
+            let manifest = build_manifest_in_memory_impl(
+                scan_root,
+                &path,
+                root_ignores,
+                stats,
+                manifests,
+                policy,
+            )?;
             ManifestEntryKind::Dir { manifest }
         } else if file_type.is_file() {
             let mode = file_mode(&path)?;

@@ -15,7 +15,7 @@ contract is complete end to end, with retention, invariant-proven GC,
 and provenance verify. `g02.010` remains planned.
 
 Ready batch card:
-[`batch-cards/032-git-import.md`](./batch-cards/032-git-import.md)
+[`batch-cards/033-coexistence.md`](./batch-cards/033-coexistence.md)
 
 ## Lanes
 
@@ -32,4 +32,4 @@ Ready batch card:
 
 ## Next Task
 
-Execute the ready `g02.009` Batch 9.3 git-import card.
+Execute the ready `g02.009` Batch 9.4 coexistence card.

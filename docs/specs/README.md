@@ -23,4 +23,4 @@ Archived specs live in [`archive/`](./archive/).
 
 ## Next Task
 
-Execute the ready `g02.009` Batch 9.3 git-import card.
+Execute the ready `g02.009` Batch 9.4 coexistence card.

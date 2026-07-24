@@ -1,6 +1,6 @@
 # 032 Git Import
 
-Status: ready
+Status: complete
 Updated: 2026-07-24
 Roadmap: `g02.009`
 Spec: `docs/specs/009-git-interop.md`
@@ -45,6 +45,23 @@ first-parent history and ignore translation.
 
 - mapping gap — doc 18 first
 
+## Outcome
+
+- `.convergeignore` capture support (root-level names/`dir/`, negations
+  dropped — documented); honored by both store and in-memory scans
+- `converge git import [--depth N | --all]`: seed captures the working
+  tree with the `Converge-Imported-Commit` trailer; history mode extracts
+  each first-parent commit via throwaway git worktrees under the store
+  dir, builds real snap lineage (parents wired, messages preserved), and
+  populates the git map
+- `.gitignore` -> `.convergeignore` generation (never overwrites,
+  comments/negations dropped)
+- tests (git-on-PATH, graceful skip): seed trailer + tree, 3-commit
+  history with wired lineage and byte-correct historical restores,
+  import->export round trip re-exports **zero** commits (map carries
+  correspondence both ways), ignore translation honored by capture
+- 91 workspace tests green
+
 ## Next Task
 
-On completion, open the Batch 9.4 coexistence card.
+Execute the Batch 9.4 coexistence card (`033-coexistence.md`).

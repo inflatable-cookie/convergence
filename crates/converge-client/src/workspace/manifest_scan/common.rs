@@ -3,6 +3,22 @@ use std::path::Path;
 
 use anyhow::{Context, Result, anyhow};
 
+/// Root-level ignore patterns from `.convergeignore` (arch doc 18 §3):
+/// exact names, `dir/` forms. No negations or nesting — documented.
+pub(super) fn load_root_ignores(root: &std::path::Path) -> std::collections::HashSet<String> {
+    let mut out = std::collections::HashSet::new();
+    if let Ok(text) = std::fs::read_to_string(root.join(".convergeignore")) {
+        for line in text.lines() {
+            let line = line.trim();
+            if line.is_empty() || line.starts_with('#') || line.starts_with('!') {
+                continue;
+            }
+            out.insert(line.trim_end_matches('/').to_string());
+        }
+    }
+    out
+}
+
 pub(super) fn should_ignore_name(name: &str) -> bool {
     matches!(name, ".converge" | ".git")
 }
