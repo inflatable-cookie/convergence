@@ -4,7 +4,7 @@ use time::format_description::well_known::Rfc3339;
 
 use converge_model::{
     BundleStatus, InboxBundle, InboxLane, InboxPublication, InboxReport, LaneHead, LaneRecord,
-    ObjectId, PublicationRecord, ReleaseRecord, SnapRecord,
+    ObjectId, PublicationRecord, ReleaseRecord, SnapRecord, VerifyReport,
 };
 
 use crate::authz::{AuthzContext, Capability};
@@ -158,19 +158,7 @@ impl Engine<'_> {
         );
 
         let hash_id = |root: Option<&ObjectId>| {
-            let mut hasher = blake3::Hasher::new();
-            hasher.update(gate_id.as_bytes());
-            if let Some(w) = &w_root {
-                hasher.update(w.as_str().as_bytes());
-            }
-            for id in &input_ids {
-                hasher.update(id.as_bytes());
-            }
-            hasher.update(strategy.as_bytes());
-            if let Some(root) = root {
-                hasher.update(root.as_str().as_bytes());
-            }
-            hasher.finalize().to_hex().to_string()
+            bundle_hash(gate_id, w_root.as_ref(), &input_ids, &strategy, root)
         };
 
         let bundle = match inputs
@@ -441,6 +429,56 @@ impl Engine<'_> {
         self.meta.count_approvals(bundle_id)
     }
 
+    /// Provenance replay (vision: determinism as a product feature):
+    /// re-run the recorded merge and prove the bundle's identity.
+    pub fn verify(&self, bundle_id: &str) -> Result<VerifyReport> {
+        let bundle = self.meta.get_bundle(bundle_id)?;
+        let w_root = match &bundle.base_bundle_id {
+            Some(id) => self.meta.get_bundle(id)?.root_manifest,
+            None => None,
+        };
+        let mut inputs = Vec::new();
+        for publication_id in &bundle.inputs {
+            let publication = self.meta.get_publication(publication_id)?.ok_or_else(|| {
+                anyhow::anyhow!("provenance incomplete: publication {publication_id} missing")
+            })?;
+            let base = match &publication.base_bundle_id {
+                Some(id) => self.meta.get_bundle(id)?.root_manifest,
+                None => None,
+            };
+            inputs.push(MergeInput {
+                lane: publication.lane_id,
+                base,
+                tree: publication.root_manifest,
+            });
+        }
+        let recomputed_root =
+            merge_window(self.objects, w_root.as_ref(), &inputs, &bundle.strategy)?;
+        let recomputed_id = bundle_hash(
+            &bundle.gate_id,
+            w_root.as_ref(),
+            &bundle.inputs,
+            &bundle.strategy,
+            Some(&recomputed_root),
+        );
+        let root_matches = bundle.root_manifest.as_ref() == Some(&recomputed_root);
+        let id_matches = recomputed_id == bundle.bundle_id;
+        Ok(VerifyReport {
+            verified: root_matches && id_matches,
+            bundle_id: bundle.bundle_id.clone(),
+            recorded_root: bundle.root_manifest.clone(),
+            recomputed_root: Some(recomputed_root),
+            recomputed_id,
+            detail: if root_matches && id_matches {
+                "replayed merge reproduces the recorded bundle".to_string()
+            } else if !root_matches {
+                "recomputed root manifest differs from the recorded one".to_string()
+            } else {
+                "recomputed bundle id differs from the recorded one".to_string()
+            },
+        })
+    }
+
     /// The sixth verb: designate a ready, promotable bundle for
     /// consumption on a named channel. Policy: the producing gate must be
     /// marked `may_release` (vision: release is a policy-driven output,
@@ -540,6 +578,30 @@ impl Engine<'_> {
             },
         )
     }
+}
+
+/// Deterministic bundle identity (doc 17 §3): hash(gate, W root, ordered
+/// input publication ids, strategy, merged root).
+pub fn bundle_hash(
+    gate_id: &str,
+    w_root: Option<&ObjectId>,
+    input_ids: &[String],
+    strategy: &str,
+    root: Option<&ObjectId>,
+) -> String {
+    let mut hasher = blake3::Hasher::new();
+    hasher.update(gate_id.as_bytes());
+    if let Some(w) = w_root {
+        hasher.update(w.as_str().as_bytes());
+    }
+    for id in input_ids {
+        hasher.update(id.as_bytes());
+    }
+    hasher.update(strategy.as_bytes());
+    if let Some(root) = root {
+        hasher.update(root.as_str().as_bytes());
+    }
+    hasher.finalize().to_hex().to_string()
 }
 
 fn require(authz: &AuthzContext, capability: Capability) -> Result<()> {

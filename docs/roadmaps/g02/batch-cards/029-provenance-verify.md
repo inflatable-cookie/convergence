@@ -1,6 +1,6 @@
 # 029 Provenance Verify
 
-Status: ready
+Status: complete
 Updated: 2026-07-24
 Roadmap: `g02.008`
 Spec: `docs/specs/008-releases-retention-and-gc.md`
@@ -41,6 +41,18 @@ provenance and prove the hash — the audit story.
 - provenance lacks data needed for replay — extend deliberately, doc 17
   first if semantic
 
+## Outcome
+
+- `Engine::verify`: reloads input publications from provenance, replays
+  the merge with recorded W/strategy/input order, recomputes the bundle
+  hash (now a shared `bundle_hash` fn with the builder), compares root +
+  id; `VerifyReport` with human detail
+- `GET /api/bundles/:id/verify`; CLI `verify <bundle>` (exit 1 on
+  failure — CI-usable)
+- tests: honest two-input supersession bundle verifies; tampering a
+  recorded publication root in metadata fails verification
+- 86 workspace tests green
+
 ## Next Task
 
-On completion, close roadmap `g02.008` against its exit criteria.
+Close roadmap `g02.008`; open `g02.009` (git interop).

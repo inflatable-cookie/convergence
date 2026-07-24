@@ -6,7 +6,7 @@ use crate::model::{
     AddLaneMemberRequest, ApproveRequest, BundleRecord, CreateLaneRequest, InboxReport, LaneRecord,
     Manifest, ManifestEntryKind, NegotiateRequest, NegotiateResponse, ObjectId, ObjectSet,
     PromoteRequest, PublishRequest, ReleaseRecord, ReleaseRequest, RetentionPolicy,
-    SetLaneHeadRequest, SnapRecord, SuperpositionVariantKind, WIRE_VERSION,
+    SetLaneHeadRequest, SnapRecord, SuperpositionVariantKind, VerifyReport, WIRE_VERSION,
 };
 use crate::store::LocalStore;
 
@@ -361,6 +361,17 @@ impl RemoteClient {
         }
         let response = Self::check(request.send().context("inbox")?)?;
         response.json().context("parse inbox")
+    }
+
+    pub fn verify(&self, bundle_id: &str) -> Result<VerifyReport> {
+        let response = Self::check(
+            self.http
+                .get(self.url(&format!("/api/bundles/{bundle_id}/verify")))
+                .bearer_auth(&self.token)
+                .send()
+                .context("verify")?,
+        )?;
+        response.json().context("parse verify report")
     }
 
     pub fn get_provenance(&self, bundle_id: &str) -> Result<crate::model::BundleProvenance> {

@@ -26,5 +26,5 @@ pub use self::wire::{
     CreateLaneRequest, GateGraph, GateNode, InboxBundle, InboxLane, InboxPublication, InboxReport,
     LaneHead, LaneRecord, NegotiateRequest, NegotiateResponse, ObjectSet, PromoteRequest,
     PublicationRecord, PublishRequest, ReleaseRecord, ReleaseRequest, RetentionPolicy,
-    SetLaneHeadRequest, WIRE_VERSION,
+    SetLaneHeadRequest, VerifyReport, WIRE_VERSION,
 };

@@ -218,6 +218,17 @@ pub struct ReleaseRequest {
     pub notes: Option<String>,
 }
 
+/// Provenance replay result (g02.008 batch 8.4): the audit feature.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct VerifyReport {
+    pub verified: bool,
+    pub bundle_id: String,
+    pub recorded_root: Option<ObjectId>,
+    pub recomputed_root: Option<ObjectId>,
+    pub recomputed_id: String,
+    pub detail: String,
+}
+
 /// A bundle plus its input publications — readable provenance.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct BundleProvenance {

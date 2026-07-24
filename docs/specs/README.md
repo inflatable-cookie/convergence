@@ -17,10 +17,10 @@ repo needs tighter execution grammar than the roadmap alone provides.
 
 ## Active Spec Set
 
-- [`008-releases-retention-and-gc.md`](./008-releases-retention-and-gc.md)
+- [`009-git-interop.md`](./009-git-interop.md)
 
 Archived specs live in [`archive/`](./archive/).
 
 ## Next Task
 
-Execute the ready `g02.008` Batch 8.4 verify card.
+Execute the ready `g02.009` Batch 9.1 interop-architecture card.

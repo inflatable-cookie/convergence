@@ -10,12 +10,12 @@ runs the rebuild improvement program.
 
 ## Current State
 
-`g02.008` (releases, retention, and GC) is active. `g02.007` closed:
-lane registry with ACLs, unpublished sync, inbox, verified provenance.
-`g02.009`-`g02.010` remain planned and open in sequence.
+`g02.009` (git interop) is active. `g02.008` closed: the six-verb
+contract is complete end to end, with retention, invariant-proven GC,
+and provenance verify. `g02.010` remains planned.
 
 Ready batch card:
-[`batch-cards/029-provenance-verify.md`](./batch-cards/029-provenance-verify.md)
+[`batch-cards/030-interop-architecture.md`](./batch-cards/030-interop-architecture.md)
 
 ## Lanes
 
@@ -26,10 +26,10 @@ Ready batch card:
 - [`005-convergence-semantics-revision.md`](./005-convergence-semantics-revision.md) — complete
 - [`006-continuous-capture-and-workspace-ux.md`](./006-continuous-capture-and-workspace-ux.md) — complete
 - [`007-lanes-and-collaboration.md`](./007-lanes-and-collaboration.md) — complete
-- [`008-releases-retention-and-gc.md`](./008-releases-retention-and-gc.md) — active
-- [`009-git-interop.md`](./009-git-interop.md) — planned
+- [`008-releases-retention-and-gc.md`](./008-releases-retention-and-gc.md) — complete
+- [`009-git-interop.md`](./009-git-interop.md) — active
 - [`010-scale-and-transport.md`](./010-scale-and-transport.md) — planned
 
 ## Next Task
 
-Execute the ready `g02.008` Batch 8.4 verify card.
+Execute the ready `g02.009` Batch 9.1 interop-architecture card.

@@ -29,10 +29,10 @@ records the closed state.
 
 ## Active strict lane
 
-- `g02.008` (releases, retention, and GC) is the active roadmap.
-- `docs/specs/008-releases-retention-and-gc.md` is the active strict
-  planning lane; `g02.009`-`g02.010` are planned and open in sequence.
-- ready card: `g02/batch-cards/029-provenance-verify.md`
+- `g02.009` (git interop) is the active roadmap.
+- `docs/specs/009-git-interop.md` is the active strict planning lane;
+  `g02.010` remains planned.
+- ready card: `g02/batch-cards/030-interop-architecture.md`
 
 ## Rollover guardrail
 
@@ -46,4 +46,4 @@ Before rollover:
 
 ## Next Task
 
-Execute the ready `g02.008` Batch 8.4 verify card.
+Execute the ready `g02.009` Batch 9.1 interop-architecture card.

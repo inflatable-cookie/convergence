@@ -13,7 +13,7 @@ use converge_model::{
     AddLaneMemberRequest, ApproveRequest, BundleProvenance, BundleRecord, CreateLaneRequest,
     InboxReport, LaneHead, LaneRecord, NegotiateRequest, NegotiateResponse, ObjectId, ObjectSet,
     PromoteRequest, PublishRequest, ReleaseRecord, ReleaseRequest, RetentionPolicy,
-    SetLaneHeadRequest, SnapRecord, WIRE_VERSION,
+    SetLaneHeadRequest, SnapRecord, VerifyReport, WIRE_VERSION,
 };
 
 use crate::authz::{Capability, authorize};
@@ -38,6 +38,7 @@ pub fn router(state: AppState) -> Router {
         .route("/api/publish", post(publish))
         .route("/api/bundles/:id", get(get_bundle))
         .route("/api/bundles/:id/provenance", get(get_provenance))
+        .route("/api/bundles/:id/verify", get(verify_bundle))
         .route("/api/bundles/:id/approve", post(approve))
         .route("/api/bundles/:id/promote", post(promote))
         .route("/api/repos/:repo/lanes", post(create_lane).get(list_lanes))
@@ -449,6 +450,22 @@ async fn get_provenance(
         bundle: bundle_record(&bundle),
         inputs,
     }))
+}
+
+async fn verify_bundle(
+    State(state): State<SharedState>,
+    Path(id): Path<String>,
+    headers: HeaderMap,
+) -> Result<Json<VerifyReport>, ApiError> {
+    subject(&state, &headers)?;
+    let engine = Engine {
+        meta: state.meta.as_ref(),
+        objects: state.objects.as_ref(),
+    };
+    let report = engine
+        .verify(&id)
+        .map_err(|err| bad_request(format!("{err:#}")))?;
+    Ok(Json(report))
 }
 
 async fn approve(

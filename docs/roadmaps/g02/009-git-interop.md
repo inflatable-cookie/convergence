@@ -1,10 +1,10 @@
 # 009 Git Interop
 
-Status: planned
+Status: active
 Owner: repo maintainers
 Updated: 2026-07-24
 
-Opens after `g02.008`.
+
 
 ## Context
 
@@ -13,7 +13,7 @@ beachhead teams keep their git history and tooling while Convergence owns
 the binary-heavy and gated workflows. Operator-confirmed first-class vision
 item (was archived g01 doc 11).
 
-## Planned Batches
+## Execution Plan (batch details in cards)
 
 - **9.1 Interop architecture**: mapping contract (snap lineage <-> commits,
   bundles <-> merge commits, tombstones <-> deletions), boundary rules
@@ -32,4 +32,5 @@ item (was archived g01 doc 11).
 
 ## Next Task
 
-Compile into batches with a ready card when `g02.008` closes.
+Execute the ready Batch 9.1 card
+(`batch-cards/030-interop-architecture.md`).

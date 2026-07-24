@@ -145,6 +145,8 @@ enum Command {
     },
     /// List the repo's releases.
     Releases,
+    /// Replay a bundle from provenance and prove its identity.
+    Verify { bundle_id: String },
     /// Run server garbage collection (dry-run unless --execute).
     Gc {
         #[arg(long)]
@@ -505,6 +507,24 @@ fn run(cli: &Cli, mode: OutputMode) -> Result<serde_json::Value> {
                     );
                 }
             })
+        }
+        Command::Verify { bundle_id } => {
+            let ws = open_workspace()?;
+            let (client, _) = remote_client(&ws)?;
+            let report = client.verify(bundle_id)?;
+            let verified = report.verified;
+            emit(mode, report, |r| {
+                if r.verified {
+                    println!("VERIFIED: {}", r.detail);
+                } else {
+                    println!("FAILED: {}", r.detail);
+                }
+            })?;
+            if verified {
+                Ok(serde_json::Value::Null)
+            } else {
+                anyhow::bail!("verification failed")
+            }
         }
         Command::Gc { execute } => {
             let ws = open_workspace()?;

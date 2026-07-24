@@ -332,3 +332,49 @@ fn gc_retention_drops_metadata_and_requires_admin() -> Result<()> {
     assert_eq!(head.bundle_id, b2.bundle_id, "channel head survives");
     Ok(())
 }
+
+#[test]
+fn verify_replays_provenance_and_detects_tamper() -> Result<()> {
+    let server_dir = tempfile::tempdir()?;
+    let base_url = start_server(server_dir.path())?;
+    let alice = RemoteClient::new(&base_url, "token-a");
+
+    // Two-input bundle (supersession path) — richer replay.
+    let ws_dir = tempfile::tempdir()?;
+    let ws = Workspace::init(ws_dir.path(), false)?;
+    std::fs::write(ws_dir.path().join("app.txt"), "v1")?;
+    let s1 = ws.create_snap(None)?;
+    let (b1, _) = alice.publish(&ws.store, "repo", "scope", "main", &s1, None, None, None)?;
+    std::fs::write(ws_dir.path().join("app.txt"), "v2")?;
+    let s2 = ws.create_snap(None)?;
+    let (b2, _) = alice.publish(
+        &ws.store,
+        "repo",
+        "scope",
+        "main",
+        &s2,
+        Some(b1.bundle_id.clone()),
+        None,
+        None,
+    )?;
+
+    let report = alice.verify(&b2.bundle_id)?;
+    assert!(report.verified, "honest bundle verifies: {}", report.detail);
+    assert_eq!(report.recomputed_root, b2.root_manifest);
+
+    // Tamper: swap a recorded input root in the publication metadata.
+    {
+        use rusqlite::Connection;
+        let conn = Connection::open(server_dir.path().join("meta.sqlite"))?;
+        let tampered = format!(r#""root_manifest":"{}""#, s1.root_manifest.as_str());
+        let original = format!(r#""root_manifest":"{}""#, s2.root_manifest.as_str());
+        conn.execute(
+            "UPDATE publications SET record_json = REPLACE(record_json, ?1, ?2)
+             WHERE record_json LIKE '%' || ?3 || '%'",
+            rusqlite::params![original, tampered, s2.id],
+        )?;
+    }
+    let report = alice.verify(&b2.bundle_id)?;
+    assert!(!report.verified, "tampered provenance must fail");
+    Ok(())
+}

@@ -8,8 +8,8 @@
     boundary (002, complete), rebuild implementation vertical slice
     (003, complete), TUI rebuild (004, complete), convergence semantics
     revision (005, complete), continuous capture and workspace UX
-    (006, complete), lanes and collaboration (007, complete), releases/retention/GC
-    (008, active), then planned in sequence: git interop (009), scale and transport (010).
+    (006, complete), lanes and collaboration (007, complete), releases/retention/GC (008, complete), git interop (009, active),
+    then planned: git interop (009), scale and transport (010).
 
 - `g01`
   - Status: complete

@@ -1,6 +1,6 @@
 # 008 Releases, Retention, and GC
 
-Status: active
+Status: complete
 Owner: repo maintainers
 Updated: 2026-07-24
 
@@ -32,6 +32,13 @@ roadmap completes the verb surface and makes storage honest about retention.
   unreachable objects without touching reachable history; `verify` proves a
   bundle from provenance
 
+## Outcome
+
+All four batches complete; exit criteria met — publish → promote →
+release → fetch-by-channel e2e green, GC reclaims unreachable objects
+with the reachable-never-collected invariant proven, and `verify`
+replays bundles from provenance with tamper detection.
+
 ## Next Task
 
-Execute the ready Batch 8.4 card (`batch-cards/029-provenance-verify.md`).
+Open `g02.009` (git interop).

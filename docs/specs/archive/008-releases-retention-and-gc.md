@@ -1,6 +1,6 @@
 # 008 Releases, Retention, and GC
 
-Status: active
+Status: complete
 Updated: 2026-07-24
 Roadmap: `g02.008`
 
@@ -24,8 +24,7 @@ anger.
   fully implemented end to end.
 - Batch 8.2 (retention policy) complete.
 - Batch 8.3 (GC) complete.
-- Batch 8.4 has a ready card:
-  `docs/roadmaps/g02/batch-cards/029-provenance-verify.md`
+- All four batches complete; roadmap `g02.008` closed.
 
 ## Exit Condition
 
@@ -33,4 +32,4 @@ Roadmap `g02.008` exit criteria met.
 
 ## Next Task
 
-Execute the ready Batch 8.4 card.
+Superseded by `docs/specs/009-git-interop.md`.
