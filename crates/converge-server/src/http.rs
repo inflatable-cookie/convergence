@@ -10,9 +10,9 @@ use axum::{Json, Router};
 use serde_json::json;
 
 use converge_model::{
-    AddLaneMemberRequest, ApproveRequest, BundleRecord, CreateLaneRequest, InboxReport, LaneHead,
-    LaneRecord, NegotiateRequest, NegotiateResponse, ObjectId, ObjectSet, PromoteRequest,
-    PublishRequest, SetLaneHeadRequest, SnapRecord, WIRE_VERSION,
+    AddLaneMemberRequest, ApproveRequest, BundleProvenance, BundleRecord, CreateLaneRequest,
+    InboxReport, LaneHead, LaneRecord, NegotiateRequest, NegotiateResponse, ObjectId, ObjectSet,
+    PromoteRequest, PublishRequest, SetLaneHeadRequest, SnapRecord, WIRE_VERSION,
 };
 
 use crate::authz::{Capability, authorize};
@@ -36,6 +36,7 @@ pub fn router(state: AppState) -> Router {
         .route("/api/objects/:kind/:id", put(put_object).get(get_object))
         .route("/api/publish", post(publish))
         .route("/api/bundles/:id", get(get_bundle))
+        .route("/api/bundles/:id/provenance", get(get_provenance))
         .route("/api/bundles/:id/approve", post(approve))
         .route("/api/bundles/:id/promote", post(promote))
         .route("/api/repos/:repo/lanes", post(create_lane).get(list_lanes))
@@ -191,8 +192,7 @@ async fn publish(
             authz,
             PublishInput {
                 gate_id: request.gate_id,
-                snap_id: request.snap_id,
-                root_manifest: request.root_manifest,
+                snap: request.snap,
                 base_bundle_id: request.base_bundle_id,
                 lane_id: request.lane_id,
                 notes: request.notes,
@@ -414,6 +414,32 @@ async fn get_bundle(
         .get_bundle(&id)
         .map_err(|err| ApiError(StatusCode::NOT_FOUND, format!("{err:#}")))?;
     Ok(Json(bundle_record(&bundle)))
+}
+
+async fn get_provenance(
+    State(state): State<SharedState>,
+    Path(id): Path<String>,
+    headers: HeaderMap,
+) -> Result<Json<BundleProvenance>, ApiError> {
+    subject(&state, &headers)?;
+    let bundle = state
+        .meta
+        .get_bundle(&id)
+        .map_err(|err| ApiError(StatusCode::NOT_FOUND, format!("{err:#}")))?;
+    let mut inputs = Vec::new();
+    for publication_id in &bundle.inputs {
+        if let Some(publication) = state
+            .meta
+            .get_publication(publication_id)
+            .map_err(|err| bad_request(format!("{err:#}")))?
+        {
+            inputs.push(publication);
+        }
+    }
+    Ok(Json(BundleProvenance {
+        bundle: bundle_record(&bundle),
+        inputs,
+    }))
 }
 
 async fn approve(

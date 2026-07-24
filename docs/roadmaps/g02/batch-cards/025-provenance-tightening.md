@@ -1,6 +1,6 @@
 # 025 Provenance Tightening
 
-Status: ready
+Status: complete
 Updated: 2026-07-24
 Roadmap: `g02.007`
 Spec: `docs/specs/007-lanes-and-collaboration.md`
@@ -46,6 +46,19 @@ lane references, and publication provenance carries the full chain
 
 - provenance shape changes ripple into doc 17 — doc first
 
+## Outcome
+
+- `PublishRequest` carries the full `SnapRecord`; server identity-verifies
+  and stores it on publish (tampered records rejected — tested);
+  `PublicationRecord` gains `snap_parents`
+- `GET /api/bundles/:id/provenance` returns the bundle + its input
+  publications; CLI `bundle <id>` prints the chain (lane, publisher,
+  base, lineage links)
+- invariant proven in tests: every superposition variant source in a
+  bundle is a registered lane; provenance answers
+  who/where-from/on-what for every input
+- 76 workspace tests green
+
 ## Next Task
 
-On completion, close roadmap `g02.007` against its exit criteria.
+Close roadmap `g02.007`; open `g02.008` (releases, retention, GC).

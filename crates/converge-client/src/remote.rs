@@ -131,13 +131,12 @@ impl RemoteClient {
         repo_id: &str,
         scope_id: &str,
         gate_id: &str,
-        snap_id: &str,
-        root_manifest: &ObjectId,
+        snap: &SnapRecord,
         base_bundle_id: Option<String>,
         lane_id: Option<String>,
         notes: Option<String>,
     ) -> Result<(BundleRecord, UploadStats)> {
-        let stats = self.upload_tree(store, root_manifest)?;
+        let stats = self.upload_tree(store, &snap.root_manifest)?;
         let response = Self::check(
             self.http
                 .post(self.url("/api/publish"))
@@ -147,8 +146,7 @@ impl RemoteClient {
                     repo_id: repo_id.into(),
                     scope_id: scope_id.into(),
                     gate_id: gate_id.into(),
-                    snap_id: snap_id.into(),
-                    root_manifest: root_manifest.clone(),
+                    snap: snap.clone(),
                     base_bundle_id,
                     lane_id,
                     notes,
@@ -363,6 +361,17 @@ impl RemoteClient {
         }
         let response = Self::check(request.send().context("inbox")?)?;
         response.json().context("parse inbox")
+    }
+
+    pub fn get_provenance(&self, bundle_id: &str) -> Result<crate::model::BundleProvenance> {
+        let response = Self::check(
+            self.http
+                .get(self.url(&format!("/api/bundles/{bundle_id}/provenance")))
+                .bearer_auth(&self.token)
+                .send()
+                .context("get provenance")?,
+        )?;
+        response.json().context("parse provenance")
     }
 
     pub fn approve(&self, bundle_id: &str, repo_id: &str, scope_id: &str) -> Result<()> {

@@ -21,8 +21,8 @@ pub struct Engine<'a> {
 
 pub struct PublishInput {
     pub gate_id: String,
-    pub snap_id: String,
-    pub root_manifest: ObjectId,
+    /// Full snap record: identity-verified and stored on publish.
+    pub snap: SnapRecord,
     /// The bundle the publisher last saw for this target (doc 17 §2).
     pub base_bundle_id: Option<String>,
     /// `None` -> the publisher's auto-provisioned personal lane.
@@ -49,15 +49,18 @@ impl Engine<'_> {
         if !graph.gates.iter().any(|g| g.gate_id == input.gate_id) {
             bail!("unknown gate {} in repo {}", input.gate_id, authz.repo_id());
         }
-        if !self
-            .objects
-            .has(crate::storage::ObjectKind::Manifest, &input.root_manifest)
-        {
+        if !self.objects.has(
+            crate::storage::ObjectKind::Manifest,
+            &input.snap.root_manifest,
+        ) {
             bail!(
                 "root manifest {} not uploaded",
-                input.root_manifest.as_str()
+                input.snap.root_manifest.as_str()
             );
         }
+        // Identity-verify and persist the snap record (provenance links
+        // into lineage; rejects tampered records).
+        self.upload_snap_record(&authz, &input.snap)?;
         if let Some(base_id) = &input.base_bundle_id {
             let base = self
                 .meta
@@ -81,16 +84,17 @@ impl Engine<'_> {
             hasher.update(authz.repo_id().as_bytes());
             hasher.update(authz.scope_id().as_bytes());
             hasher.update(input.gate_id.as_bytes());
-            hasher.update(input.snap_id.as_bytes());
+            hasher.update(input.snap.id.as_bytes());
             hasher.update(authz.subject().as_bytes());
             hasher.update(created_at.as_bytes());
             hasher.finalize().to_hex().to_string()
         };
         self.meta.add_publication(&PublicationRecord {
             publication_id,
-            snap_id: input.snap_id.clone(),
-            root_manifest: input.root_manifest.clone(),
+            snap_id: input.snap.id.clone(),
+            root_manifest: input.snap.root_manifest.clone(),
             base_bundle_id: input.base_bundle_id.clone(),
+            snap_parents: input.snap.parents.clone(),
             repo_id: authz.repo_id().to_string(),
             scope_id: authz.scope_id().to_string(),
             target_gate_id: input.gate_id.clone(),

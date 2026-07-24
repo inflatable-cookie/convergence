@@ -17,10 +17,10 @@ repo needs tighter execution grammar than the roadmap alone provides.
 
 ## Active Spec Set
 
-- [`007-lanes-and-collaboration.md`](./007-lanes-and-collaboration.md)
+- [`008-releases-retention-and-gc.md`](./008-releases-retention-and-gc.md)
 
 Archived specs live in [`archive/`](./archive/).
 
 ## Next Task
 
-Execute the ready `g02.007` Batch 7.4 provenance card.002` Batch 2.4 rebuild-architecture card.
+Execute the ready `g02.008` Batch 8.1 release-channels card.002` Batch 2.4 rebuild-architecture card.

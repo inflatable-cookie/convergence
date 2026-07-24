@@ -1,6 +1,6 @@
 # 007 Lanes and Collaboration
 
-Status: active
+Status: complete
 Owner: repo maintainers
 Updated: 2026-07-24
 
@@ -33,7 +33,13 @@ superposition variants real provenance.
 - two clients share unpublished work through a lane with ACLs enforced;
   inbox surfaces it; variant provenance names registered lanes
 
+## Outcome
+
+All four batches complete; exit criteria met — two clients share
+unpublished lineage through ACL-enforced lanes, the inbox surfaces it
+with runnable recommendations, and superposition provenance names
+registered lanes end to end.
+
 ## Next Task
 
-Execute the ready Batch 7.4 card
-(`batch-cards/025-provenance-tightening.md`).
+Open `g02.008` (releases, retention, and GC).

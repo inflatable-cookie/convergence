@@ -410,8 +410,7 @@ fn run(cli: &Cli, mode: OutputMode) -> Result<serde_json::Value> {
                 &remote.repo_id,
                 &remote.scope,
                 &gate,
-                &snap.id,
-                &snap.root_manifest,
+                &snap,
                 base,
                 lane.clone(),
                 notes.clone(),
@@ -550,9 +549,26 @@ fn run(cli: &Cli, mode: OutputMode) -> Result<serde_json::Value> {
         Command::Bundle { bundle_id } => {
             let ws = open_workspace()?;
             let (client, _) = remote_client(&ws)?;
-            let bundle = client.get_bundle(bundle_id)?;
-            emit(mode, bundle, |b| {
-                println!("bundle {}: {:?}", b.bundle_id, b.status);
+            let provenance = client.get_provenance(bundle_id)?;
+            emit(mode, provenance, |p| {
+                println!("bundle {}: {:?}", p.bundle.bundle_id, p.bundle.status);
+                println!(
+                    "  gate {}  strategy {}  window {:?}  base {}",
+                    p.bundle.produced_by_gate_id,
+                    p.bundle.strategy,
+                    p.bundle.window,
+                    p.bundle.base_bundle_id.as_deref().unwrap_or("none")
+                );
+                for input in &p.inputs {
+                    println!(
+                        "  input {}  lane {}  by {}  base {}  parents {}",
+                        input.publication_id,
+                        input.lane_id,
+                        input.publisher,
+                        input.base_bundle_id.as_deref().unwrap_or("none"),
+                        input.snap_parents.len()
+                    );
+                }
             })
         }
         Command::Inbox { since } => {

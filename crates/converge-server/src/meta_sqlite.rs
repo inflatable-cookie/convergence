@@ -225,6 +225,19 @@ impl MetadataStore for SqliteMetadataStore {
         Ok(())
     }
 
+    fn get_publication(&self, publication_id: &str) -> Result<Option<PublicationRecord>> {
+        let conn = self.conn.lock().expect("meta lock");
+        let json: Option<String> = conn
+            .query_row(
+                "SELECT record_json FROM publications WHERE publication_id = ?1",
+                params![publication_id],
+                |row| row.get(0),
+            )
+            .ok();
+        json.map(|j| serde_json::from_str(&j).context("parse publication"))
+            .transpose()
+    }
+
     fn list_publications_after(
         &self,
         repo_id: &str,

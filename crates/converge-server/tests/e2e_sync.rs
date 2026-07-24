@@ -99,8 +99,7 @@ fn full_vertical_slice_over_http() -> Result<()> {
         "repo",
         "scope",
         "intake",
-        &snap_a.id,
-        &snap_a.root_manifest,
+        &snap_a,
         None,
         Some("lane-a".into()),
         None,
@@ -113,8 +112,7 @@ fn full_vertical_slice_over_http() -> Result<()> {
         "repo",
         "scope",
         "intake",
-        &snap_b.id,
-        &snap_b.root_manifest,
+        &snap_b,
         None,
         Some("lane-b".into()),
         None,
@@ -154,13 +152,27 @@ fn full_vertical_slice_over_http() -> Result<()> {
     let resolved_root = converge_client::resolve::apply_resolution(&ws_a.store, &root, &decisions)?;
 
     // Republish the resolved tree as a new snap from A.
+    let resolved_snap = converge_model::SnapRecord {
+        version: 2,
+        id: converge_model::compute_snap_id(
+            &resolved_root,
+            std::slice::from_ref(&snap_a.id),
+            Some(&bundle_b.bundle_id),
+        ),
+        created_at: "2026-07-24T00:00:00Z".into(),
+        root_manifest: resolved_root,
+        parents: vec![snap_a.id.clone()],
+        derived_from_bundle: Some(bundle_b.bundle_id.clone()),
+        message: None,
+        trigger: "explicit".into(),
+        stats: converge_model::SnapStats::default(),
+    };
     let (resolved_bundle, _) = client_a.publish(
         &ws_a.store,
         "repo",
         "resolved-scope",
         "intake",
-        "resolved-snap",
-        &resolved_root,
+        &resolved_snap,
         None,
         Some("lane-a".into()),
         Some("resolution of shared.txt".into()),

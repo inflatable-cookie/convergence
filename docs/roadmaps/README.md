@@ -29,10 +29,10 @@ records the closed state.
 
 ## Active strict lane
 
-- `g02.007` (lanes and collaboration) is the active roadmap.
-- `docs/specs/007-lanes-and-collaboration.md` is the active strict
-  planning lane; `g02.008`-`g02.010` are planned and open in sequence.
-- ready card: `g02/batch-cards/025-provenance-tightening.md`
+- `g02.008` (releases, retention, and GC) is the active roadmap.
+- `docs/specs/008-releases-retention-and-gc.md` is the active strict
+  planning lane; `g02.009`-`g02.010` are planned and open in sequence.
+- ready card: `g02/batch-cards/026-release-channels.md`
 
 ## Rollover guardrail
 
@@ -46,4 +46,4 @@ Before rollover:
 
 ## Next Task
 
-Execute the ready `g02.007` Batch 7.4 provenance card.002` Batch 2.4 rebuild-architecture card.
+Execute the ready `g02.008` Batch 8.1 release-channels card.002` Batch 2.4 rebuild-architecture card.

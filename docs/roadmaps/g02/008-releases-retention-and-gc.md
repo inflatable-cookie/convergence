@@ -1,10 +1,10 @@
 # 008 Releases, Retention, and GC
 
-Status: planned
+Status: active
 Owner: repo maintainers
 Updated: 2026-07-24
 
-Opens after `g02.007`.
+
 
 ## Context
 
@@ -12,7 +12,7 @@ Opens after `g02.007`.
 GC was cut from the salvage with nothing server-side to replace it. This
 roadmap completes the verb surface and makes storage honest about retention.
 
-## Planned Batches
+## Execution Plan (batch details in cards)
 
 - **8.1 Release channels**: named channels per repo; `release` op cuts a
   bundle to a channel (policy: which gates may release); client
@@ -34,4 +34,4 @@ roadmap completes the verb surface and makes storage honest about retention.
 
 ## Next Task
 
-Compile into batches with a ready card when `g02.007` closes.
+Execute the ready Batch 8.1 card (`batch-cards/026-release-channels.md`).

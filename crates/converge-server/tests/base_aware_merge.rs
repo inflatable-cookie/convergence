@@ -77,6 +77,21 @@ fn put_tree(fx: &Fixture, files: &[(&str, &[u8])]) -> Result<ObjectId> {
         .put(ObjectKind::Manifest, &serde_json::to_vec(&manifest)?)
 }
 
+fn test_snap_record(tag: &str, root: converge_model::ObjectId) -> converge_model::SnapRecord {
+    let _ = tag;
+    converge_model::SnapRecord {
+        version: 2,
+        id: converge_model::compute_snap_id(&root, &[], None),
+        created_at: "2026-07-24T00:00:00Z".into(),
+        root_manifest: root,
+        parents: Vec::new(),
+        derived_from_bundle: None,
+        message: None,
+        trigger: "explicit".into(),
+        stats: converge_model::SnapStats::default(),
+    }
+}
+
 fn ensure_lane(fx: &Fixture, lane: &str) {
     if fx
         .meta
@@ -114,8 +129,7 @@ fn publish(
         authz,
         PublishInput {
             gate_id: "intake".into(),
-            snap_id: snap.into(),
-            root_manifest: root,
+            snap: test_snap_record(snap, root),
             base_bundle_id: base,
             lane_id: Some(lane.into()),
             notes: None,

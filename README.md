@@ -55,4 +55,4 @@ cargo nextest run -P ci
 
 ## Next task
 
-Execute the ready `g02.007` Batch 7.4 provenance card.002` Batch 2.4 rebuild-architecture card.
+Execute the ready `g02.008` Batch 8.1 release-channels card.002` Batch 2.4 rebuild-architecture card.

@@ -1,6 +1,6 @@
 # 007 Lanes and Collaboration
 
-Status: active
+Status: complete
 Updated: 2026-07-24
 Roadmap: `g02.007`
 
@@ -23,8 +23,7 @@ doc 17 before code.
 - Batch 7.1 (lane model and registry) complete.
 - Batch 7.2 (unpublished sync) complete.
 - Batch 7.3 (inbox) complete.
-- Batch 7.4 has a ready card:
-  `docs/roadmaps/g02/batch-cards/025-provenance-tightening.md`
+- All four batches complete; roadmap `g02.007` closed.
 
 ## Exit Condition
 
@@ -32,4 +31,4 @@ Roadmap `g02.007` exit criteria met.
 
 ## Next Task
 
-Execute the ready Batch 7.4 card.
+Superseded by `docs/specs/008-releases-retention-and-gc.md`.

@@ -95,6 +95,7 @@ pub trait MetadataStore: Send + Sync {
 
     // partition state (repo, scope, gate)
     fn add_publication(&self, publication: &PublicationRecord) -> Result<()>;
+    fn get_publication(&self, publication_id: &str) -> Result<Option<PublicationRecord>>;
     /// Publications with seq > `after_seq`, ordered, paired with their seq.
     fn list_publications_after(
         &self,

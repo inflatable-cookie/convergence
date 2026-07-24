@@ -10,12 +10,12 @@ boundary was named.
 
 ## Current State
 
-`g02.007` (lanes and collaboration) is active. `g02.006` closed:
-auto-capture with thinning, one-call status, actionable history,
-annotate, variant-key resolution. `g02.008`-`g02.010` remain planned.
+`g02.008` (releases, retention, and GC) is active. `g02.007` closed:
+lane registry with ACLs, unpublished sync, inbox, verified provenance.
+`g02.009`-`g02.010` remain planned.
 
 Ready batch card:
-[`batch-cards/025-provenance-tightening.md`](./batch-cards/025-provenance-tightening.md)
+[`batch-cards/026-release-channels.md`](./batch-cards/026-release-channels.md)
 
 The paused posture is over. The lane is capture → archive cut → docs spine
 restructure → rebuild architecture definition. Batch 2.1 (capture) is
@@ -33,11 +33,11 @@ restructure) complete: docs tree reduced to the keeper spine.
 - [`004-tui-rebuild.md`](./004-tui-rebuild.md) — complete
 - [`005-convergence-semantics-revision.md`](./005-convergence-semantics-revision.md) — complete
 - [`006-continuous-capture-and-workspace-ux.md`](./006-continuous-capture-and-workspace-ux.md) — complete
-- [`007-lanes-and-collaboration.md`](./007-lanes-and-collaboration.md) — active
-- [`008-releases-retention-and-gc.md`](./008-releases-retention-and-gc.md) — planned
+- [`007-lanes-and-collaboration.md`](./007-lanes-and-collaboration.md) — complete
+- [`008-releases-retention-and-gc.md`](./008-releases-retention-and-gc.md) — active
 - [`009-git-interop.md`](./009-git-interop.md) — planned
 - [`010-scale-and-transport.md`](./010-scale-and-transport.md) — planned
 
 ## Next Task
 
-Execute the ready `g02.007` Batch 7.4 provenance card.002` Batch 2.4 rebuild-architecture card.
+Execute the ready `g02.008` Batch 8.1 release-channels card.002` Batch 2.4 rebuild-architecture card.

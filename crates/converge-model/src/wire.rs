@@ -44,8 +44,10 @@ pub struct PublishRequest {
     pub repo_id: String,
     pub scope_id: String,
     pub gate_id: String,
-    pub snap_id: String,
-    pub root_manifest: ObjectId,
+    /// The full snap record travels with the publish (g02.007 batch 7.4):
+    /// the server verifies its identity and stores it, so provenance links
+    /// into lineage without a separate sync.
+    pub snap: crate::snap::SnapRecord,
     #[serde(default)]
     pub base_bundle_id: Option<String>,
     /// `None` -> the publisher's auto-provisioned personal lane.
@@ -75,6 +77,9 @@ pub struct PublicationRecord {
     /// The bundle the publisher last saw for the target (doc 17 §2).
     #[serde(default)]
     pub base_bundle_id: Option<String>,
+    /// The published snap's parents — provenance links into lineage.
+    #[serde(default)]
+    pub snap_parents: Vec<String>,
     pub repo_id: String,
     pub scope_id: String,
     pub target_gate_id: String,
@@ -176,6 +181,13 @@ pub struct InboxBundle {
     pub recommendation: String,
     pub approvals: u32,
     pub required_approvals: u32,
+}
+
+/// A bundle plus its input publications — readable provenance.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct BundleProvenance {
+    pub bundle: BundleRecord,
+    pub inputs: Vec<PublicationRecord>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
