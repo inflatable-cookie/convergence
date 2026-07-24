@@ -9,19 +9,82 @@ use crate::store::LocalStore;
 
 use super::platform::{create_symlink, set_file_mode};
 
+/// Manifest entry names become filesystem paths, and manifests can come
+/// from a remote — treat every name as untrusted (batch 12.1, audit D2).
+fn validate_entry_name(name: &str) -> Result<()> {
+    let mut components = Path::new(name).components();
+    let single_normal = matches!(
+        (components.next(), components.next()),
+        (Some(std::path::Component::Normal(_)), None)
+    );
+    if !single_normal || name.contains('/') || name.contains('\\') || name.contains('\0') {
+        return Err(anyhow!(
+            "manifest entry name {name:?} is not a single path component"
+        ));
+    }
+    if name == ".converge" || name == ".git" {
+        return Err(anyhow!("manifest entry name {name:?} is reserved"));
+    }
+    Ok(())
+}
+
+/// Symlink targets may not be absolute and may not climb above the
+/// materialized root: `depth` is how many directories deep the link
+/// itself sits.
+fn validate_symlink_target(target: &str, depth: usize) -> Result<()> {
+    let path = Path::new(target);
+    if path.is_absolute() {
+        return Err(anyhow!("symlink target {target:?} is absolute"));
+    }
+    let mut remaining = depth as i64;
+    for component in path.components() {
+        match component {
+            std::path::Component::ParentDir => {
+                remaining -= 1;
+                if remaining < 0 {
+                    return Err(anyhow!(
+                        "symlink target {target:?} escapes the materialized root"
+                    ));
+                }
+            }
+            std::path::Component::Normal(_) | std::path::Component::CurDir => {}
+            _ => return Err(anyhow!("symlink target {target:?} is not relative")),
+        }
+    }
+    Ok(())
+}
+
 pub(super) fn materialize_manifest(
     store: &LocalStore,
     manifest_id: &ObjectId,
     out_dir: &Path,
 ) -> Result<()> {
+    materialize_manifest_at_depth(store, manifest_id, out_dir, 0)
+}
+
+fn materialize_manifest_at_depth(
+    store: &LocalStore,
+    manifest_id: &ObjectId,
+    out_dir: &Path,
+    depth: usize,
+) -> Result<()> {
     let manifest = store.get_manifest(manifest_id)?;
+    let mut seen = std::collections::HashSet::new();
     for entry in manifest.entries {
+        validate_entry_name(&entry.name)?;
+        if !seen.insert(entry.name.clone()) {
+            return Err(anyhow!(
+                "manifest {} names {} twice",
+                manifest_id.as_str(),
+                entry.name
+            ));
+        }
         let path = out_dir.join(&entry.name);
         match entry.kind {
             ManifestEntryKind::Dir { manifest } => {
                 fs::create_dir_all(&path)
                     .with_context(|| format!("create dir {}", path.display()))?;
-                materialize_manifest(store, &manifest, &path)?;
+                materialize_manifest_at_depth(store, &manifest, &path, depth + 1)?;
             }
             ManifestEntryKind::File { blob, mode, .. } => {
                 let bytes = store.get_blob(&blob)?;
@@ -32,7 +95,10 @@ pub(super) fn materialize_manifest(
             ManifestEntryKind::FileChunks { recipe, mode, size } => {
                 materialize_chunked_file(store, &path, &recipe, mode, size)?;
             }
-            ManifestEntryKind::Symlink { target } => create_symlink(&target, &path)?,
+            ManifestEntryKind::Symlink { target } => {
+                validate_symlink_target(&target, depth)?;
+                create_symlink(&target, &path)?
+            }
             ManifestEntryKind::Superposition { variants } => {
                 let mut sources = Vec::new();
                 for v in variants {

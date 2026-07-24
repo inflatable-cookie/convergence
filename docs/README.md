@@ -49,5 +49,5 @@ prefers `cargo nextest` when it is available on the machine.
 
 The audit hardening program `g02.011`-`g02.018` is open (findings
 record: `logs/2026-07/24-180000-audit-findings-and-hardening-program.md`).
-`g02.011` server trust boundaries complete. Active roadmap:
-`g02.012` data safety; next is batch card 12.1 (safe restore).
+`g02.011` complete. Active roadmap: `g02.012` data safety; batch 12.1
+(safe restore) complete, next is batch card 12.2.

@@ -1,6 +1,6 @@
 # Spec 011: Server Trust Boundaries
 
-Status: active
+Status: complete (archived)
 Roadmap: `g02.011`
 Updated: 2026-07-24
 

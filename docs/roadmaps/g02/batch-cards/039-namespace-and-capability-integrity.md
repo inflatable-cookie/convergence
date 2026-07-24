@@ -3,7 +3,7 @@
 Status: complete
 Updated: 2026-07-24
 Roadmap: `g02.011`
-Spec: `docs/specs/011-server-trust-boundaries.md`
+Spec: `docs/specs/archive/011-server-trust-boundaries.md`
 
 ## Objective
 

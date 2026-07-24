@@ -17,8 +17,8 @@ architecture/docs/tests) produced the hardening program `g02.011`-
 correctness → architecture honesty → scale walls → workflow completion
 → TUI spec parity → adversarial test hardening.
 
-`g02.011` server trust boundaries complete (cards 038-041). Active
-roadmap: `g02.012` data safety; next is batch card 12.1.
+`g02.011` complete (cards 038-041). Active roadmap: `g02.012` data
+safety; batch 12.1 (card 042) complete. Next: batch card 12.2.
 
 ## Lanes
 
@@ -33,7 +33,7 @@ roadmap: `g02.012` data safety; next is batch card 12.1.
 - [`009-git-interop.md`](./009-git-interop.md) — complete
 - [`010-scale-and-transport.md`](./010-scale-and-transport.md) — complete
 - [`011-server-trust-boundaries.md`](./011-server-trust-boundaries.md) — complete
-- [`012-data-safety.md`](./012-data-safety.md) — planned (active)
+- [`012-data-safety.md`](./012-data-safety.md) — in progress (12.1 complete)
 - [`013-transactional-and-merge-correctness.md`](./013-transactional-and-merge-correctness.md) — planned
 - [`014-architecture-honesty.md`](./014-architecture-honesty.md) — planned
 - [`015-scale-walls.md`](./015-scale-walls.md) — planned
@@ -43,4 +43,4 @@ roadmap: `g02.012` data safety; next is batch card 12.1.
 
 ## Next Task
 
-Open batch card 12.1 (safe restore) under `g02.012`.
+Open batch card 12.2 (GC reachability guarantee) under `g02.012`.

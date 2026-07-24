@@ -1,6 +1,6 @@
 # 012 Data Safety
 
-Status: planned
+Status: in progress (12.1 complete)
 Owner: repo maintainers
 Updated: 2026-07-24
 
@@ -38,9 +38,9 @@ closes every audited loss path.
 
 ## Execution Plan (batch details in cards)
 
-- **12.1 Safe restore**: materialize into a temp dir, pre-validate
-  materializability (superpositions, object availability), then swap;
-  entry-name and symlink-target validation shared with `path_ops`
+- **12.1 Safe restore** (complete, card 042): `materialize_via_temp`
+  defers destruction until the tree fully materializes; materialize
+  validates entry names, symlink targets, and duplicate names
 - **12.2 GC reachability guarantee**: replace mtime grace with an
   explicit pending/pin mechanism for in-flight uploads; `put_snap`
   verifies its root manifest; `set_lane_head` verifies tree presence
@@ -60,4 +60,4 @@ closes every audited loss path.
 
 ## Next Task
 
-Blocked behind g02.011 completion.
+Open batch card 12.2 (GC reachability guarantee).

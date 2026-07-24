@@ -17,11 +17,11 @@ repo needs tighter execution grammar than the roadmap alone provides.
 
 ## Active Spec Set
 
-Active spec: [`011-server-trust-boundaries.md`](./011-server-trust-boundaries.md)
-(complete — archive with the next spec's arrival).
+Active spec: [`012-data-safety.md`](./012-data-safety.md) (`g02.012`).
+Spec 011 archived on completion.
 
 Archived specs live in [`archive/`](./archive/).
 
 ## Next Task
 
-Open batch card 12.1 (safe restore) under `g02.012`.
+Open batch card 12.2 (GC reachability guarantee) under `g02.012`.

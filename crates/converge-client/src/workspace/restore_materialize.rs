@@ -34,9 +34,15 @@ impl Workspace {
             }
         }
 
-        materialize_fs::clear_workspace_except_converge_and_git(&self.root)?;
-
-        materialize_fs::materialize_manifest(&self.store, &snap.root_manifest, &self.root)?;
+        // Destruction deferred until the target fully materializes
+        // (batch 12.1): a superposed or unfetchable target must not
+        // cost the current tree.
+        materialize_fs::materialize_via_temp(
+            &self.store,
+            &snap.root_manifest,
+            &self.root,
+            &[".converge", ".git"],
+        )?;
         self.store.set_head(Some(&snap.id))?;
         Ok(())
     }
@@ -45,7 +51,7 @@ impl Workspace {
     pub fn materialize_snap_to(&self, snap_id: &str, out_dir: &Path, force: bool) -> Result<()> {
         let snap = self.store.get_snap(snap_id)?;
         ensure_output_dir_ready(out_dir, force)?;
-        materialize_fs::materialize_manifest(&self.store, &snap.root_manifest, out_dir)?;
+        materialize_fs::materialize_via_temp(&self.store, &snap.root_manifest, out_dir, &[])?;
         Ok(())
     }
 
@@ -57,24 +63,21 @@ impl Workspace {
         force: bool,
     ) -> Result<()> {
         ensure_output_dir_ready(out_dir, force)?;
-        materialize_fs::materialize_manifest(&self.store, root_manifest, out_dir)?;
+        materialize_fs::materialize_via_temp(&self.store, root_manifest, out_dir, &[])?;
         Ok(())
     }
 }
 
+/// Refuse a non-empty destination without `--force`; the clear itself is
+/// deferred to the post-materialize swap.
 fn ensure_output_dir_ready(out_dir: &Path, force: bool) -> Result<()> {
-    if out_dir.exists() {
-        if !force {
-            if !materialize_fs::is_empty_dir(out_dir)? {
-                anyhow::bail!(
-                    "destination is not empty: {} (use --force)",
-                    out_dir.display()
-                );
-            }
-        } else {
-            materialize_fs::clear_dir(out_dir)?;
-        }
-    } else {
+    if out_dir.exists() && !force && !materialize_fs::is_empty_dir(out_dir)? {
+        anyhow::bail!(
+            "destination is not empty: {} (use --force)",
+            out_dir.display()
+        );
+    }
+    if !out_dir.exists() {
         fs::create_dir_all(out_dir).with_context(|| format!("create dir {}", out_dir.display()))?;
     }
     Ok(())
