@@ -22,11 +22,38 @@ impl Workspace {
         let parents: Vec<String> = self.store.get_head()?.into_iter().collect();
 
         // Idempotent recapture (arch 17 §1): a tree identical to the head
-        // snap's tree creates nothing — return the head record.
+        // snap's tree creates nothing — return the head record. An
+        // explicit message still lands on it rather than being silently
+        // dropped (batch 13.4, audit C3); messages are editable metadata,
+        // so this needs no new lineage node.
+        let message = message
+            .map(|m| m.trim().to_string())
+            .filter(|m| !m.is_empty());
         if let Some(head_id) = parents.first() {
-            let head = self.store.get_snap(head_id)?;
+            let mut head = self.store.get_snap(head_id)?;
             if head.root_manifest == root_manifest {
+                if let Some(message) = message
+                    && head.message.as_ref() != Some(&message)
+                {
+                    self.store
+                        .update_snap_message(&head.id, Some(message.as_str()))?;
+                    head.message = Some(message);
+                }
                 return Ok(head);
+            }
+        } else if message.is_none() {
+            // No HEAD (fresh or detached workspace): dedup against an
+            // existing parentless capture of the same tree, so repeated
+            // auto-captures do not pile up identical records.
+            if let Some(existing) = self
+                .store
+                .list_snaps()?
+                .into_iter()
+                .filter(|s| s.parents.is_empty() && s.root_manifest == root_manifest)
+                .min_by(|a, b| a.created_at.cmp(&b.created_at))
+            {
+                self.store.set_head(Some(&existing.id))?;
+                return Ok(existing);
             }
         }
 

@@ -89,6 +89,28 @@ fn conform_metadata(meta: &dyn MetadataStore) -> Result<()> {
     meta.unpin_object("other", ObjectKind::Blob, &pid)?;
     assert!(!meta.is_object_pinned(ObjectKind::Blob, &pid)?);
 
+    // release deletion matches the bundle_id field, not a JSON substring
+    // (batch 13.4, audit M1): ids sharing a prefix must not cascade.
+    for (channel, bundle) in [("stable", "bundle-abc"), ("beta", "bundle-abcdef")] {
+        meta.add_release(&converge_model::ReleaseRecord {
+            channel: channel.into(),
+            repo_id: "conf".into(),
+            scope_id: "s".into(),
+            bundle_id: bundle.into(),
+            released_by: "alice".into(),
+            notes: None,
+            created_at: "2026-07-25T00:00:00Z".into(),
+        })?;
+    }
+    let dropped = meta.delete_releases_for_bundles("conf", &["bundle-abc".to_string()])?;
+    assert_eq!(dropped, 1, "only the exact bundle's release is deleted");
+    let survivors: Vec<String> = meta
+        .list_releases("conf")?
+        .into_iter()
+        .map(|r| r.bundle_id)
+        .collect();
+    assert_eq!(survivors, vec!["bundle-abcdef".to_string()]);
+
     // atomic batches (batch 13.1): all-or-nothing with guard rollback
     let scope = "batch-scope";
     let publication = PublicationRecord {

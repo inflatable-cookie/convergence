@@ -654,14 +654,28 @@ impl MetadataStore for SqliteMetadataStore {
     }
 
     fn delete_releases_for_bundles(&self, repo_id: &str, bundle_ids: &[String]) -> Result<u64> {
+        // Exact field match (audit M1): a substring match over the record
+        // JSON deletes releases of other bundles whose ids merely share a
+        // prefix, and GC then sweeps objects those releases still hold.
+        let wanted: std::collections::HashSet<&str> =
+            bundle_ids.iter().map(|id| id.as_str()).collect();
         let conn = self.conn.lock().expect("meta lock");
+        let mut stmt = conn.prepare("SELECT seq, record_json FROM releases WHERE repo_id = ?1")?;
+        let rows = stmt.query_map(params![repo_id], |row| {
+            Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?))
+        })?;
+        let mut doomed = Vec::new();
+        for row in rows {
+            let (seq, json) = row?;
+            let release: ReleaseRecord = serde_json::from_str(&json).context("parse release")?;
+            if wanted.contains(release.bundle_id.as_str()) {
+                doomed.push(seq);
+            }
+        }
+        drop(stmt);
         let mut deleted = 0u64;
-        for bundle_id in bundle_ids {
-            deleted += conn.execute(
-                "DELETE FROM releases WHERE repo_id = ?1
-                 AND record_json LIKE '%' || ?2 || '%'",
-                params![repo_id, bundle_id],
-            )? as u64;
+        for seq in doomed {
+            deleted += conn.execute("DELETE FROM releases WHERE seq = ?1", params![seq])? as u64;
         }
         Ok(deleted)
     }

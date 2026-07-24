@@ -410,14 +410,27 @@ impl MetadataStore for PostgresMetadataStore {
     }
 
     fn delete_releases_for_bundles(&self, repo_id: &str, bundle_ids: &[String]) -> Result<u64> {
+        // Exact field match (audit M1): a substring match over the record
+        // JSON deletes releases of other bundles whose ids merely share a
+        // prefix, and GC then sweeps objects those releases still hold.
+        let wanted: std::collections::HashSet<&str> =
+            bundle_ids.iter().map(|id| id.as_str()).collect();
         let mut c = self.client.lock().expect("pg lock");
+        let rows = c.query(
+            "SELECT seq, record_json FROM releases WHERE repo_id = $1",
+            &[&repo_id],
+        )?;
+        let mut doomed = Vec::new();
+        for row in rows {
+            let release: ReleaseRecord =
+                serde_json::from_str(row.get(1)).context("parse release")?;
+            if wanted.contains(release.bundle_id.as_str()) {
+                doomed.push(row.get::<_, i64>(0));
+            }
+        }
         let mut deleted = 0u64;
-        for bundle_id in bundle_ids {
-            let like = format!("%{bundle_id}%");
-            deleted += c.execute(
-                "DELETE FROM releases WHERE repo_id = $1 AND record_json LIKE $2",
-                &[&repo_id, &like],
-            )?;
+        for seq in doomed {
+            deleted += c.execute("DELETE FROM releases WHERE seq = $1", &[&seq])?;
         }
         Ok(deleted)
     }

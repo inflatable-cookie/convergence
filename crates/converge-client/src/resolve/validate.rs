@@ -4,14 +4,17 @@ use crate::model::{ObjectId, ResolutionDecision};
 use crate::store::LocalStore;
 
 use super::types::{InvalidKeyDecision, OutOfRangeDecision, ResolutionValidation};
-use super::variants::superposition_variants;
+use super::variants::required_superpositions;
 
 pub fn validate_resolution(
     store: &LocalStore,
     root: &ObjectId,
     decisions: &std::collections::BTreeMap<String, ResolutionDecision>,
 ) -> Result<ResolutionValidation> {
-    let variants = superposition_variants(store, root)?;
+    // Decision-aware walk (audit C1): mirrors how apply rewrites the
+    // tree, so nested superpositions under a chosen Dir variant are
+    // required here instead of exploding at apply time.
+    let variants = required_superpositions(store, root, decisions)?;
 
     let mut missing = Vec::new();
     for p in variants.keys() {

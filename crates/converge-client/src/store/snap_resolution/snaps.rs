@@ -1,7 +1,21 @@
 use super::*;
 
 impl LocalStore {
+    /// Store a snap record, preserving an existing one (batch 13.4,
+    /// audit C3). Snap ids cover tree + lineage only, so two records can
+    /// share an id while carrying different messages, triggers, or
+    /// timestamps; blind overwrite silently discards the first writer's
+    /// metadata. Deliberate edits go through [`Self::overwrite_snap`].
     pub fn put_snap(&self, snap: &SnapRecord) -> Result<()> {
+        if self.has_snap(&snap.id) {
+            return Ok(());
+        }
+        self.overwrite_snap(snap)
+    }
+
+    /// Replace a snap record outright — for edits to an existing record,
+    /// never for storing a newly captured one.
+    pub fn overwrite_snap(&self, snap: &SnapRecord) -> Result<()> {
         let path = self.root.join("snaps").join(format!("{}.json", snap.id));
         let bytes = serde_json::to_vec_pretty(snap).context("serialize snap")?;
         write_atomic(&path, &bytes).context("write snap")?;
@@ -60,6 +74,6 @@ impl LocalStore {
             .map(|s| s.trim().to_string())
             .filter(|s| !s.is_empty());
         snap.message = msg;
-        self.put_snap(&snap)
+        self.overwrite_snap(&snap)
     }
 }

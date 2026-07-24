@@ -1,6 +1,6 @@
 # 013 Transactional and Merge Correctness
 
-Status: in progress (13.1-13.3 complete)
+Status: complete
 Owner: repo maintainers
 Updated: 2026-07-24
 
@@ -48,20 +48,22 @@ These corrupt promoted history silently — worse than crashing.
   modify-back-to-W vs concurrent delete superposes with a Tombstone
   per doc 17 (rule added there first); `decision_table` regression
   file covers every cell
-- **13.4 Resolution and identity hygiene**: recursive
-  `validate_resolution`; field-match release deletion; recapture rule
-  fixes (message-bearing recapture creates a record, dedup without
-  HEAD); length-prefixed parent encoding in `compute_snap_id`;
-  file-locked or CAS state.json updates
+- **13.4 Resolution and identity hygiene** (complete, card 049):
+  decision-aware `validate_resolution`; field-match release deletion;
+  recapture rules (explicit message lands on the head record, dedup
+  without HEAD, write-once snap records); length-prefixed parent
+  encoding in `compute_snap_id`; lock-guarded state.json updates
 
-## Exit Criteria
+## Exit Criteria (all met)
 
 - two concurrent publishes plus a mid-build promote to one partition
-  produce consistent window/base state under test
-- stale-bundle promote is refused with a clear error
+  produce consistent window/base state under test (13.1: eight racing
+  publishers, distinct window ends, guarded batches)
+- stale-bundle promote is refused with a clear error (13.2)
 - full merge decision table covered by tests, including the
   modify-vs-delete cell and nested-superposition validate/apply parity
+  (13.3 `decision_table`, 13.4 `hygiene`)
 
 ## Next Task
 
-Open batch card 13.4 (resolution and identity hygiene).
+Roadmap complete. Open `g02.014` (architecture honesty).

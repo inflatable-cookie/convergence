@@ -33,12 +33,14 @@ fn recapture_of_unchanged_tree_is_idempotent() -> Result<()> {
     fs::write(tmp.path().join("a.txt"), "content")?;
 
     let s1 = ws.create_snap(Some("kept message".into()))?;
-    let s2 = ws.create_snap(Some("ignored message".into()))?;
+    let s2 = ws.create_snap(Some("later message".into()))?;
     assert_eq!(s1.id, s2.id, "unchanged tree over same head = same snap");
+    // The explicit message lands on the existing record rather than being
+    // silently dropped (batch 13.4, audit C3) — no new lineage node.
+    assert_eq!(s2.message.as_deref(), Some("later message"));
     assert_eq!(
-        s2.message.as_deref(),
-        Some("kept message"),
-        "existing record returned, not overwritten"
+        ws.store.get_snap(&s1.id)?.message.as_deref(),
+        Some("later message")
     );
     assert_eq!(ws.list_snaps()?.len(), 1);
     Ok(())

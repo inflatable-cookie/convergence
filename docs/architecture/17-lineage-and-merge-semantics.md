@@ -30,11 +30,16 @@ Record (v2):
 Identity:
 
 ```
-snap_id = blake3("converge-snap-v2\n"
+snap_id = blake3("converge-snap-v3\n"
                  + root_manifest + "\n"
-                 + parents.join(",") + "\n"
-                 + derived_from_bundle.unwrap_or(""))
+                 + le64(parents.len())
+                 + concat(le64(p.len()) + p for p in parents) + "\n"
+                 + le64(derived.len()) + derived)
 ```
+
+Every variable-length field is length-prefixed: a separator-joined parent
+list lets different parent splits hash identically once ids are not
+fixed-width, which would be a lineage forgery primitive.
 
 Consequences (all intended):
 
@@ -42,7 +47,15 @@ Consequences (all intended):
 - capturing a tree identical to the head snap's tree creates nothing:
   `create_snap` returns the head record (a child differing only by lineage
   would be a duplicate in product terms, so it is never created)
-- `message` is editable after capture without changing identity
+- `message` is editable after capture without changing identity — so an
+  explicit message given to a recapture of an unchanged tree lands on the
+  head record instead of being dropped or forcing a phantom lineage node
+- with no head (fresh or detached workspace), recapture dedups against an
+  existing parentless snap of the same tree, so repeated auto-captures do
+  not accumulate identical records
+- records are stored write-once: ids cover tree and lineage only, so a
+  second writer's differing metadata must not clobber the stored record;
+  message edits use the explicit update path
 - history rendering orders by lineage (parent walk), falling back to
   `created_at` only for display of parallel branches
 

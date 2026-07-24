@@ -60,11 +60,19 @@ pub fn compute_snap_id(
     derived_from_bundle: Option<&str>,
 ) -> String {
     let mut hasher = blake3::Hasher::new();
-    hasher.update(b"converge-snap-v2\n");
+    hasher.update(b"converge-snap-v3\n");
     hasher.update(root_manifest.as_str().as_bytes());
     hasher.update(b"\n");
-    hasher.update(parents.join(",").as_bytes());
+    // Length-prefixed parents: a separator-joined list lets differing
+    // parent splits collide once ids stop being fixed-width.
+    hasher.update(&(parents.len() as u64).to_le_bytes());
+    for parent in parents {
+        hasher.update(&(parent.len() as u64).to_le_bytes());
+        hasher.update(parent.as_bytes());
+    }
     hasher.update(b"\n");
-    hasher.update(derived_from_bundle.unwrap_or("").as_bytes());
+    let derived = derived_from_bundle.unwrap_or("");
+    hasher.update(&(derived.len() as u64).to_le_bytes());
+    hasher.update(derived.as_bytes());
     hasher.finalize().to_hex().to_string()
 }

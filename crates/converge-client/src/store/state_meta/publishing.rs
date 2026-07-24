@@ -45,10 +45,11 @@ impl LocalStore {
         gate: &str,
         bundle_id: &str,
     ) -> Result<()> {
-        let mut st = self.read_state()?;
-        st.last_seen_bundle
-            .insert(self.publish_key(remote, scope, gate), bundle_id.to_string());
-        self.write_state(&st)
+        let key = self.publish_key(remote, scope, gate);
+        self.mutate_state(|st| {
+            st.last_seen_bundle.insert(key, bundle_id.to_string());
+            Ok(())
+        })
     }
 
     pub fn set_last_published(
@@ -58,12 +59,10 @@ impl LocalStore {
         gate: &str,
         snap_id: &str,
     ) -> Result<()> {
-        let mut st = self.read_state()?;
-        if st.version != 1 {
-            anyhow::bail!("unsupported workspace state version {}", st.version);
-        }
-        st.last_published
-            .insert(self.publish_key(remote, scope, gate), snap_id.to_string());
-        self.write_state(&st)
+        let key = self.publish_key(remote, scope, gate);
+        self.mutate_state(|st| {
+            st.last_published.insert(key, snap_id.to_string());
+            Ok(())
+        })
     }
 }

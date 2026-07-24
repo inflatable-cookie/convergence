@@ -21,21 +21,18 @@ impl LocalStore {
     }
 
     pub fn set_remote_token(&self, remote: &RemoteConfig, token: &str) -> Result<()> {
-        let mut st = self.read_state()?;
-        if st.version != 1 {
-            anyhow::bail!("unsupported workspace state version {}", st.version);
-        }
-        st.remote_tokens
-            .insert(self.remote_token_key(remote), token.to_string());
-        self.write_state(&st)
+        let key = self.remote_token_key(remote);
+        self.mutate_state(|st| {
+            st.remote_tokens.insert(key, token.to_string());
+            Ok(())
+        })
     }
 
     pub fn clear_remote_token(&self, remote: &RemoteConfig) -> Result<()> {
-        let mut st = self.read_state()?;
-        if st.version != 1 {
-            anyhow::bail!("unsupported workspace state version {}", st.version);
-        }
-        st.remote_tokens.remove(&self.remote_token_key(remote));
-        self.write_state(&st)
+        let key = self.remote_token_key(remote);
+        self.mutate_state(|st| {
+            st.remote_tokens.remove(&key);
+            Ok(())
+        })
     }
 }
