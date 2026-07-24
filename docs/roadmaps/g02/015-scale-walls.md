@@ -1,8 +1,8 @@
 # 015 Scale Walls
 
-Status: in progress (15.1-15.3 complete)
+Status: complete
 Owner: repo maintainers
-Updated: 2026-07-24
+Updated: 2026-07-25
 
 ## Context
 
@@ -46,18 +46,25 @@ and removes the unbounded surfaces.
   hashing. The TUI holds one session for its lifetime and refreshes the
   inbox on event arrival. Capture paths (`snap`, `watch`) never read the
   cache — the stamp's same-tick blind spot must not reach a snapshot
-- **15.4 Scale proof**: large-tree and large-window benchmarks in CI
-  (ignored-by-default like the CBOR benchmark) demonstrating merge cost
-  tracks changed paths, not tree size
+- **15.4 Scale proof** (complete, card 056): ignored-by-default
+  benchmarks (`effigy bench`) on a 50k-path tree and a 100-publish
+  window, asserting manifest reads rather than wall-clock. The first run
+  found a wall the 15.1 unit tests were too small to see — the
+  supersession rule re-walked every input's base per contested path, so
+  a 100-publish window read 20601 manifests. Memoizing path walks per
+  fold cut it to 801; a per-publish-cost assertion and a fast sentinel
+  in the always-on suite keep it there
 
 ## Exit Criteria
 
 - publish cost measured proportional to changed paths on a 50k-path
-  tree benchmark
-- no endpoint returns an unbounded result set
-- TUI idle refresh does no full workspace rescan
+  tree benchmark — **met**: a one-file edit reads 9 manifests on both a
+  5k- and a 50k-path tree; a 100-publish window reads 801 on both
+- no endpoint returns an unbounded result set — **met** (15.2)
+- TUI idle refresh does no full workspace rescan — **met** (15.3): the
+  dirstamp gate means an unchanged tree is stat-walked, never hashed
 
 ## Next Task
 
-Open batch card 15.4 (scale proof: large-tree and large-window
-benchmarks in CI, ignored by default).
+Roadmap complete. Return to the audit-hardening lane: open items
+g02.011-018.

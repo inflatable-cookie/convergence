@@ -80,4 +80,4 @@ including the `events` poll every three seconds.
 
 ## Next Task
 
-Batch card 15.4 (scale proof: large-tree and large-window benchmarks).
+Batch card 15.4 (scale proof) — done, card 056.

@@ -2,7 +2,7 @@
 
 Status: active
 Updated: 2026-07-25
-Roadmap: `g02.005` Batch 5.1
+Roadmap: `g02.005` Batch 5.1, `g02.015` Batch 15.4
 
 Decision-complete semantics for snap lineage, base-aware merge, bundle
 windows, and per-gate coalesce strategies. Supersedes the union-merge and
@@ -103,7 +103,11 @@ Cost follows from that, in all three phases:
 - **Read**: the diff returns as soon as two subtree ids match, so an
   untouched directory is never opened. The values the fold needs from W
   or from another input's base are fetched by walking down the specific
-  contested path, not by flattening a tree.
+  contested path, not by flattening a tree. Those walks are memoized by
+  (root, path) for the fold's lifetime: the supersession rule below asks
+  every input's base about every contested path, and a window's inputs
+  usually share one base, so without the memo the *window* — not the
+  tree — becomes the quadratic term.
 - **Write**: the merged tree rewrites only the manifests along changed
   paths; every untouched subtree keeps its existing manifest id, so it
   is neither re-hashed nor re-stored.
@@ -116,6 +120,12 @@ The measurable consequence, pinned by tests: a one-file publish costs
 the same number of manifest reads against a 5-directory tree and a
 50-directory one, and a publish whose tree equals its base reads a
 single manifest.
+
+At scale (batch 15.4 benchmarks, `effigy bench`): a one-file edit reads
+9 manifests whether the tree holds 5k or 50k paths; a 100-publish window
+where every publish touches a different directory reads 801 — flat per
+publish, and identical on both tree sizes; a 50-publish window that
+changes nothing reads 1.
 
 Per path, fold deltas onto W:
 

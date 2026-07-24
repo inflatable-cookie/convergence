@@ -115,18 +115,29 @@ fn dir_id(objects: &dyn ObjectStore, root: &ObjectId, name: &str) -> Result<Obje
 
 /// Change one file inside `d0`, leaving every other directory byte-identical.
 fn tree_with_one_edit(objects: &dyn ObjectStore, base: &ObjectId) -> Result<ObjectId> {
+    tree_with_edit_in(objects, base, 0)
+}
+
+/// The same, in an arbitrary directory, so a window can be built from
+/// publishes that each touch their own subtree.
+fn tree_with_edit_in(objects: &dyn ObjectStore, base: &ObjectId, dir: usize) -> Result<ObjectId> {
+    let name = format!("d{dir}");
     let root: Manifest =
         converge_model::encoding::decode_manifest(&objects.get(ObjectKind::Manifest, base)?)?;
     let mut entries = root.entries.clone();
-    let d0 = dir_id(objects, base, "d0")?;
+    let target = dir_id(objects, base, &name)?;
     let mut children: Manifest =
-        converge_model::encoding::decode_manifest(&objects.get(ObjectKind::Manifest, &d0)?)?;
-    children.entries[0] = file_entry(objects, &children.entries[0].name, b"edited content")?;
-    let new_d0 = put_manifest(objects, children.entries)?;
+        converge_model::encoding::decode_manifest(&objects.get(ObjectKind::Manifest, &target)?)?;
+    children.entries[0] = file_entry(
+        objects,
+        &children.entries[0].name,
+        format!("edited content in {name}").as_bytes(),
+    )?;
+    let rewritten = put_manifest(objects, children.entries)?;
     for entry in &mut entries {
-        if entry.name == "d0" {
+        if entry.name == name {
             entry.kind = ManifestEntryKind::Dir {
-                manifest: new_d0.clone(),
+                manifest: rewritten.clone(),
             };
         }
     }
@@ -236,6 +247,41 @@ fn identical_tree_and_base_reads_almost_nothing() -> Result<()> {
         counting.manifest_reads() <= 1,
         "equal subtree ids short-circuit the whole walk, got {}",
         counting.manifest_reads()
+    );
+    Ok(())
+}
+
+/// Fast guard for the quadratic the 15.4 benchmark caught: a window of
+/// publishes must cost a flat number of reads *per publish*, not one walk
+/// per (publish, contested path) pair. Cheap enough to run always — the
+/// scale benchmark that found it is ignored by default.
+#[test]
+fn window_cost_stays_flat_per_publish() -> Result<()> {
+    let tmp = tempfile::tempdir()?;
+    let fs = FsObjectStore::new(tmp.path());
+    let w = wide_tree(&fs, 20, 10)?;
+
+    let measure = |count: usize| -> Result<usize> {
+        let inputs: Vec<MergeInput> = (0..count)
+            .map(|i| {
+                Ok(MergeInput {
+                    lane: format!("lane{i}"),
+                    base: Some(w.clone()),
+                    tree: tree_with_edit_in(&fs, &w, i)?,
+                })
+            })
+            .collect::<Result<_>>()?;
+        let counting = CountingStore::new(&fs);
+        merge_window(&counting, Some(&w), &inputs, "whole-file")?;
+        Ok(counting.manifest_reads())
+    };
+
+    let one = measure(1)?;
+    let many = measure(16)?;
+    assert!(
+        many / 16 <= one,
+        "16 publishes must not cost more per publish than 1 \
+         (one={one}, many={many})"
     );
     Ok(())
 }

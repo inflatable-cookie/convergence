@@ -16,6 +16,7 @@ fmt = "cargo fmt {args}"
 clippy = "cargo clippy --all-targets {args} -- -D warnings"
 test = "cargo nextest run -P ci {args}"
 "test:cargo" = "cargo test {args}"
+bench = "cargo nextest run -P ci --run-ignored ignored-only {args}"
 health = [
   { task = "fmt:check" },
   { task = "check" },

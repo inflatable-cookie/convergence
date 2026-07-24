@@ -82,12 +82,21 @@ pub fn merge_window_outcome(
         }
     }
 
+    // Path walks are memoized by (root, path) across the whole fold
+    // (batch 15.4). The supersession pass below asks every input's base
+    // for every contested path, and a window's inputs overwhelmingly
+    // declare the *same* base — without this the fold costs
+    // paths × inputs walks, which the 100-publish benchmark measured as
+    // 20k manifest reads. Objects are immutable, so the memo cannot go
+    // stale mid-merge.
+    let mut walked: BTreeMap<(ObjectId, String), Option<ManifestEntryKind>> = BTreeMap::new();
+
     // Values from W are needed only at contested paths, so they are read
     // by path walk rather than by flattening the whole tree.
     let mut w_at: BTreeMap<String, Option<ManifestEntryKind>> = BTreeMap::new();
     for path in opinions.keys() {
         let value = match w_root {
-            Some(root) => lookup_path(objects, root, path)?,
+            Some(root) => lookup_path_memo(objects, &mut walked, root, path)?,
             None => None,
         };
         w_at.insert(path.clone(), value);
@@ -111,7 +120,7 @@ pub fn merge_window_outcome(
                             continue;
                         }
                         let other_base = match &other_input.base {
-                            Some(root) => lookup_path(objects, root, &path)?,
+                            Some(root) => lookup_path_memo(objects, &mut walked, root, &path)?,
                             None => None,
                         };
                         if other_base.as_ref() != Some(kind) {
@@ -297,6 +306,22 @@ fn diff_trees(
 }
 
 /// The value at `path`, walking only the manifests along it.
+/// `lookup_path` with a fold-lifetime memo keyed by (root, path).
+fn lookup_path_memo(
+    objects: &dyn ObjectStore,
+    walked: &mut BTreeMap<(ObjectId, String), Option<ManifestEntryKind>>,
+    root: &ObjectId,
+    path: &str,
+) -> Result<Option<ManifestEntryKind>> {
+    let key = (root.clone(), path.to_string());
+    if let Some(hit) = walked.get(&key) {
+        return Ok(hit.clone());
+    }
+    let value = lookup_path(objects, root, path)?;
+    walked.insert(key, value.clone());
+    Ok(value)
+}
+
 fn lookup_path(
     objects: &dyn ObjectStore,
     root: &ObjectId,
