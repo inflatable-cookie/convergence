@@ -15,7 +15,7 @@ contract is complete end to end, with retention, invariant-proven GC,
 and provenance verify. `g02.010` remains planned.
 
 Ready batch card:
-[`batch-cards/030-interop-architecture.md`](./batch-cards/030-interop-architecture.md)
+[`batch-cards/031-git-export.md`](./batch-cards/031-git-export.md)
 
 ## Lanes
 
@@ -32,4 +32,4 @@ Ready batch card:
 
 ## Next Task
 
-Execute the ready `g02.009` Batch 9.1 interop-architecture card.
+Execute the ready `g02.009` Batch 9.2 git-export card.

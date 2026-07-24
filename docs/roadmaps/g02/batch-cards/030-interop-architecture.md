@@ -1,6 +1,6 @@
 # 030 Interop Architecture
 
-Status: ready
+Status: complete
 Updated: 2026-07-24
 Roadmap: `g02.009`
 Spec: `docs/specs/009-git-interop.md`
@@ -41,6 +41,20 @@ as `docs/architecture/18-git-interop.md` before any code.
 
 - mapping requires doc 17 changes — revise 17 first
 
+## Outcome
+
+- `docs/architecture/18-git-interop.md` promoted, decision-complete:
+  trailer-based identity correspondence with a local mapping table;
+  snap->commit and bundle->merge-commit export with thinned-ancestor
+  visibility; **superposed trees refuse to export** (no lossy
+  flattening); read-only force-moved mirror branches
+  (`converge/lane/*`, `converge/channel/*`); byte-fidelity contract;
+  first-parent history import with `.convergeignore` generation; one
+  capture change scoped (ignore-file support); coexistence exclusion
+  rules; fast-import/plumbing tooling shape, client-side only
+- staged non-goals recorded: bidirectional sync, submodules, LFS
+  translation
+
 ## Next Task
 
-On completion, open the Batch 9.2 export card.
+Execute the Batch 9.2 export card (`031-git-export.md`).

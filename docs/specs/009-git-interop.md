@@ -20,8 +20,9 @@ never let the two systems fight over the same files.
 
 ## Current State
 
-- Batch 9.1 has a ready card:
-  `docs/roadmaps/g02/batch-cards/030-interop-architecture.md`
+- Batch 9.1 (interop architecture) complete; doc 18 promoted.
+- Batch 9.2 has a ready card:
+  `docs/roadmaps/g02/batch-cards/031-git-export.md`
 
 ## Exit Condition
 
@@ -29,4 +30,4 @@ Roadmap `g02.009` exit criteria met.
 
 ## Next Task
 
-Execute the ready Batch 9.1 card.
+Execute the ready Batch 9.2 card.
