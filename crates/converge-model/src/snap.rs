@@ -24,7 +24,15 @@ pub struct SnapRecord {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub derived_from_bundle: Option<String>,
     pub message: Option<String>,
+    /// Why captured: "explicit" (user verb) or "automatic" (watcher).
+    /// Metadata only — never part of identity.
+    #[serde(default = "default_trigger")]
+    pub trigger: String,
     pub stats: SnapStats,
+}
+
+fn default_trigger() -> String {
+    "explicit".to_string()
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]

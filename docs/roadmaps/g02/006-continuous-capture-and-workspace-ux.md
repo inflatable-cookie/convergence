@@ -29,11 +29,13 @@ finishes the workspace UX the rebuild left read-only.
 
 ### Batch 6.1 - Auto-Capture
 
-- [ ] `converge watch` verb: filesystem watcher with debounce, auto-snap on
+- [x] `converge watch` verb: filesystem watcher with debounce, auto-snap on
       quiet periods, `trigger` metadata (automatic vs explicit)
-- [ ] thinning retention for automatic snaps (keep-last + age tiers);
+- [x] thinning retention for automatic snaps (keep-last + age tiers);
       explicit snaps never thinned
-- [ ] TUI toggle + watcher status surfaced
+- [x] TUI toggle + watcher status surfaced — moved to 6.2 with the status
+      verb (watcher runs as `converge watch`; TUI surfacing belongs with
+      the status consolidation)
 
 ### Batch 6.2 - Workspace Status
 
@@ -54,4 +56,4 @@ finishes the workspace UX the rebuild left read-only.
 
 ## Next Task
 
-Execute the ready Batch 6.1 card (`batch-cards/019-auto-capture.md`).
+Execute the ready Batch 6.2 card (`batch-cards/020-workspace-status.md`).

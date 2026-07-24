@@ -16,6 +16,7 @@ mod path_ops;
 mod restore_materialize;
 mod root_lifecycle;
 mod snap_ops;
+mod thinning;
 
 #[derive(Clone)]
 pub struct Workspace {

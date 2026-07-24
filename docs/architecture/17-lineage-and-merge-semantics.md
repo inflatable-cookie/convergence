@@ -46,6 +46,16 @@ Consequences (all intended):
 - history rendering orders by lineage (parent walk), falling back to
   `created_at` only for display of parallel branches
 
+Thinning (automatic capture, g02.006): removing an automatic snap record
+leaves its id in surviving children's `parents` as a **thinned ancestor** —
+expected, not an error. Identity is unaffected (ids embed parent ids as
+opaque strings, not references that must resolve). Re-parenting survivors
+is impossible by construction (it would change their ids) and is never
+attempted. History rendering walks lineage until a gap and orders anything
+unreachable by timestamp; thinning keeps newest-per-bucket, so gaps sit in
+old history where the two orders coincide. Explicit snaps and the head are
+never thinned.
+
 Head rules: the workspace tracks one head snap id. Capture sets head to the
 new snap. Restore sets head to the restored snap. Materializing a bundle
 into the workspace sets head to the snap subsequently captured from it

@@ -139,6 +139,7 @@ fn resolve_list_validate_apply_over_superposition() -> anyhow::Result<()> {
         parents: Vec::new(),
         derived_from_bundle: None,
         message: Some("superposed".into()),
+        trigger: "explicit".into(),
         stats: SnapStats::default(),
     };
     ws.store.put_snap(&snap)?;
@@ -176,5 +177,29 @@ fn resolve_list_validate_apply_over_superposition() -> anyhow::Result<()> {
         }
         other => panic!("expected resolved file, got {other:?}"),
     }
+    Ok(())
+}
+
+#[test]
+fn watch_once_captures_automatic_snap_only_when_changed() -> anyhow::Result<()> {
+    let tmp = tempfile::tempdir()?;
+    let root = tmp.path();
+    assert!(converge(root, &["init"]).status.success());
+
+    std::fs::write(root.join("w.txt"), "v1")?;
+    let captures = json_data(&converge(root, &["--json", "watch", "--once"]));
+    assert_eq!(captures.as_array().unwrap().len(), 1, "change captured");
+
+    // History shows the automatic trigger.
+    let history = json_data(&converge(root, &["--json", "history"]));
+    assert_eq!(history[0]["trigger"], "automatic");
+
+    // Quiet workspace: no capture.
+    let captures = json_data(&converge(root, &["--json", "watch", "--once"]));
+    assert_eq!(
+        captures.as_array().unwrap().len(),
+        0,
+        "quiet tree captures nothing"
+    );
     Ok(())
 }

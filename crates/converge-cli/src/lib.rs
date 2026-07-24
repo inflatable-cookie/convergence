@@ -117,6 +117,15 @@ enum Command {
     Status { bundle_id: String },
     /// Show the configured remote for this workspace.
     Remote,
+    /// Watch the workspace and capture automatic snaps on quiet periods.
+    Watch {
+        /// Poll interval in milliseconds.
+        #[arg(long, default_value_t = 2000)]
+        interval_ms: u64,
+        /// Run a single check-capture-thin cycle and exit (for tests).
+        #[arg(long)]
+        once: bool,
+    },
 }
 
 #[derive(Subcommand)]
@@ -207,6 +216,7 @@ struct SnapSummary {
     id: String,
     created_at: String,
     message: Option<String>,
+    trigger: String,
     files: u64,
     bytes: u64,
 }
@@ -216,6 +226,7 @@ fn snap_summary(s: &converge_client::model::SnapRecord) -> SnapSummary {
         id: s.id.clone(),
         created_at: s.created_at.clone(),
         message: s.message.clone(),
+        trigger: s.trigger.clone(),
         files: s.stats.files,
         bytes: s.stats.bytes,
     }
@@ -390,6 +401,44 @@ fn run(cli: &Cli, mode: OutputMode) -> Result<serde_json::Value> {
             }
             emit(mode, root.as_str().to_string(), |root| {
                 println!("fetched bundle root manifest {root}");
+            })
+        }
+        Command::Watch { interval_ms, once } => {
+            let ws = open_workspace()?;
+            let mut captured: Vec<serde_json::Value> = Vec::new();
+            // Debounce: capture only when the tree is stable across two
+            // consecutive ticks and differs from head (doc 17 makes
+            // no-change captures free, so the guard is about quiet, not
+            // correctness).
+            let mut previous_root: Option<converge_client::model::ObjectId> = None;
+            loop {
+                let (root, _, _) = ws.current_manifest_tree()?;
+                let head_root = match ws.store.get_head()? {
+                    Some(head_id) => Some(ws.store.get_snap(&head_id)?.root_manifest),
+                    None => None,
+                };
+                let stable = previous_root.as_ref() == Some(&root) || *once;
+                if stable && head_root.as_ref() != Some(&root) {
+                    let snap = ws.create_snap_with(None, "automatic")?;
+                    let thinned = ws
+                        .thin_automatic_snaps(time::OffsetDateTime::now_utc())?
+                        .len();
+                    if !cli.json {
+                        println!("auto-snap {} ({} thinned)", snap.id, thinned);
+                    }
+                    captured.push(serde_json::json!({
+                        "id": snap.id,
+                        "thinned": thinned,
+                    }));
+                }
+                previous_root = Some(root);
+                if *once {
+                    break;
+                }
+                std::thread::sleep(std::time::Duration::from_millis(*interval_ms));
+            }
+            emit(mode, captured, |c| {
+                println!("watch cycle complete ({} captures)", c.len());
             })
         }
         Command::Remote => {

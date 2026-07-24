@@ -8,6 +8,10 @@ use crate::model::{SnapRecord, compute_snap_id};
 
 impl Workspace {
     pub fn create_snap(&self, message: Option<String>) -> Result<SnapRecord> {
+        self.create_snap_with(message, "explicit")
+    }
+
+    pub fn create_snap_with(&self, message: Option<String>, trigger: &str) -> Result<SnapRecord> {
         // Validate store format early.
         let cfg = self.store.read_config()?;
         let policy = chunking::chunking_policy_from_config(cfg.chunking.as_ref())?;
@@ -39,6 +43,7 @@ impl Workspace {
             parents,
             derived_from_bundle: None,
             message,
+            trigger: trigger.to_string(),
             stats,
         };
         self.store.put_snap(&snap)?;
