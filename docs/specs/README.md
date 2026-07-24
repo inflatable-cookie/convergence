@@ -17,11 +17,11 @@ repo needs tighter execution grammar than the roadmap alone provides.
 
 ## Active Spec Set
 
-Active spec: [`012-data-safety.md`](./012-data-safety.md) (`g02.012`).
-Spec 011 archived on completion.
+No active spec. Spec 012 archived on completion of `g02.012`.
 
 Archived specs live in [`archive/`](./archive/).
 
 ## Next Task
 
-Open batch card 12.3 (honest sync failure) under `g02.012`.
+Open `g02.013` (transactional and merge correctness); draft its spec
+if the roadmap needs tighter execution grammar.

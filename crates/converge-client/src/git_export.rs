@@ -87,14 +87,18 @@ pub fn export_lineage(
         });
     }
 
-    // Build the fast-import stream.
+    // Build the fast-import stream against a temporary ref (audit G2):
+    // the branch only moves after the updated map is durably persisted,
+    // so a crash either re-runs a deterministic fast-import (same shas,
+    // no duplicates) or finds the map complete and just moves the ref.
+    let export_ref = "refs/converge/export-tmp";
     let marks_path = git_workdir.join(".git").join("converge-marks");
     let mut stream = Vec::new();
     let mut mark_of: BTreeMap<String, usize> = BTreeMap::new();
     for (index, snap) in to_export.iter().enumerate() {
         let mark = index + 1;
         mark_of.insert(snap.id.clone(), mark);
-        write_commit(store, &mut stream, branch, snap, mark, &mark_of, &map)?;
+        write_commit(store, &mut stream, export_ref, snap, mark, &mark_of, &map)?;
     }
 
     let mut child = Command::new("git")
@@ -133,7 +137,17 @@ pub fn export_lineage(
             map.insert(snap_id.clone(), sha.to_string());
         }
     }
+    // Map first (durable), then the branch ref, then drop the temp ref.
     save_map(store, &map)?;
+    let head_sha = map
+        .get(head_snap_id)
+        .context("exported head missing from marks")?
+        .clone();
+    git(
+        git_workdir,
+        &["update-ref", &format!("refs/heads/{branch}"), &head_sha],
+    )?;
+    git(git_workdir, &["update-ref", "-d", export_ref])?;
     ensure_git_excludes_converge(git_workdir)?;
 
     Ok(ExportReport {
@@ -146,7 +160,7 @@ pub fn export_lineage(
 fn write_commit(
     store: &LocalStore,
     stream: &mut Vec<u8>,
-    branch: &str,
+    export_ref: &str,
     snap: &SnapRecord,
     mark: usize,
     mark_of: &BTreeMap<String, usize>,
@@ -176,7 +190,7 @@ fn write_commit(
         message.push_str(&format!("Converge-Thinned-Parents: {thinned}\n"));
     }
 
-    stream.extend_from_slice(format!("commit refs/heads/{branch}\n").as_bytes());
+    stream.extend_from_slice(format!("commit {export_ref}\n").as_bytes());
     stream.extend_from_slice(format!("mark :{mark}\n").as_bytes());
     stream.extend_from_slice(
         format!("committer Converge <converge@local> {epoch} +0000\n").as_bytes(),
@@ -305,8 +319,8 @@ fn load_map(store: &LocalStore) -> Result<BTreeMap<String, String>> {
 
 fn save_map(store: &LocalStore, map: &BTreeMap<String, String>) -> Result<()> {
     let path = store.root_dir().join(MAP_FILE);
-    std::fs::write(&path, serde_json::to_vec_pretty(map)?)?;
-    Ok(())
+    crate::store::write_atomic(&path, &serde_json::to_vec_pretty(map)?)
+        .context("write git-map.json")
 }
 
 /// Doc 18 §4: git never sees Convergence internals.

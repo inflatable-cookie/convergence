@@ -154,3 +154,44 @@ fn superposed_tree_refuses_to_export() -> Result<()> {
     assert!(format!("{err:#}").contains("resolve before export"));
     Ok(())
 }
+
+/// Audit G2: a crash between fast-import and the map save must not
+/// yield duplicate commits on re-export. Simulated by deleting the
+/// git-map after a successful export — the deterministic fast-import
+/// recreates identical shas and the branch history stays single.
+#[test]
+fn lost_map_reexport_produces_no_duplicate_commits() -> Result<()> {
+    if !git_available() {
+        eprintln!("git not available; skipping");
+        return Ok(());
+    }
+    let tmp = tempfile::tempdir()?;
+    let root = tmp.path();
+    git_out(root, &["init", "--quiet"])?;
+    let ws = Workspace::init(root, false)?;
+
+    std::fs::write(root.join("a.txt"), "one")?;
+    ws.create_snap(Some("first".into()))?;
+    std::fs::write(root.join("a.txt"), "two")?;
+    let s2 = ws.create_snap(Some("second".into()))?;
+
+    export_lineage(&ws.store, root, "converge/lane/local", &s2.id)?;
+    let head_before = git_out(root, &["rev-parse", "converge/lane/local"])?;
+
+    // Crash simulation: map lost after commits landed.
+    std::fs::remove_file(ws.store.root_dir().join("git-map.json"))?;
+
+    let report = export_lineage(&ws.store, root, "converge/lane/local", &s2.id)?;
+    assert_eq!(report.exported_commits, 2, "full re-export after map loss");
+
+    let head_after = git_out(root, &["rev-parse", "converge/lane/local"])?;
+    assert_eq!(head_before, head_after, "deterministic shas");
+    let count = git_out(root, &["rev-list", "--count", "converge/lane/local"])?;
+    assert_eq!(count.trim(), "2", "no duplicate history");
+    // Temp export ref cleaned up.
+    assert!(
+        git_out(root, &["rev-parse", "refs/converge/export-tmp"]).is_err(),
+        "temp ref deleted"
+    );
+    Ok(())
+}

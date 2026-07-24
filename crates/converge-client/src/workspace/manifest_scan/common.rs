@@ -71,3 +71,28 @@ fn os_str_bytes(s: &std::ffi::OsStr) -> Vec<u8> {
 fn os_str_bytes(s: &std::ffi::OsStr) -> Vec<u8> {
     s.to_string_lossy().as_bytes().to_vec()
 }
+
+/// Stat → read → re-stat (audit D3): a file changing during capture
+/// would otherwise snap torn bytes (silent small-file truncation) or
+/// record a stale size. Bounded retries, then a loud failure instead
+/// of a torn snapshot.
+pub(super) fn read_file_stable(path: &Path) -> Result<(Vec<u8>, u64)> {
+    const ATTEMPTS: u32 = 3;
+    for _ in 0..ATTEMPTS {
+        let before =
+            fs::symlink_metadata(path).with_context(|| format!("stat {}", path.display()))?;
+        let bytes = fs::read(path).with_context(|| format!("read file {}", path.display()))?;
+        let after =
+            fs::symlink_metadata(path).with_context(|| format!("stat {}", path.display()))?;
+        if before.len() == after.len()
+            && bytes.len() as u64 == after.len()
+            && before.modified().ok() == after.modified().ok()
+        {
+            return Ok((bytes, after.len()));
+        }
+    }
+    anyhow::bail!(
+        "{} kept changing during capture — retry once writes settle",
+        path.display()
+    )
+}

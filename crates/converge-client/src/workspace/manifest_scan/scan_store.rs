@@ -1,4 +1,3 @@
-use std::fs;
 use std::path::Path;
 
 use anyhow::{Context, Result, anyhow};
@@ -6,9 +5,11 @@ use anyhow::{Context, Result, anyhow};
 use crate::model::{Manifest, ManifestEntry, ManifestEntryKind, ObjectId, SnapStats};
 
 use super::super::Workspace;
-use super::super::chunk_io::chunk_file_to_recipe_store;
+use super::super::chunk_io::chunk_bytes_to_recipe_store;
 use super::super::chunking::ChunkingPolicy;
-use super::common::{file_mode, read_dir_sorted, should_ignore_name, symlink_target};
+use super::common::{
+    file_mode, read_dir_sorted, read_file_stable, should_ignore_name, symlink_target,
+};
 
 pub(super) fn build_manifest_store_impl(
     workspace: &Workspace,
@@ -50,16 +51,12 @@ pub(super) fn build_manifest_store_impl(
             ManifestEntryKind::Dir { manifest }
         } else if file_type.is_file() {
             let mode = file_mode(&path)?;
-            let meta =
-                fs::symlink_metadata(&path).with_context(|| format!("stat {}", path.display()))?;
-            let size = meta.len();
+            let (bytes, size) = read_file_stable(&path)?;
 
             let kind = if size >= policy.threshold {
-                let recipe = chunk_file_to_recipe_store(&workspace.store, &path, size, policy)?;
+                let recipe = chunk_bytes_to_recipe_store(&workspace.store, &bytes, policy)?;
                 ManifestEntryKind::FileChunks { recipe, mode, size }
             } else {
-                let bytes =
-                    fs::read(&path).with_context(|| format!("read file {}", path.display()))?;
                 let blob = workspace.store.put_blob(&bytes)?;
                 ManifestEntryKind::File { blob, mode, size }
             };

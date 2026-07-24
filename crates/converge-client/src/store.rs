@@ -49,13 +49,27 @@ fn write_if_absent(path: &Path, bytes: &[u8]) -> Result<()> {
     write_atomic(path, bytes)
 }
 
-fn write_atomic(path: &Path, bytes: &[u8]) -> Result<()> {
-    if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent).context("create parent directories")?;
-    }
+/// Durable atomic write: fsync the temp file before the rename and the
+/// parent directory after, so a power loss can neither zero the file
+/// nor lose the rename (audit R1).
+pub(crate) fn write_atomic(path: &Path, bytes: &[u8]) -> Result<()> {
+    let parent = path.parent().context("path has no parent")?;
+    fs::create_dir_all(parent).context("create parent directories")?;
     let tmp = path.with_extension(format!("tmp.{}", std::process::id()));
-    fs::write(&tmp, bytes).with_context(|| format!("write temp file {}", tmp.display()))?;
+    {
+        use std::io::Write;
+        let mut file = fs::File::create(&tmp)
+            .with_context(|| format!("create temp file {}", tmp.display()))?;
+        file.write_all(bytes)
+            .with_context(|| format!("write temp file {}", tmp.display()))?;
+        file.sync_all()
+            .with_context(|| format!("fsync temp file {}", tmp.display()))?;
+    }
     fs::rename(&tmp, path)
         .with_context(|| format!("rename {} -> {}", tmp.display(), path.display()))?;
+    #[cfg(unix)]
+    fs::File::open(parent)
+        .and_then(|dir| dir.sync_all())
+        .with_context(|| format!("fsync directory {}", parent.display()))?;
     Ok(())
 }

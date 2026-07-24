@@ -1,6 +1,6 @@
 # Spec 012: Data Safety
 
-Status: active
+Status: complete (archived)
 Roadmap: `g02.012`
 Updated: 2026-07-24
 

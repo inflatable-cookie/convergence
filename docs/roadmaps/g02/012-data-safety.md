@@ -1,6 +1,6 @@
 # 012 Data Safety
 
-Status: in progress (12.1-12.3 complete)
+Status: complete
 Owner: repo maintainers
 Updated: 2026-07-24
 
@@ -49,17 +49,21 @@ closes every audited loss path.
   only 404 as a thinned gap and fails on transient errors; `upload_tree`
   streams manifests child-first and negotiates leaves from all reachable
   manifests so interrupted uploads heal on retry
-- **12.4 Durability details**: atomic + fsync'd writes for git-map,
-  state, config, HEAD; git-map persisted before the ref moves; capture
-  re-stats files to detect mid-write tears; `read_config` made pure
+- **12.4 Durability details** (complete, card 045): fsync'd atomic
+  writes for all workspace metadata; export commits to a temp ref and
+  persists the git-map before the branch moves; capture stat→read→
+  re-stat with bounded retries; `read_config` made pure
 
-## Exit Criteria
+## Exit Criteria (all met)
 
 - interrupted-restore, hostile-manifest, and interrupted-upload tests
-  all preserve user data or fail before destruction
+  all preserve user data or fail before destruction (12.1, 12.3)
 - an upload → wait past grace → GC → publish sequence keeps every blob
+  (12.2, zero-grace under test)
 - kill-mid-export followed by re-export produces no duplicate commits
+  (12.4, lost-map re-export test)
 
 ## Next Task
 
-Open batch card 12.4 (durability details).
+Roadmap complete. Open `g02.013` (transactional and merge
+correctness), batch card 13.1.

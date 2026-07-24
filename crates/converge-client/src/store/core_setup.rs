@@ -63,23 +63,12 @@ impl LocalStore {
         Ok(Self { root })
     }
 
+    /// Pure read (audit R2): no writes on this hot path. Tokens live in
+    /// state.json only; a legacy in-config token is ignored — `converge
+    /// login` stores it properly.
     pub fn read_config(&self) -> Result<WorkspaceConfig> {
         let bytes = fs::read(self.root.join("config.json")).context("read config.json")?;
-        let mut cfg: WorkspaceConfig =
-            serde_json::from_slice(&bytes).context("parse config.json")?;
-
-        // Migration: if an older config contains a token, move it into state.json.
-        if let Some(remote) = cfg.remote.as_mut()
-            && let Some(token) = remote.token.take()
-        {
-            self.set_remote_token(remote, &token)
-                .context("migrate remote token to state")?;
-            // Persist updated config without token.
-            self.write_config(&cfg)
-                .context("write config after token migration")?;
-        }
-
-        Ok(cfg)
+        serde_json::from_slice(&bytes).context("parse config.json")
     }
 
     pub fn write_config(&self, cfg: &WorkspaceConfig) -> Result<()> {
