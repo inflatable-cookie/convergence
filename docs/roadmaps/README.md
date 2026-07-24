@@ -33,7 +33,7 @@ records the closed state.
 - `docs/specs/006-continuous-capture-and-workspace-ux.md` is the active
   strict planning lane; `g02.007`-`g02.010` are planned and open in
   sequence.
-- ready card: `g02/batch-cards/020-workspace-status.md`
+- ready card: `g02/batch-cards/021-interactive-views.md`
 
 ## Rollover guardrail
 
@@ -47,4 +47,4 @@ Before rollover:
 
 ## Next Task
 
-Execute the ready `g02.006` Batch 6.2 workspace-status card.002` Batch 2.4 rebuild-architecture card.
+Execute the ready `g02.006` Batch 6.3 interactive-views card.002` Batch 2.4 rebuild-architecture card.

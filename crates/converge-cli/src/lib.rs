@@ -113,8 +113,10 @@ enum Command {
         #[arg(long)]
         into: Option<PathBuf>,
     },
-    /// Show a bundle's status.
-    Status { bundle_id: String },
+    /// Show a bundle's record.
+    Bundle { bundle_id: String },
+    /// Show workspace status: changes, head, snaps, remote.
+    Status,
     /// Show the configured remote for this workspace.
     Remote,
     /// Watch the workspace and capture automatic snaps on quiet periods.
@@ -489,12 +491,97 @@ fn run(cli: &Cli, mode: OutputMode) -> Result<serde_json::Value> {
                 }
             })
         }
-        Command::Status { bundle_id } => {
+        Command::Bundle { bundle_id } => {
             let ws = open_workspace()?;
             let (client, _) = remote_client(&ws)?;
             let bundle = client.get_bundle(bundle_id)?;
             emit(mode, bundle, |b| {
                 println!("bundle {}: {:?}", b.bundle_id, b.status);
+            })
+        }
+        Command::Status => {
+            let ws = open_workspace()?;
+
+            // Pending changes vs latest snap.
+            let (root, manifests, _) = ws.current_manifest_tree()?;
+            let working = converge_client::diff::tree_from_memory(&manifests, &root)?;
+            let base = match latest_snap(&ws) {
+                Ok(snap) => tree_from_store(&ws.store, &snap.root_manifest)?,
+                Err(_) => Default::default(),
+            };
+            let changes = diff_trees(&base, &working);
+
+            let head = match ws.store.get_head()? {
+                Some(id) => Some(ws.store.get_snap(&id)?),
+                None => None,
+            };
+            let snaps = ws.store.list_snaps()?;
+            let automatic = snaps.iter().filter(|s| s.trigger == "automatic").count();
+
+            let cfg = ws.store.read_config()?;
+            let remote_status = match &cfg.remote {
+                Some(remote) => serde_json::json!({
+                    "configured": true,
+                    "target": format!(
+                        "{}/{}/{} @ {}",
+                        remote.repo_id, remote.scope, remote.gate, remote.base_url
+                    ),
+                    "last_seen_bundle": ws.store.get_last_seen_bundle(
+                        remote, &remote.scope, &remote.gate)?,
+                    "last_published_snap": ws.store.get_last_published(
+                        remote, &remote.scope, &remote.gate)?,
+                }),
+                None => serde_json::json!({ "configured": false }),
+            };
+
+            #[derive(Serialize)]
+            struct StatusReport {
+                pending: serde_json::Value,
+                head: Option<serde_json::Value>,
+                snaps: serde_json::Value,
+                remote: serde_json::Value,
+            }
+            let report = StatusReport {
+                pending: serde_json::json!({
+                    "count": changes.len(),
+                    "changes": changes,
+                }),
+                head: head.map(|h| {
+                    serde_json::json!({
+                        "id": h.id,
+                        "message": h.message,
+                        "trigger": h.trigger,
+                    })
+                }),
+                snaps: serde_json::json!({
+                    "total": snaps.len(),
+                    "automatic": automatic,
+                    "explicit": snaps.len() - automatic,
+                }),
+                remote: remote_status,
+            };
+            emit(mode, report, |r| {
+                println!(
+                    "pending: {} change(s)",
+                    r.pending["count"].as_u64().unwrap_or(0)
+                );
+                match &r.head {
+                    Some(h) => println!(
+                        "head: {} ({})",
+                        h["id"].as_str().unwrap_or("?"),
+                        h["trigger"].as_str().unwrap_or("?")
+                    ),
+                    None => println!("head: none"),
+                }
+                println!(
+                    "snaps: {} ({} automatic)",
+                    r.snaps["total"], r.snaps["automatic"]
+                );
+                if r.remote["configured"].as_bool().unwrap_or(false) {
+                    println!("remote: {}", r.remote["target"].as_str().unwrap_or(""));
+                } else {
+                    println!("remote: not configured");
+                }
             })
         }
     }

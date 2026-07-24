@@ -21,8 +21,9 @@ doubt the watcher skips a capture rather than guessing.
 ## Current State
 
 - Batch 6.1 (auto-capture) complete.
-- Batch 6.2 has a ready card:
-  `docs/roadmaps/g02/batch-cards/020-workspace-status.md`
+- Batch 6.2 (workspace status) complete.
+- Batch 6.3 has a ready card:
+  `docs/roadmaps/g02/batch-cards/021-interactive-views.md`
 
 ## Exit Condition
 
@@ -30,4 +31,4 @@ Roadmap `g02.006` exit criteria met.
 
 ## Next Task
 
-Execute the ready Batch 6.2 card.
+Execute the ready Batch 6.3 card.

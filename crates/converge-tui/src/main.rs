@@ -78,11 +78,9 @@ fn run(terminal: &mut ratatui::DefaultTerminal, trace: &mut trace::Trace) -> Res
                 app.wizard = Some(match kind {
                     WizardKind::Login => Wizard::login(),
                     WizardKind::Publish => {
-                        let default_gate = app
-                            .remote
-                            .as_ref()
-                            .and_then(|r| r["gate"].as_str())
-                            .map(str::to_string);
+                        let default_gate = converge_cli::execute(["remote"])
+                            .ok()
+                            .and_then(|r| r["gate"].as_str().map(str::to_string));
                         Wizard::publish(default_gate.as_deref(), Vec::new())
                     }
                 });
@@ -204,16 +202,19 @@ fn trace_screen(trace: &mut trace::Trace, app: &App) {
 }
 
 /// Pull view data through the CLI layer (arch 15: no bespoke semantics).
+/// Root views render from the `status` report alone; the snap list feeds
+/// the history view.
 fn refresh(app: &mut App) {
-    app.pending_changes = converge_cli::execute(["changes"])
-        .ok()
-        .and_then(|v| v.as_array().map(Vec::len))
-        .unwrap_or(0);
+    app.status = converge_cli::execute(["status"]).ok();
+    app.pending_changes = app
+        .status
+        .as_ref()
+        .and_then(|s| s["pending"]["count"].as_u64())
+        .unwrap_or(0) as usize;
     app.snaps = converge_cli::execute(["history"])
         .ok()
         .and_then(|v| v.as_array().cloned())
         .unwrap_or_default();
-    app.remote = converge_cli::execute(["remote"]).ok();
 }
 
 fn render(frame: &mut Frame, app: &App) {
@@ -251,28 +252,24 @@ fn render(frame: &mut Frame, app: &App) {
     match app.current_view() {
         View::Root if app.context == app::Context::Remote => {
             let (primary, _) = app.primary_action();
-            let target = app
-                .remote
+            let remote = app.status.as_ref().map(|s| s["remote"].clone());
+            let target = remote
                 .as_ref()
                 .filter(|r| r["configured"].as_bool().unwrap_or(false))
-                .map(|r| {
-                    format!(
-                        "{}/{}/{} @ {}",
-                        r["repo_id"].as_str().unwrap_or(""),
-                        r["scope"].as_str().unwrap_or(""),
-                        r["gate"].as_str().unwrap_or(""),
-                        r["base_url"].as_str().unwrap_or("")
-                    )
-                })
+                .and_then(|r| r["target"].as_str().map(str::to_string))
                 .unwrap_or_else(|| "not configured (run login)".to_string());
-            let last_published = app
-                .remote
+            let last_published = remote
                 .as_ref()
-                .and_then(|r| r["last_published_snap"].as_str())
-                .unwrap_or("none");
+                .and_then(|r| r["last_published_snap"].as_str().map(str::to_string))
+                .unwrap_or_else(|| "none".to_string());
+            let last_seen = remote
+                .as_ref()
+                .and_then(|r| r["last_seen_bundle"].as_str().map(str::to_string))
+                .unwrap_or_else(|| "none".to_string());
             let lines = vec![
                 Line::raw(format!("remote: {target}")),
                 Line::raw(format!("last published snap: {last_published}")),
+                Line::raw(format!("last seen bundle: {last_seen}")),
                 Line::raw(""),
                 Line::styled(
                     format!("Enter: {primary}"),
@@ -283,14 +280,29 @@ fn render(frame: &mut Frame, app: &App) {
         }
         View::Root => {
             let (primary, _) = app.primary_action();
+            let head = app.status.as_ref().map(|s| s["head"].clone());
+            let head_line = head
+                .as_ref()
+                .and_then(|h| h["id"].as_str().map(str::to_string))
+                .map(|id| {
+                    format!(
+                        "head: {id} ({})",
+                        head.as_ref()
+                            .and_then(|h| h["trigger"].as_str())
+                            .unwrap_or("?")
+                    )
+                })
+                .unwrap_or_else(|| "head: none".to_string());
+            let auto = app
+                .status
+                .as_ref()
+                .and_then(|s| s["snaps"]["automatic"].as_u64())
+                .unwrap_or(0);
             let lines = vec![
                 Line::raw(format!("pending changes: {}", app.pending_changes)),
+                Line::raw(head_line),
                 Line::raw(format!(
-                    "latest snap: {}",
-                    app.snaps
-                        .first()
-                        .and_then(|s| s["id"].as_str())
-                        .unwrap_or("none")
+                    "automatic captures: {auto} (run `watch` in a terminal for continuous capture)"
                 )),
                 Line::raw(""),
                 Line::styled(

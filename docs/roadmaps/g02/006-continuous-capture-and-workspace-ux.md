@@ -39,10 +39,10 @@ finishes the workspace UX the rebuild left read-only.
 
 ### Batch 6.2 - Workspace Status
 
-- [ ] one status verb: pending changes, head/lineage position, sync state,
+- [x] one status verb: pending changes, head/lineage position, sync state,
       publish target, remote reachability; bundle status moves to
       `bundle <id>`
-- [ ] TUI root consumes it wholesale
+- [x] TUI root consumes it wholesale
 
 ### Batch 6.3 - Interactive Views
 
@@ -56,4 +56,4 @@ finishes the workspace UX the rebuild left read-only.
 
 ## Next Task
 
-Execute the ready Batch 6.2 card (`batch-cards/020-workspace-status.md`).
+Execute the ready Batch 6.3 card (`batch-cards/021-interactive-views.md`).

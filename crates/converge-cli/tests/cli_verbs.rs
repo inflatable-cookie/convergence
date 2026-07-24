@@ -203,3 +203,23 @@ fn watch_once_captures_automatic_snap_only_when_changed() -> anyhow::Result<()> 
     );
     Ok(())
 }
+
+#[test]
+fn status_reports_workspace_in_one_call() -> anyhow::Result<()> {
+    let tmp = tempfile::tempdir()?;
+    let root = tmp.path();
+    assert!(converge(root, &["init"]).status.success());
+
+    std::fs::write(root.join("a.txt"), "one")?;
+    let snap = json_data(&converge(root, &["--json", "snap", "-m", "first"]));
+    std::fs::write(root.join("b.txt"), "new")?;
+
+    let status = json_data(&converge(root, &["--json", "status"]));
+    assert_eq!(status["pending"]["count"], 1);
+    assert_eq!(status["head"]["id"], snap["id"]);
+    assert_eq!(status["head"]["trigger"], "explicit");
+    assert_eq!(status["snaps"]["total"], 1);
+    assert_eq!(status["snaps"]["explicit"], 1);
+    assert_eq!(status["remote"]["configured"], false);
+    Ok(())
+}

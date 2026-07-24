@@ -15,7 +15,7 @@ closed: lineage, base-aware merge with supersession, windows, and gate
 strategies are live. `g02.007`-`g02.010` remain planned in sequence.
 
 Ready batch card:
-[`batch-cards/020-workspace-status.md`](./batch-cards/020-workspace-status.md)
+[`batch-cards/021-interactive-views.md`](./batch-cards/021-interactive-views.md)
 
 The paused posture is over. The lane is capture → archive cut → docs spine
 restructure → rebuild architecture definition. Batch 2.1 (capture) is
@@ -40,4 +40,4 @@ restructure) complete: docs tree reduced to the keeper spine.
 
 ## Next Task
 
-Execute the ready `g02.006` Batch 6.2 workspace-status card.002` Batch 2.4 rebuild-architecture card.
+Execute the ready `g02.006` Batch 6.3 interactive-views card.002` Batch 2.4 rebuild-architecture card.

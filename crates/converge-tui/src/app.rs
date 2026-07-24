@@ -69,8 +69,8 @@ impl ResolutionState {
 /// Commands the console accepts. View-entering commands push a frame;
 /// the rest run through the CLI layer verbatim.
 pub const COMMANDS: &[&str] = &[
-    "changes", "diff", "fetch", "history", "login", "publish", "remote", "resolve", "restore",
-    "snap", "status",
+    "bundle", "changes", "diff", "fetch", "history", "login", "publish", "remote", "resolve",
+    "restore", "snap", "status", "watch",
 ];
 
 /// Commands that hit the network run on the async worker so the event loop
@@ -78,7 +78,7 @@ pub const COMMANDS: &[&str] = &[
 pub fn is_remote_command(argv: &[String]) -> bool {
     matches!(
         argv.first().map(String::as_str),
-        Some("publish" | "fetch" | "status" | "login")
+        Some("publish" | "fetch" | "bundle" | "login")
     )
 }
 
@@ -118,8 +118,9 @@ pub struct App {
     pub pending_changes: usize,
     /// Snap summaries (from `history`).
     pub snaps: Vec<serde_json::Value>,
-    /// Remote info (from `remote`).
-    pub remote: Option<serde_json::Value>,
+    /// Workspace status report (from `status`) — the root views' single
+    /// data source.
+    pub status: Option<serde_json::Value>,
     /// Label of the remote command currently running on the worker.
     pub in_flight: Option<String>,
     /// Active wizard modal, if any (owns the keyboard while open).
@@ -142,7 +143,7 @@ impl Default for App {
             quit_confirm: false,
             pending_changes: 0,
             snaps: Vec::new(),
-            remote: None,
+            status: None,
             in_flight: None,
             wizard: None,
             resolution: None,
@@ -178,9 +179,9 @@ impl App {
             }
             Context::Remote => {
                 let configured = self
-                    .remote
+                    .status
                     .as_ref()
-                    .and_then(|r| r["configured"].as_bool())
+                    .and_then(|s| s["remote"]["configured"].as_bool())
                     .unwrap_or(false);
                 if configured {
                     ("publish", Action::Run(vec!["publish".into()]))
@@ -560,7 +561,7 @@ mod tests {
         app.handle_key(key(KeyCode::Tab));
         assert_eq!(app.context, Context::Remote);
         assert_eq!(app.primary_action().0, "login", "unconfigured -> login");
-        app.remote = Some(serde_json::json!({"configured": true}));
+        app.status = Some(serde_json::json!({"remote": {"configured": true}}));
         assert_eq!(app.primary_action().0, "publish");
     }
 

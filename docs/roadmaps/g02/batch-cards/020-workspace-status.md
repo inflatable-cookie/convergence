@@ -1,6 +1,6 @@
 # 020 Workspace Status
 
-Status: ready
+Status: complete
 Updated: 2026-07-24
 Roadmap: `g02.006`
 Spec: `docs/specs/006-continuous-capture-and-workspace-ux.md`
@@ -41,6 +41,18 @@ consumes the new verb wholesale and surfaces watcher/capture state.
 - status needs data no client API exposes — extend `converge-client`
   deliberately, not ad hoc
 
+## Outcome
+
+- `converge status`: one JSON report — pending changes (count + lines),
+  head (id/message/trigger), snap counts (explicit/automatic), remote
+  (target, last-seen bundle, last-published snap)
+- bundle record moved to `converge bundle <id>`; no aliases (pre-1.0)
+- TUI: root views render from the status report alone; local root shows
+  head + trigger and automatic-capture count with a `watch` pointer;
+  remote root adds last-seen bundle; `bundle` classified remote for the
+  async worker, `status` local
+- status verb test through the binary; 62 workspace tests green
+
 ## Next Task
 
-On completion, open the Batch 6.3 interactive-views card.
+Execute the Batch 6.3 interactive-views card (`021-interactive-views.md`).
