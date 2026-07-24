@@ -177,3 +177,80 @@ fn non_member_cannot_publish_to_private_lane() -> Result<()> {
     assert!(err.to_string().contains("not an owner or member"));
     Ok(())
 }
+
+#[test]
+fn unpublished_sync_shares_lineage_between_clients() -> Result<()> {
+    let server_dir = tempfile::tempdir()?;
+    let base_url = start_server(server_dir.path())?;
+    let alice = RemoteClient::new(&base_url, "token-a");
+    let bob = RemoteClient::new(&base_url, "token-b");
+
+    // Alice: two-snap lineage in a repo-visible shared lane.
+    alice.create_lane("repo", "shared/wip", "repo")?;
+    let ws_a_dir = tempfile::tempdir()?;
+    let ws_a = Workspace::init(ws_a_dir.path(), false)?;
+    std::fs::write(ws_a_dir.path().join("wip.txt"), "draft one")?;
+    let s1 = ws_a.create_snap(Some("draft".into()))?;
+    std::fs::write(ws_a_dir.path().join("wip.txt"), "draft two")?;
+    let s2 = ws_a.create_snap(None)?;
+
+    let head = alice.push_lineage(
+        &ws_a.store,
+        "repo",
+        Some("shared/wip".into()),
+        &s2.id,
+        false,
+    )?;
+    assert_eq!(head.snap_id, s2.id);
+
+    // Fast-forward rule: re-pushing the older snap is refused.
+    let err = alice
+        .push_lineage(
+            &ws_a.store,
+            "repo",
+            Some("shared/wip".into()),
+            &s1.id,
+            false,
+        )
+        .unwrap_err();
+    assert!(err.to_string().contains("non-fast-forward"));
+
+    // Bob pulls, lineage intact, restores explicitly.
+    let ws_b_dir = tempfile::tempdir()?;
+    let ws_b = Workspace::init(ws_b_dir.path(), false)?;
+    let pulled = bob.pull_lane(&ws_b.store, "repo", "shared/wip")?;
+    assert_eq!(pulled, s2.id);
+    let record = ws_b.store.get_snap(&pulled)?;
+    assert_eq!(record.parents, vec![s1.id.clone()], "lineage intact");
+    assert!(ws_b.store.has_snap(&s1.id), "ancestor record pulled");
+
+    ws_b.restore_snap(&pulled, true)?;
+    assert_eq!(
+        std::fs::read_to_string(ws_b_dir.path().join("wip.txt"))?,
+        "draft two"
+    );
+    Ok(())
+}
+
+#[test]
+fn private_lane_head_not_readable_by_non_members() -> Result<()> {
+    let server_dir = tempfile::tempdir()?;
+    let base_url = start_server(server_dir.path())?;
+    let alice = RemoteClient::new(&base_url, "token-a");
+    let bob = RemoteClient::new(&base_url, "token-b");
+
+    let ws_dir = tempfile::tempdir()?;
+    let ws = Workspace::init(ws_dir.path(), false)?;
+    std::fs::write(ws_dir.path().join("secret.txt"), "wip")?;
+    let snap = ws.create_snap(None)?;
+    // Personal lane (private) via default.
+    alice.push_lineage(&ws.store, "repo", None, &snap.id, false)?;
+
+    let ws_b_dir = tempfile::tempdir()?;
+    let ws_b = Workspace::init(ws_b_dir.path(), false)?;
+    let err = bob
+        .pull_lane(&ws_b.store, "repo", "personal/alice")
+        .unwrap_err();
+    assert!(err.to_string().contains("private"));
+    Ok(())
+}

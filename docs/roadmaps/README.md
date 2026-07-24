@@ -32,7 +32,7 @@ records the closed state.
 - `g02.007` (lanes and collaboration) is the active roadmap.
 - `docs/specs/007-lanes-and-collaboration.md` is the active strict
   planning lane; `g02.008`-`g02.010` are planned and open in sequence.
-- ready card: `g02/batch-cards/023-unpublished-sync.md`
+- ready card: `g02/batch-cards/024-inbox.md`
 
 ## Rollover guardrail
 
@@ -46,4 +46,4 @@ Before rollover:
 
 ## Next Task
 
-Execute the ready `g02.007` Batch 7.2 unpublished-sync card.002` Batch 2.4 rebuild-architecture card.
+Execute the ready `g02.007` Batch 7.3 inbox card.002` Batch 2.4 rebuild-architecture card.

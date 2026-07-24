@@ -55,4 +55,4 @@ cargo nextest run -P ci
 
 ## Next task
 
-Execute the ready `g02.007` Batch 7.2 unpublished-sync card.002` Batch 2.4 rebuild-architecture card.
+Execute the ready `g02.007` Batch 7.3 inbox card.002` Batch 2.4 rebuild-architecture card.

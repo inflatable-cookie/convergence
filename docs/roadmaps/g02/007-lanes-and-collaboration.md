@@ -35,4 +35,4 @@ superposition variants real provenance.
 
 ## Next Task
 
-Execute the ready Batch 7.2 card (`batch-cards/023-unpublished-sync.md`).
+Execute the ready Batch 7.3 card (`batch-cards/024-inbox.md`).

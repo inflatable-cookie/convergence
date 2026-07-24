@@ -1,6 +1,6 @@
 # 023 Unpublished Sync
 
-Status: ready
+Status: complete
 Updated: 2026-07-24
 Roadmap: `g02.007`
 Spec: `docs/specs/007-lanes-and-collaboration.md`
@@ -44,6 +44,24 @@ Share WIP without the gate: push/pull snap lineage to lane heads.
 
 - lineage transfer semantics get murky — doc 17 first
 
+## Outcome
+
+- snap records are server objects with verify-on-write identity checks
+  (`snap_records` table, PUT/GET routes); lane heads persisted per repo
+- `set_lane_head`: writable-lane resolution shared with publish (personal
+  auto-provision), fast-forward ancestry check over uploaded records,
+  `force` override
+- client `push_lineage` (chain upload deepest-first, Merkle-pruned trees)
+  and `pull_lane` (lineage walk into the local store, tolerant of thinned
+  gaps; restore stays explicit); CLI `sync push/pull`
+- lane-head reads enforce visibility: owner/members always, repo-visible
+  lanes for repo readers; private personal lanes deny others
+- e2e: alice pushes 2-snap lineage, bob pulls with parents intact and
+  restores; non-FF push refused; private-head read denied.
+  Route-registration bug caught by the tests (fmt reflow ate a patch
+  anchor — handlers existed, routes did not)
+- 71 workspace tests green
+
 ## Next Task
 
-On completion, open the Batch 7.3 inbox card.
+Execute the Batch 7.3 inbox card (`024-inbox.md`).

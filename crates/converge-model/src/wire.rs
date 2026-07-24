@@ -145,6 +145,17 @@ pub struct LaneHead {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct SetLaneHeadRequest {
+    /// `None` -> the caller's personal lane (auto-provisioned).
+    #[serde(default)]
+    pub lane_id: Option<String>,
+    pub snap_id: String,
+    /// Allow a non-fast-forward head move.
+    #[serde(default)]
+    pub force: bool,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct GateNode {
     pub gate_id: String,
     pub name: String,

@@ -117,6 +117,11 @@ enum Command {
     Status,
     /// Set or replace a snap's message (identity is unaffected).
     Annotate { snap_id: String, message: String },
+    /// Share unpublished lineage through lanes.
+    Sync {
+        #[command(subcommand)]
+        command: SyncCommand,
+    },
     /// Lane registry operations.
     Lane {
         #[command(subcommand)]
@@ -132,6 +137,24 @@ enum Command {
         /// Run a single check-capture-thin cycle and exit (for tests).
         #[arg(long)]
         once: bool,
+    },
+}
+
+#[derive(Subcommand)]
+enum SyncCommand {
+    /// Push the current head's lineage to a lane.
+    Push {
+        /// Target lane; defaults to your personal lane.
+        #[arg(long)]
+        lane: Option<String>,
+        /// Allow a non-fast-forward head move.
+        #[arg(long)]
+        force: bool,
+    },
+    /// Pull a lane head's lineage into the local store.
+    Pull {
+        #[arg(long)]
+        lane: String,
     },
 }
 
@@ -517,6 +540,34 @@ fn run(cli: &Cli, mode: OutputMode) -> Result<serde_json::Value> {
             emit(mode, bundle, |b| {
                 println!("bundle {}: {:?}", b.bundle_id, b.status);
             })
+        }
+        Command::Sync { command } => {
+            let ws = open_workspace()?;
+            let (client, remote) = remote_client(&ws)?;
+            match command {
+                SyncCommand::Push { lane, force } => {
+                    let head = ws
+                        .store
+                        .get_head()?
+                        .context("no head snap to push; run `converge snap` first")?;
+                    let lane_head = client.push_lineage(
+                        &ws.store,
+                        &remote.repo_id,
+                        lane.clone(),
+                        &head,
+                        *force,
+                    )?;
+                    emit(mode, lane_head, |h| {
+                        println!("lane {} -> {}", h.lane_id, h.snap_id);
+                    })
+                }
+                SyncCommand::Pull { lane } => {
+                    let head = client.pull_lane(&ws.store, &remote.repo_id, lane)?;
+                    emit(mode, head, |h| {
+                        println!("pulled lane head {h} (restore explicitly to use it)");
+                    })
+                }
+            }
         }
         Command::Lane { command } => {
             let ws = open_workspace()?;

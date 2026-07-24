@@ -4,7 +4,9 @@ use std::sync::Mutex;
 use anyhow::{Context, Result, anyhow};
 use rusqlite::{Connection, params};
 
-use converge_model::{BundleStatus, GateGraph, LaneRecord, ObjectId, PublicationRecord};
+use converge_model::{
+    BundleStatus, GateGraph, LaneHead, LaneRecord, ObjectId, PublicationRecord, SnapRecord,
+};
 
 use crate::storage::{MetadataStore, PartitionState, StoredBundle};
 
@@ -79,6 +81,19 @@ impl SqliteMetadataStore {
                 repo_id TEXT NOT NULL,
                 lane_id TEXT NOT NULL,
                 record_json TEXT NOT NULL,
+                PRIMARY KEY (repo_id, lane_id)
+            );
+            CREATE TABLE IF NOT EXISTS snap_records (
+                repo_id TEXT NOT NULL,
+                snap_id TEXT NOT NULL,
+                record_json TEXT NOT NULL,
+                PRIMARY KEY (repo_id, snap_id)
+            );
+            CREATE TABLE IF NOT EXISTS lane_heads (
+                repo_id TEXT NOT NULL,
+                lane_id TEXT NOT NULL,
+                snap_id TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
                 PRIMARY KEY (repo_id, lane_id)
             );
             CREATE TABLE IF NOT EXISTS partitions (
@@ -290,6 +305,57 @@ impl MetadataStore for SqliteMetadataStore {
             params![repo_id, lane_id, json],
         )?;
         Ok(())
+    }
+
+    fn put_snap_record(&self, repo_id: &str, snap: &SnapRecord) -> Result<()> {
+        let json = serde_json::to_string(snap)?;
+        let conn = self.conn.lock().expect("meta lock");
+        conn.execute(
+            "INSERT OR REPLACE INTO snap_records (repo_id, snap_id, record_json)
+             VALUES (?1, ?2, ?3)",
+            params![repo_id, snap.id, json],
+        )?;
+        Ok(())
+    }
+
+    fn get_snap_record(&self, repo_id: &str, snap_id: &str) -> Result<Option<SnapRecord>> {
+        let conn = self.conn.lock().expect("meta lock");
+        let json: Option<String> = conn
+            .query_row(
+                "SELECT record_json FROM snap_records WHERE repo_id = ?1 AND snap_id = ?2",
+                params![repo_id, snap_id],
+                |row| row.get(0),
+            )
+            .ok();
+        json.map(|j| serde_json::from_str(&j).context("parse snap record"))
+            .transpose()
+    }
+
+    fn set_lane_head(&self, repo_id: &str, head: &LaneHead) -> Result<()> {
+        let conn = self.conn.lock().expect("meta lock");
+        conn.execute(
+            "INSERT OR REPLACE INTO lane_heads (repo_id, lane_id, snap_id, updated_at)
+             VALUES (?1, ?2, ?3, ?4)",
+            params![repo_id, head.lane_id, head.snap_id, head.updated_at],
+        )?;
+        Ok(())
+    }
+
+    fn get_lane_head(&self, repo_id: &str, lane_id: &str) -> Result<Option<LaneHead>> {
+        let conn = self.conn.lock().expect("meta lock");
+        let row = conn
+            .query_row(
+                "SELECT snap_id, updated_at FROM lane_heads
+                 WHERE repo_id = ?1 AND lane_id = ?2",
+                params![repo_id, lane_id],
+                |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
+            )
+            .ok();
+        Ok(row.map(|(snap_id, updated_at)| LaneHead {
+            lane_id: lane_id.to_string(),
+            snap_id,
+            updated_at,
+        }))
     }
 
     fn get_partition_state(

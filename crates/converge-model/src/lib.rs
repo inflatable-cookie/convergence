@@ -24,5 +24,5 @@ pub use self::snap::{FileRecipe, FileRecipeChunk, SnapRecord, SnapStats, compute
 pub use self::wire::{
     AddLaneMemberRequest, ApproveRequest, BundleRecord, BundleStatus, CreateLaneRequest, GateGraph,
     GateNode, LaneHead, LaneRecord, NegotiateRequest, NegotiateResponse, ObjectSet, PromoteRequest,
-    PublicationRecord, PublishRequest, WIRE_VERSION,
+    PublicationRecord, PublishRequest, SetLaneHeadRequest, WIRE_VERSION,
 };

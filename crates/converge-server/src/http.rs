@@ -10,9 +10,9 @@ use axum::{Json, Router};
 use serde_json::json;
 
 use converge_model::{
-    AddLaneMemberRequest, ApproveRequest, BundleRecord, CreateLaneRequest, LaneRecord,
+    AddLaneMemberRequest, ApproveRequest, BundleRecord, CreateLaneRequest, LaneHead, LaneRecord,
     NegotiateRequest, NegotiateResponse, ObjectId, ObjectSet, PromoteRequest, PublishRequest,
-    WIRE_VERSION,
+    SetLaneHeadRequest, SnapRecord, WIRE_VERSION,
 };
 
 use crate::authz::{Capability, authorize};
@@ -43,6 +43,9 @@ pub fn router(state: AppState) -> Router {
             "/api/repos/:repo/lanes/:lane/members",
             post(add_lane_member),
         )
+        .route("/api/repos/:repo/snaps/:id", put(put_snap).get(get_snap))
+        .route("/api/repos/:repo/lane-head", post(set_lane_head))
+        .route("/api/repos/:repo/lane-head/:lane", get(get_lane_head))
         .with_state(Arc::new(state))
 }
 
@@ -273,6 +276,98 @@ async fn add_lane_member(
         .add_lane_member(&repo, &lane, &request.member)
         .map_err(|err| bad_request(format!("{err:#}")))?;
     Ok(Json(json!({"ok": true})))
+}
+
+async fn put_snap(
+    State(state): State<SharedState>,
+    Path((repo, id)): Path<(String, String)>,
+    headers: HeaderMap,
+    Json(snap): Json<SnapRecord>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let subject = subject(&state, &headers)?;
+    let authz = authorize(
+        state.meta.as_ref(),
+        &subject,
+        &repo,
+        "*",
+        Capability::Publish,
+    )
+    .map_err(|err| forbidden(format!("{err:#}")))?;
+    if snap.id != id {
+        return Err(bad_request("snap id mismatch with path"));
+    }
+    let engine = Engine {
+        meta: state.meta.as_ref(),
+        objects: state.objects.as_ref(),
+    };
+    engine
+        .upload_snap_record(&authz, &snap)
+        .map_err(|err| bad_request(format!("{err:#}")))?;
+    Ok(Json(json!({"ok": true})))
+}
+
+async fn get_snap(
+    State(state): State<SharedState>,
+    Path((repo, id)): Path<(String, String)>,
+    headers: HeaderMap,
+) -> Result<Json<SnapRecord>, ApiError> {
+    let subject = subject(&state, &headers)?;
+    authorize(state.meta.as_ref(), &subject, &repo, "*", Capability::Read)
+        .map_err(|err| forbidden(format!("{err:#}")))?;
+    state
+        .meta
+        .get_snap_record(&repo, &id)
+        .map_err(|err| bad_request(format!("{err:#}")))?
+        .map(Json)
+        .ok_or_else(|| ApiError(StatusCode::NOT_FOUND, format!("no snap {id}")))
+}
+
+async fn set_lane_head(
+    State(state): State<SharedState>,
+    Path(repo): Path<String>,
+    headers: HeaderMap,
+    Json(request): Json<SetLaneHeadRequest>,
+) -> Result<Json<LaneHead>, ApiError> {
+    let subject = subject(&state, &headers)?;
+    let authz = authorize(
+        state.meta.as_ref(),
+        &subject,
+        &repo,
+        "*",
+        Capability::Publish,
+    )
+    .map_err(|err| forbidden(format!("{err:#}")))?;
+    let engine = Engine {
+        meta: state.meta.as_ref(),
+        objects: state.objects.as_ref(),
+    };
+    let head = engine
+        .set_lane_head(authz, request.lane_id, &request.snap_id, request.force)
+        .map_err(|err| bad_request(format!("{err:#}")))?;
+    Ok(Json(head))
+}
+
+async fn get_lane_head(
+    State(state): State<SharedState>,
+    Path((repo, lane)): Path<(String, String)>,
+    headers: HeaderMap,
+) -> Result<Json<LaneHead>, ApiError> {
+    let subject = subject(&state, &headers)?;
+    let authz = authorize(state.meta.as_ref(), &subject, &repo, "*", Capability::Read)
+        .map_err(|err| forbidden(format!("{err:#}")))?;
+    let engine = Engine {
+        meta: state.meta.as_ref(),
+        objects: state.objects.as_ref(),
+    };
+    engine
+        .check_lane_readable(&authz, &lane)
+        .map_err(|err| forbidden(format!("{err:#}")))?;
+    state
+        .meta
+        .get_lane_head(&repo, &lane)
+        .map_err(|err| bad_request(format!("{err:#}")))?
+        .map(Json)
+        .ok_or_else(|| ApiError(StatusCode::NOT_FOUND, format!("lane {lane} has no head")))
 }
 
 async fn get_bundle(

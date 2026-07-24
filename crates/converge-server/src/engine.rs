@@ -2,7 +2,7 @@ use anyhow::{Result, bail};
 use time::OffsetDateTime;
 use time::format_description::well_known::Rfc3339;
 
-use converge_model::{BundleStatus, LaneRecord, ObjectId, PublicationRecord};
+use converge_model::{BundleStatus, LaneHead, LaneRecord, ObjectId, PublicationRecord, SnapRecord};
 
 use crate::authz::{AuthzContext, Capability};
 use crate::merge::{MergeInput, merge_window};
@@ -70,37 +70,7 @@ impl Engine<'_> {
 
         // Lane resolution (g02.007): publications name registered lanes
         // only. No lane -> the publisher's personal lane, auto-provisioned.
-        let lane_id = match &input.lane_id {
-            Some(lane_id) => {
-                let lane = self
-                    .meta
-                    .get_lane(authz.repo_id(), lane_id)?
-                    .ok_or_else(|| anyhow::anyhow!("lane {lane_id} is not registered"))?;
-                if lane.owner != authz.subject()
-                    && !lane.members.contains(&authz.subject().to_string())
-                {
-                    bail!(
-                        "{} is not an owner or member of lane {lane_id}",
-                        authz.subject()
-                    );
-                }
-                lane_id.clone()
-            }
-            None => {
-                let personal = format!("personal/{}", authz.subject());
-                if self.meta.get_lane(authz.repo_id(), &personal)?.is_none() {
-                    self.meta.create_lane(&LaneRecord {
-                        lane_id: personal.clone(),
-                        repo_id: authz.repo_id().to_string(),
-                        owner: authz.subject().to_string(),
-                        members: Vec::new(),
-                        visibility: "private".to_string(),
-                        created_at: now(),
-                    })?;
-                }
-                personal
-            }
-        };
+        let lane_id = self.resolve_writable_lane(&authz, &input.lane_id)?;
 
         let created_at = now();
         let publication_id = {
@@ -255,6 +225,132 @@ impl Engine<'_> {
             }
         }
         Ok(false)
+    }
+
+    /// Resolve `lane_id` to a registered lane the subject may write:
+    /// `None` auto-provisions the personal lane; named lanes require
+    /// owner/membership (shared with publish and lane-head pushes).
+    fn resolve_writable_lane(
+        &self,
+        authz: &AuthzContext,
+        lane_id: &Option<String>,
+    ) -> Result<String> {
+        match lane_id {
+            Some(lane_id) => {
+                let lane = self
+                    .meta
+                    .get_lane(authz.repo_id(), lane_id)?
+                    .ok_or_else(|| anyhow::anyhow!("lane {lane_id} is not registered"))?;
+                if lane.owner != authz.subject()
+                    && !lane.members.contains(&authz.subject().to_string())
+                {
+                    bail!(
+                        "{} is not an owner or member of lane {lane_id}",
+                        authz.subject()
+                    );
+                }
+                Ok(lane_id.clone())
+            }
+            None => {
+                let personal = format!("personal/{}", authz.subject());
+                if self.meta.get_lane(authz.repo_id(), &personal)?.is_none() {
+                    self.meta.create_lane(&LaneRecord {
+                        lane_id: personal.clone(),
+                        repo_id: authz.repo_id().to_string(),
+                        owner: authz.subject().to_string(),
+                        members: Vec::new(),
+                        visibility: "private".to_string(),
+                        created_at: now(),
+                    })?;
+                }
+                Ok(personal)
+            }
+        }
+    }
+
+    /// Push a lane head (unpublished sync). Snap records for the new head's
+    /// lineage must already be uploaded; the move must fast-forward from
+    /// the current head unless forced.
+    pub fn set_lane_head(
+        &self,
+        authz: AuthzContext,
+        lane_id: Option<String>,
+        snap_id: &str,
+        force: bool,
+    ) -> Result<LaneHead> {
+        require(&authz, Capability::Publish)?;
+        let lane_id = self.resolve_writable_lane(&authz, &lane_id)?;
+
+        if self
+            .meta
+            .get_snap_record(authz.repo_id(), snap_id)?
+            .is_none()
+        {
+            bail!("snap {snap_id} has not been uploaded");
+        }
+        if let Some(current) = self.meta.get_lane_head(authz.repo_id(), &lane_id)?
+            && !force
+            && !self.is_ancestor(authz.repo_id(), &current.snap_id, snap_id)?
+        {
+            bail!(
+                "non-fast-forward: {} is not an ancestor of {snap_id} (use force)",
+                current.snap_id
+            );
+        }
+        let head = LaneHead {
+            lane_id,
+            snap_id: snap_id.to_string(),
+            updated_at: now(),
+        };
+        self.meta.set_lane_head(authz.repo_id(), &head)?;
+        Ok(head)
+    }
+
+    /// Is `ancestor` reachable from `descendant` via uploaded snap records?
+    fn is_ancestor(&self, repo_id: &str, ancestor: &str, descendant: &str) -> Result<bool> {
+        let mut stack = vec![descendant.to_string()];
+        let mut seen = std::collections::HashSet::new();
+        while let Some(id) = stack.pop() {
+            if id == ancestor {
+                return Ok(true);
+            }
+            if !seen.insert(id.clone()) {
+                continue;
+            }
+            if let Some(record) = self.meta.get_snap_record(repo_id, &id)? {
+                stack.extend(record.parents.iter().cloned());
+            }
+        }
+        Ok(false)
+    }
+
+    /// Read access to a lane: owner/members always; repo-visible lanes for
+    /// any subject holding the read capability the caller already proved.
+    pub fn check_lane_readable(&self, authz: &AuthzContext, lane_id: &str) -> Result<()> {
+        let lane = self
+            .meta
+            .get_lane(authz.repo_id(), lane_id)?
+            .ok_or_else(|| anyhow::anyhow!("lane {lane_id} is not registered"))?;
+        let subject = authz.subject().to_string();
+        if lane.visibility == "repo" || lane.owner == subject || lane.members.contains(&subject) {
+            Ok(())
+        } else {
+            bail!("lane {lane_id} is private to its owner and members")
+        }
+    }
+
+    pub fn upload_snap_record(&self, authz: &AuthzContext, snap: &SnapRecord) -> Result<()> {
+        // Verify declared identity before storing (mirrors object stores'
+        // verify-on-write).
+        let expected = converge_model::compute_snap_id(
+            &snap.root_manifest,
+            &snap.parents,
+            snap.derived_from_bundle.as_deref(),
+        );
+        if expected != snap.id {
+            bail!("snap record identity mismatch (expected {expected})");
+        }
+        self.meta.put_snap_record(authz.repo_id(), snap)
     }
 
     pub fn approve(&self, authz: AuthzContext, bundle_id: &str) -> Result<u32> {
