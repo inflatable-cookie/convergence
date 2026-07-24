@@ -30,4 +30,4 @@ last because none of them change product semantics.
 
 ## Next Task
 
-Execute the ready Batch 10.2 card (`batch-cards/035-batched-transport.md`).
+Execute the ready Batch 10.3 card (`batch-cards/036-event-push.md`).

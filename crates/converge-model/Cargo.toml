@@ -9,6 +9,7 @@ blake3.workspace = true
 ciborium.workspace = true
 fastcdc.workspace = true
 serde.workspace = true
+serde_bytes.workspace = true
 
 [dev-dependencies]
 serde_json.workspace = true

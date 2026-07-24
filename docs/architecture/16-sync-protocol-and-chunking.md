@@ -59,6 +59,20 @@ Manifest paging for very large directories (>4096 entries) is **deferred
 to backlog**: it touches every manifest walker for a case the beachhead
 rarely hits; revisit against real trees.
 
+## 1c. Batched transport (g02.010)
+
+Object transfer moves in batches; the per-object routes remain valid
+within the same wire version (additive change).
+
+- `POST /api/objects/batch` — body: canonical CBOR sequence of
+  `ObjectFrame { kind, id, bytes }`; server verifies each frame's hash on
+  write (unchanged discipline); response reports the stored count
+- `POST /api/objects/batch-get` — body: JSON `ObjectSet`; response:
+  CBOR `ObjectFrame` sequence
+- batches are size-capped (default 8 MiB); clients split
+- resumability is unchanged: batches are idempotent puts, and a failed
+  batch is simply renegotiated
+
 ## 2. Content-defined chunking
 
 g01 used fixed 4 MB blocks (8 MB threshold) — weak dedup on inserts/edits.

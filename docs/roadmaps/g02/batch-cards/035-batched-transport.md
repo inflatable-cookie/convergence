@@ -1,6 +1,6 @@
 # 035 Batched Transport
 
-Status: ready
+Status: complete
 Updated: 2026-07-24
 Roadmap: `g02.010`
 Spec: `docs/specs/010-scale-and-transport.md`
@@ -40,6 +40,22 @@ Uploads and downloads move in batches instead of per-object round trips.
 
 - wire ambiguity — doc 16 first
 
+## Outcome
+
+- doc 16 §1c amended first; `ObjectFrame` wire type (serde_bytes-backed)
+- server: `POST /api/objects/batch` (CBOR frames, per-frame hash
+  verification unchanged) and `/api/objects/batch-get` (JSON ObjectSet
+  in, CBOR frames out); per-object routes retained (additive change,
+  same WIRE_VERSION)
+- client: cap-split `put_frames` (default 8 MiB, `with_batch_cap` test
+  hook), upload_tree batches recipes/blobs then manifests-last;
+  `fetch_manifest_tree` rewritten as a batched wave walk (manifests by
+  level -> recipes -> all blobs); per-object client methods removed
+- cap-splitting test: 64-byte cap forces per-frame batches over a
+  22-object tree, publish + fetch + materialize round-trip green;
+  all sync e2e suites now run over batches
+- 94 workspace tests green
+
 ## Next Task
 
-On completion, open the Batch 10.3 event-push card.
+Execute the Batch 10.3 event-push card (`036-event-push.md`).

@@ -239,3 +239,52 @@ fn unknown_token_unauthorized() -> Result<()> {
     assert_eq!(response.status(), 401);
     Ok(())
 }
+
+#[test]
+fn batch_cap_splitting_round_trips_a_larger_tree() -> Result<()> {
+    let server_dir = tempfile::tempdir()?;
+    let base_url = start_server(server_dir.path())?;
+    // Tiny cap: every frame flushes its own batch.
+    let client = RemoteClient::new(&base_url, "token-a").with_batch_cap(64);
+
+    let ws_dir = tempfile::tempdir()?;
+    let ws = Workspace::init(ws_dir.path(), false)?;
+    for i in 0..20 {
+        std::fs::write(
+            ws_dir.path().join(format!("f{i}.txt")),
+            format!("content {i}"),
+        )?;
+    }
+    std::fs::create_dir(ws_dir.path().join("sub"))?;
+    std::fs::write(ws_dir.path().join("sub/inner.txt"), "nested")?;
+    let snap = ws.create_snap(None)?;
+
+    let (bundle, stats) = client.publish(
+        &ws.store,
+        "repo",
+        "scope",
+        "intake",
+        &snap,
+        None,
+        Some("lane-a".into()),
+        None,
+    )?;
+    assert!(stats.uploaded >= 22, "all objects travelled");
+    assert_eq!(bundle.status, BundleStatus::Ready { promotable: true });
+
+    // Fetch into a fresh store via batch-get waves and materialize.
+    let ws_b_dir = tempfile::tempdir()?;
+    let ws_b = Workspace::init(ws_b_dir.path(), false)?;
+    let root = client.fetch_bundle(&ws_b.store, &bundle.bundle_id)?;
+    let out = tempfile::tempdir()?;
+    ws_b.materialize_manifest_to(&root, out.path(), true)?;
+    assert_eq!(
+        std::fs::read_to_string(out.path().join("f7.txt"))?,
+        "content 7"
+    );
+    assert_eq!(
+        std::fs::read_to_string(out.path().join("sub/inner.txt"))?,
+        "nested"
+    );
+    Ok(())
+}

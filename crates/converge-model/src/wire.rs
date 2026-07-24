@@ -27,6 +27,16 @@ impl ObjectSet {
     }
 }
 
+/// One object in a transfer batch (doc 16 §1c). Kind is the objects-route
+/// segment: "blobs" | "manifests" | "recipes".
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct ObjectFrame {
+    pub kind: String,
+    pub id: ObjectId,
+    #[serde(with = "serde_bytes")]
+    pub bytes: Vec<u8>,
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct NegotiateRequest {
     pub wire_version: u32,

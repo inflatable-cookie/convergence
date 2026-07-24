@@ -11,8 +11,8 @@ use serde_json::json;
 
 use converge_model::{
     AddLaneMemberRequest, ApproveRequest, BundleProvenance, BundleRecord, CreateLaneRequest,
-    InboxReport, LaneHead, LaneRecord, NegotiateRequest, NegotiateResponse, ObjectId, ObjectSet,
-    PromoteRequest, PublishRequest, ReleaseRecord, ReleaseRequest, RetentionPolicy,
+    InboxReport, LaneHead, LaneRecord, NegotiateRequest, NegotiateResponse, ObjectFrame, ObjectId,
+    ObjectSet, PromoteRequest, PublishRequest, ReleaseRecord, ReleaseRequest, RetentionPolicy,
     SetLaneHeadRequest, SnapRecord, VerifyReport, WIRE_VERSION,
 };
 
@@ -35,6 +35,8 @@ pub fn router(state: AppState) -> Router {
         .route("/api/healthz", get(healthz))
         .route("/api/negotiate", post(negotiate))
         .route("/api/objects/:kind/:id", put(put_object).get(get_object))
+        .route("/api/objects/batch", post(put_batch))
+        .route("/api/objects/batch-get", post(get_batch))
         .route("/api/publish", post(publish))
         .route("/api/bundles/:id", get(get_bundle))
         .route("/api/bundles/:id/provenance", get(get_provenance))
@@ -176,6 +178,58 @@ async fn get_object(
         .get(kind, &ObjectId(id))
         .map(Bytes::from)
         .map_err(|err| ApiError(StatusCode::NOT_FOUND, format!("{err:#}")))
+}
+
+/// Doc 16 §1c: CBOR frame batch upload.
+async fn put_batch(
+    State(state): State<SharedState>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    subject(&state, &headers)?;
+    let frames: Vec<ObjectFrame> = ciborium::from_reader(body.as_ref())
+        .map_err(|err| bad_request(format!("decode batch: {err}")))?;
+    let mut stored = 0u64;
+    for frame in frames {
+        let kind = parse_kind(&frame.kind)?;
+        state
+            .objects
+            .put_bytes(kind, &frame.id, &frame.bytes)
+            .map_err(|err| bad_request(format!("{err:#}")))?;
+        stored += 1;
+    }
+    Ok(Json(json!({"ok": true, "stored": stored})))
+}
+
+/// Doc 16 §1c: batch download as CBOR frames.
+async fn get_batch(
+    State(state): State<SharedState>,
+    headers: HeaderMap,
+    Json(request): Json<ObjectSet>,
+) -> Result<Bytes, ApiError> {
+    subject(&state, &headers)?;
+    let mut frames: Vec<ObjectFrame> = Vec::new();
+    let mut collect = |kind: ObjectKind, name: &str, ids: &[ObjectId]| -> Result<(), ApiError> {
+        for id in ids {
+            let bytes = state
+                .objects
+                .get(kind, id)
+                .map_err(|err| ApiError(StatusCode::NOT_FOUND, format!("{err:#}")))?;
+            frames.push(ObjectFrame {
+                kind: name.to_string(),
+                id: id.clone(),
+                bytes,
+            });
+        }
+        Ok(())
+    };
+    collect(ObjectKind::Blob, "blobs", &request.blobs)?;
+    collect(ObjectKind::Manifest, "manifests", &request.manifests)?;
+    collect(ObjectKind::Recipe, "recipes", &request.recipes)?;
+    let mut out = Vec::new();
+    ciborium::into_writer(&frames, &mut out)
+        .map_err(|err| bad_request(format!("encode batch: {err}")))?;
+    Ok(Bytes::from(out))
 }
 
 async fn publish(

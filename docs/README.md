@@ -47,5 +47,5 @@ prefers `cargo nextest` when it is available on the machine.
 
 ## Next Task
 
-Execute the ready `g02.010` Batch 10.2 card
-(`roadmaps/g02/batch-cards/035-batched-transport.md`).
+Execute the ready `g02.010` Batch 10.3 card
+(`roadmaps/g02/batch-cards/036-event-push.md`).

@@ -33,7 +33,7 @@ records the closed state.
   roadmap of the improvement program.
 - `docs/specs/010-scale-and-transport.md` is the active strict planning
   lane.
-- ready card: `g02/batch-cards/035-batched-transport.md`
+- ready card: `g02/batch-cards/036-event-push.md`
 
 ## Rollover guardrail
 
@@ -47,4 +47,4 @@ Before rollover:
 
 ## Next Task
 
-Execute the ready `g02.010` Batch 10.2 batched-transport card.
+Execute the ready `g02.010` Batch 10.3 event-push card.

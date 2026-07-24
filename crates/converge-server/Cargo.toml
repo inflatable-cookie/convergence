@@ -7,6 +7,7 @@ edition.workspace = true
 anyhow.workspace = true
 axum.workspace = true
 blake3.workspace = true
+ciborium.workspace = true
 converge-model.workspace = true
 diffy.workspace = true
 rusqlite.workspace = true

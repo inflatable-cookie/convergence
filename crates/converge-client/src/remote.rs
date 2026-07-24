@@ -4,8 +4,8 @@ use anyhow::{Context, Result, bail};
 
 use crate::model::{
     AddLaneMemberRequest, ApproveRequest, BundleRecord, CreateLaneRequest, InboxReport, LaneRecord,
-    Manifest, ManifestEntryKind, NegotiateRequest, NegotiateResponse, ObjectId, ObjectSet,
-    PromoteRequest, PublishRequest, ReleaseRecord, ReleaseRequest, RetentionPolicy,
+    Manifest, ManifestEntryKind, NegotiateRequest, NegotiateResponse, ObjectFrame, ObjectId,
+    ObjectSet, PromoteRequest, PublishRequest, ReleaseRecord, ReleaseRequest, RetentionPolicy,
     SetLaneHeadRequest, SnapRecord, SuperpositionVariantKind, VerifyReport, WIRE_VERSION,
 };
 use crate::store::LocalStore;
@@ -16,6 +16,8 @@ pub struct RemoteClient {
     base_url: String,
     token: String,
     http: reqwest::blocking::Client,
+    /// Max bytes per transfer batch (doc 16 §1c); clients split above it.
+    batch_cap: usize,
 }
 
 impl RemoteClient {
@@ -24,7 +26,64 @@ impl RemoteClient {
             base_url: base_url.trim_end_matches('/').to_string(),
             token: token.to_string(),
             http: reqwest::blocking::Client::new(),
+            batch_cap: 8 * 1024 * 1024,
         }
+    }
+
+    /// Test hook: shrink the batch cap to exercise splitting.
+    pub fn with_batch_cap(mut self, cap: usize) -> Self {
+        self.batch_cap = cap.max(1);
+        self
+    }
+
+    /// Upload frames in cap-split batches (doc 16 §1c).
+    fn put_frames(&self, frames: Vec<ObjectFrame>) -> Result<()> {
+        let mut batch: Vec<ObjectFrame> = Vec::new();
+        let mut batch_bytes = 0usize;
+        let flush = |batch: &mut Vec<ObjectFrame>| -> Result<()> {
+            if batch.is_empty() {
+                return Ok(());
+            }
+            let mut body = Vec::new();
+            ciborium::into_writer(&batch, &mut body).context("encode batch")?;
+            Self::check(
+                self.http
+                    .post(self.url("/api/objects/batch"))
+                    .bearer_auth(&self.token)
+                    .body(body)
+                    .send()
+                    .context("upload batch")?,
+            )?;
+            batch.clear();
+            Ok(())
+        };
+        for frame in frames {
+            if batch_bytes + frame.bytes.len() > self.batch_cap && !batch.is_empty() {
+                flush(&mut batch)?;
+                batch_bytes = 0;
+            }
+            batch_bytes += frame.bytes.len();
+            batch.push(frame);
+        }
+        flush(&mut batch)
+    }
+
+    /// Download a set of objects as CBOR frames (single batch request;
+    /// callers keep requests bounded by walking in waves).
+    fn get_frames(&self, request: &ObjectSet) -> Result<Vec<ObjectFrame>> {
+        if request.is_empty() {
+            return Ok(Vec::new());
+        }
+        let response = Self::check(
+            self.http
+                .post(self.url("/api/objects/batch-get"))
+                .bearer_auth(&self.token)
+                .json(request)
+                .send()
+                .context("download batch")?,
+        )?;
+        let bytes = response.bytes().context("read batch body")?;
+        ciborium::from_reader(bytes.as_ref()).context("decode batch")
     }
 
     fn url(&self, path: &str) -> String {
@@ -56,29 +115,6 @@ impl RemoteClient {
         Ok(parsed.missing)
     }
 
-    fn put_object(&self, kind: &str, id: &ObjectId, bytes: Vec<u8>) -> Result<()> {
-        Self::check(
-            self.http
-                .put(self.url(&format!("/api/objects/{kind}/{}", id.as_str())))
-                .bearer_auth(&self.token)
-                .body(bytes)
-                .send()
-                .with_context(|| format!("upload {kind} {}", id.as_str()))?,
-        )?;
-        Ok(())
-    }
-
-    fn get_object(&self, kind: &str, id: &ObjectId) -> Result<Vec<u8>> {
-        let response = Self::check(
-            self.http
-                .get(self.url(&format!("/api/objects/{kind}/{}", id.as_str())))
-                .bearer_auth(&self.token)
-                .send()
-                .with_context(|| format!("download {kind} {}", id.as_str()))?,
-        )?;
-        Ok(response.bytes().context("read object body")?.to_vec())
-    }
-
     /// Upload everything reachable from `root_manifest` that the server does
     /// not have. Negotiates manifests first and prunes blob/recipe collection
     /// to the subtrees the server is missing (Merkle prune).
@@ -104,20 +140,31 @@ impl RemoteClient {
             ..Default::default()
         })?;
 
-        let mut uploaded = 0usize;
+        let mut frames: Vec<ObjectFrame> = Vec::new();
         for id in &missing.recipes {
-            self.put_object("recipes", id, store.get_recipe_bytes(id)?)?;
-            uploaded += 1;
+            frames.push(ObjectFrame {
+                kind: "recipes".into(),
+                id: id.clone(),
+                bytes: store.get_recipe_bytes(id)?,
+            });
         }
         for id in &missing.blobs {
-            self.put_object("blobs", id, store.get_blob(id)?)?;
-            uploaded += 1;
+            frames.push(ObjectFrame {
+                kind: "blobs".into(),
+                id: id.clone(),
+                bytes: store.get_blob(id)?,
+            });
         }
         // Manifests last so a present root implies a complete subtree.
         for id in missing_manifests.iter().rev() {
-            self.put_object("manifests", id, store.get_manifest_bytes(id)?)?;
-            uploaded += 1;
+            frames.push(ObjectFrame {
+                kind: "manifests".into(),
+                id: id.clone(),
+                bytes: store.get_manifest_bytes(id)?,
+            });
         }
+        let uploaded = frames.len();
+        self.put_frames(frames)?;
         Ok(UploadStats {
             negotiated_manifests: manifests.len(),
             uploaded,
@@ -179,37 +226,61 @@ impl RemoteClient {
         Ok(root)
     }
 
+    /// Batched wave walk (doc 16 §1c): fetch manifests level by level,
+    /// then their recipes, then all missing blobs in one request per wave.
     fn fetch_manifest_tree(&self, store: &LocalStore, manifest_id: &ObjectId) -> Result<()> {
-        if !store.has_manifest(manifest_id) {
-            let bytes = self.get_object("manifests", manifest_id)?;
-            store.put_manifest_bytes(manifest_id, &bytes)?;
-        }
-        let manifest = store.get_manifest(manifest_id)?;
+        let mut manifest_wave: Vec<ObjectId> = vec![manifest_id.clone()];
         let mut blobs = BTreeSet::new();
         let mut recipes = BTreeSet::new();
-        let mut dirs = Vec::new();
-        collect_kinds(&manifest, &mut blobs, &mut recipes, &mut dirs);
+
+        while !manifest_wave.is_empty() {
+            let need: Vec<ObjectId> = manifest_wave
+                .iter()
+                .filter(|id| !store.has_manifest(id))
+                .cloned()
+                .collect();
+            for frame in self.get_frames(&ObjectSet {
+                manifests: need,
+                ..Default::default()
+            })? {
+                store.put_manifest_bytes(&frame.id, &frame.bytes)?;
+            }
+            let mut next = Vec::new();
+            for id in &manifest_wave {
+                let manifest = store.get_manifest(id)?;
+                collect_kinds(&manifest, &mut blobs, &mut recipes, &mut next);
+            }
+            manifest_wave = next;
+        }
+
+        let need_recipes: Vec<ObjectId> = recipes
+            .iter()
+            .filter(|id| !store.has_recipe(id))
+            .cloned()
+            .collect();
+        for frame in self.get_frames(&ObjectSet {
+            recipes: need_recipes,
+            ..Default::default()
+        })? {
+            store.put_recipe_bytes(&frame.id, &frame.bytes)?;
+        }
         for id in &recipes {
-            if !store.has_recipe(id) {
-                let bytes = self.get_object("recipes", id)?;
-                store.put_recipe_bytes(id, &bytes)?;
-                let recipe = store.get_recipe(id)?;
-                for chunk in &recipe.chunks {
-                    if !store.has_blob(&chunk.blob) {
-                        let bytes = self.get_object("blobs", &chunk.blob)?;
-                        store.put_blob(&bytes)?;
-                    }
-                }
+            let recipe = store.get_recipe(id)?;
+            for chunk in &recipe.chunks {
+                blobs.insert(chunk.blob.clone());
             }
         }
-        for id in &blobs {
-            if !store.has_blob(id) {
-                let bytes = self.get_object("blobs", id)?;
-                store.put_blob(&bytes)?;
-            }
-        }
-        for dir in dirs {
-            self.fetch_manifest_tree(store, &dir)?;
+
+        let need_blobs: Vec<ObjectId> = blobs
+            .iter()
+            .filter(|id| !store.has_blob(id))
+            .cloned()
+            .collect();
+        for frame in self.get_frames(&ObjectSet {
+            blobs: need_blobs,
+            ..Default::default()
+        })? {
+            store.put_blob(&frame.bytes)?;
         }
         Ok(())
     }
