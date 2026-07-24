@@ -1,6 +1,6 @@
 # 036 Event Push
 
-Status: ready
+Status: complete
 Updated: 2026-07-24
 Roadmap: `g02.010`
 Spec: `docs/specs/010-scale-and-transport.md`
@@ -45,6 +45,21 @@ state.
 
 - event semantics ambiguity — doc 14 first
 
+## Outcome
+
+- doc 14 §5b amended first: events are hints with a seq cursor; missed
+  events cost freshness, never correctness; SSE deferred (poll is the
+  v1 transport — contract unchanged when SSE lands)
+- durable `events` table; engine emits `bundle`/`lane`/`release` on the
+  three flows; `GET /api/repos/:repo/events?since=` (read capability);
+  client `events()`; CLI `converge events [--since]`
+- TUI: background poller (3s) with a cursor replaces blind remote
+  refresh — new events surface a Last-strip note and trigger a normal
+  refresh through the worker channel
+- tests: three event kinds with strictly increasing seq, cursor
+  filtering incl. empty tail; 95 workspace tests green
+
 ## Next Task
 
-On completion, open the Batch 10.4 external-backends card.
+Execute the Batch 10.4 external-backends card
+(`037-external-backends.md`).

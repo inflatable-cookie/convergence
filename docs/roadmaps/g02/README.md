@@ -15,7 +15,7 @@ improvement program. `g02.009` closed: git repos import with lineage,
 work under Convergence, and mirror back to plain git.
 
 Ready batch card:
-[`batch-cards/036-event-push.md`](./batch-cards/036-event-push.md)
+[`batch-cards/037-external-backends.md`](./batch-cards/037-external-backends.md)
 
 ## Lanes
 
@@ -32,4 +32,4 @@ Ready batch card:
 
 ## Next Task
 
-Execute the ready `g02.010` Batch 10.3 event-push card.
+Execute the ready `g02.010` Batch 10.4 external-backends card (final).

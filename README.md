@@ -55,4 +55,4 @@ cargo nextest run -P ci
 
 ## Next task
 
-Execute the ready `g02.010` Batch 10.3 event-push card.002` Batch 2.4 rebuild-architecture card.
+Execute the ready `g02.010` Batch 10.4 external-backends card (final).002` Batch 2.4 rebuild-architecture card.

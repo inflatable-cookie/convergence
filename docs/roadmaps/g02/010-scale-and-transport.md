@@ -30,4 +30,5 @@ last because none of them change product semantics.
 
 ## Next Task
 
-Execute the ready Batch 10.3 card (`batch-cards/036-event-push.md`).
+Execute the ready Batch 10.4 card (`batch-cards/037-external-backends.md`)
+— the improvement program's final batch.

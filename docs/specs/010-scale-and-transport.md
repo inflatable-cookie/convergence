@@ -22,8 +22,9 @@ encoding change, no shims.
 
 - Batch 10.1 (canonical binary encoding) complete.
 - Batch 10.2 (batched transport) complete.
-- Batch 10.3 has a ready card:
-  `docs/roadmaps/g02/batch-cards/036-event-push.md`
+- Batch 10.3 (event push) complete.
+- Batch 10.4 has a ready card:
+  `docs/roadmaps/g02/batch-cards/037-external-backends.md`
 
 ## Exit Condition
 
@@ -32,4 +33,5 @@ program closes.
 
 ## Next Task
 
-Execute the ready Batch 10.3 card.
+Execute the ready Batch 10.4 card (`batch-cards/037-external-backends.md`)
+— the improvement program's final batch.

@@ -23,4 +23,4 @@ Archived specs live in [`archive/`](./archive/).
 
 ## Next Task
 
-Execute the ready `g02.010` Batch 10.3 event-push card.
+Execute the ready `g02.010` Batch 10.4 external-backends card (final).
