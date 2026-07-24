@@ -55,4 +55,4 @@ cargo nextest run -P ci
 
 ## Next task
 
-Execute the ready `g02.006` Batch 6.3 interactive-views card.002` Batch 2.4 rebuild-architecture card.
+Execute the ready `g02.007` Batch 7.1 lane-registry card.002` Batch 2.4 rebuild-architecture card.

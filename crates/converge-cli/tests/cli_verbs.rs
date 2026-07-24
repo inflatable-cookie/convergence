@@ -145,7 +145,26 @@ fn resolve_list_validate_apply_over_superposition() -> anyhow::Result<()> {
     ws.store.put_snap(&snap)?;
 
     let list = json_data(&converge(root, &["--json", "resolve", "list", &snap.id]));
-    assert_eq!(list["conflicted.txt"], 2);
+    let keys = list["conflicted.txt"].as_array().unwrap();
+    assert_eq!(keys.len(), 2);
+    assert_eq!(keys[0]["source"], "lane-a", "stable keys carry provenance");
+
+    // Key-based decision resolves independent of variant order.
+    std::fs::write(
+        root.join("key-decision.json"),
+        serde_json::to_vec(&serde_json::json!({"conflicted.txt": keys[1]}))?,
+    )?;
+    let out = converge(
+        root,
+        &[
+            "--json",
+            "resolve",
+            "validate",
+            &snap.id,
+            "key-decision.json",
+        ],
+    );
+    assert!(out.status.success(), "variant-key decision validates");
 
     // Missing decision -> invalid, exit 1.
     std::fs::write(root.join("empty.json"), "{}")?;
@@ -221,5 +240,25 @@ fn status_reports_workspace_in_one_call() -> anyhow::Result<()> {
     assert_eq!(status["snaps"]["total"], 1);
     assert_eq!(status["snaps"]["explicit"], 1);
     assert_eq!(status["remote"]["configured"], false);
+    Ok(())
+}
+
+#[test]
+fn annotate_edits_message_without_changing_identity() -> anyhow::Result<()> {
+    let tmp = tempfile::tempdir()?;
+    let root = tmp.path();
+    assert!(converge(root, &["init"]).status.success());
+    std::fs::write(root.join("a.txt"), "x")?;
+    let snap = json_data(&converge(root, &["--json", "snap"]));
+    let id = snap["id"].as_str().unwrap();
+
+    assert!(
+        converge(root, &["annotate", id, "added later"])
+            .status
+            .success()
+    );
+    let history = json_data(&converge(root, &["--json", "history"]));
+    assert_eq!(history[0]["id"], id, "identity unchanged");
+    assert_eq!(history[0]["message"], "added later");
     Ok(())
 }

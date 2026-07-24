@@ -50,14 +50,29 @@ impl View {
 #[derive(Clone, Debug, Default)]
 pub struct ResolutionState {
     pub snap_id: String,
-    /// (path, variant count), sorted.
-    pub paths: Vec<(String, u64)>,
-    /// path -> chosen 0-based variant index.
+    /// (path, stable variant keys in display order), sorted by path.
+    pub paths: Vec<(String, Vec<serde_json::Value>)>,
+    /// path -> chosen 0-based variant index (written out as the variant
+    /// key, so decisions survive variant reordering).
     pub decisions: BTreeMap<String, u32>,
     pub selected: usize,
 }
 
 impl ResolutionState {
+    /// Decisions file content: path -> stable variant key.
+    pub fn keyed_decisions(&self) -> BTreeMap<String, serde_json::Value> {
+        self.decisions
+            .iter()
+            .filter_map(|(path, index)| {
+                self.paths
+                    .iter()
+                    .find(|(p, _)| p == path)
+                    .and_then(|(_, keys)| keys.get(*index as usize))
+                    .map(|key| (path.clone(), key.clone()))
+            })
+            .collect()
+    }
+
     pub fn undecided(&self) -> usize {
         self.paths
             .iter()
@@ -125,6 +140,10 @@ pub struct App {
     pub in_flight: Option<String>,
     /// Active wizard modal, if any (owns the keyboard while open).
     pub wizard: Option<Wizard>,
+    /// Destructive action awaiting Enter/y confirmation (UX spec §4.5).
+    pub pending_confirm: Option<(String, Action)>,
+    /// Selected row in the history view.
+    pub history_selected: usize,
     /// Resolution view state.
     pub resolution: Option<ResolutionState>,
 }
@@ -146,6 +165,8 @@ impl Default for App {
             status: None,
             in_flight: None,
             wizard: None,
+            pending_confirm: None,
+            history_selected: 0,
             resolution: None,
         }
     }
@@ -245,9 +266,27 @@ impl App {
         if self.wizard.is_some() {
             return self.handle_wizard_key(key);
         }
+        if let Some((_, action)) = self.pending_confirm.clone() {
+            return match key.code {
+                KeyCode::Enter | KeyCode::Char('y') => {
+                    self.pending_confirm = None;
+                    Some(action)
+                }
+                _ => {
+                    self.pending_confirm = None;
+                    None
+                }
+            };
+        }
         if self.current_view() == View::Resolution
             && self.input.is_empty()
             && let Some(action) = self.handle_resolution_key(key)
+        {
+            return action;
+        }
+        if self.current_view() == View::History
+            && self.input.is_empty()
+            && let Some(action) = self.handle_history_key(key)
         {
             return action;
         }
@@ -384,6 +423,51 @@ impl App {
         }
     }
 
+    /// History-view keys when the console input is empty: navigate and act
+    /// on the selected snap (UX spec: the selection half of the console
+    /// hybrid). `Some(...)` means the key was consumed.
+    fn handle_history_key(&mut self, key: KeyEvent) -> Option<Option<Action>> {
+        match key.code {
+            KeyCode::Up => {
+                self.history_selected = self.history_selected.saturating_sub(1);
+                Some(None)
+            }
+            KeyCode::Down => {
+                if !self.snaps.is_empty() {
+                    self.history_selected = (self.history_selected + 1).min(self.snaps.len() - 1);
+                }
+                Some(None)
+            }
+            KeyCode::Enter => {
+                let id = self.selected_snap_id()?;
+                self.pending_confirm = Some((
+                    format!("restore {id}"),
+                    Action::Run(vec!["restore".into(), id, "--force".into()]),
+                ));
+                Some(None)
+            }
+            KeyCode::Char('d') => {
+                let id = self.selected_snap_id()?;
+                let head = self
+                    .status
+                    .as_ref()
+                    .and_then(|s| s["head"]["id"].as_str().map(str::to_string))?;
+                Some(Some(Action::Run(vec!["diff".into(), id, head])))
+            }
+            KeyCode::Char('m') => {
+                let id = self.selected_snap_id()?;
+                Some(Some(Action::StartWizard(WizardKind::Annotate(id))))
+            }
+            _ => None,
+        }
+    }
+
+    fn selected_snap_id(&self) -> Option<String> {
+        self.snaps
+            .get(self.history_selected)
+            .and_then(|s| s["id"].as_str().map(str::to_string))
+    }
+
     /// Resolution-view keys when the console input is empty. `Some(...)`
     /// means the key was consumed.
     fn handle_resolution_key(&mut self, key: KeyEvent) -> Option<Option<Action>> {
@@ -400,9 +484,9 @@ impl App {
                 Some(None)
             }
             KeyCode::Char(c @ '1'..='9') => {
-                if let Some((path, count)) = resolution.paths.get(resolution.selected) {
+                if let Some((path, keys)) = resolution.paths.get(resolution.selected) {
                     let index = c as u32 - '1' as u32;
-                    if u64::from(index) < *count {
+                    if (index as usize) < keys.len() {
                         resolution.decisions.insert(path.clone(), index);
                     }
                 }
@@ -586,6 +670,81 @@ mod tests {
         app.frames.push(View::History);
         app.handle_key(alt('r'));
         assert_eq!(app.current_view(), View::Root, "Alt+r returns to root");
+    }
+
+    #[test]
+    fn history_selection_and_actions() {
+        let mut app = App {
+            snaps: vec![
+                serde_json::json!({"id": "snap-a"}),
+                serde_json::json!({"id": "snap-b"}),
+            ],
+            status: Some(serde_json::json!({"head": {"id": "snap-a"}})),
+            ..App::default()
+        };
+        app.frames.push(View::History);
+
+        app.handle_key(key(KeyCode::Down));
+        assert_eq!(app.history_selected, 1);
+
+        // Enter arms a confirm; Enter again runs the restore.
+        assert_eq!(app.handle_key(key(KeyCode::Enter)), None);
+        assert!(app.pending_confirm.is_some());
+        let action = app.handle_key(key(KeyCode::Enter));
+        assert_eq!(
+            action,
+            Some(Action::Run(vec![
+                "restore".into(),
+                "snap-b".into(),
+                "--force".into()
+            ]))
+        );
+
+        // d diffs selected vs head.
+        let action = app.handle_key(key(KeyCode::Char('d')));
+        assert_eq!(
+            action,
+            Some(Action::Run(vec![
+                "diff".into(),
+                "snap-b".into(),
+                "snap-a".into()
+            ]))
+        );
+
+        // m opens the annotate wizard for the selection.
+        let action = app.handle_key(key(KeyCode::Char('m')));
+        assert_eq!(
+            action,
+            Some(Action::StartWizard(WizardKind::Annotate("snap-b".into())))
+        );
+    }
+
+    #[test]
+    fn confirm_cancelled_by_other_key() {
+        let mut app = App {
+            snaps: vec![serde_json::json!({"id": "snap-a"})],
+            ..App::default()
+        };
+        app.frames.push(View::History);
+        app.handle_key(key(KeyCode::Enter));
+        assert!(app.pending_confirm.is_some());
+        assert_eq!(app.handle_key(key(KeyCode::Char('n'))), None);
+        assert!(app.pending_confirm.is_none(), "any other key cancels");
+    }
+
+    #[test]
+    fn resolution_decisions_serialize_as_variant_keys() {
+        let key_a = serde_json::json!({"source": "lane-a", "type": "file"});
+        let key_b = serde_json::json!({"source": "lane-b", "type": "file"});
+        let mut resolution = ResolutionState {
+            snap_id: "s".into(),
+            paths: vec![("conflicted.txt".into(), vec![key_a, key_b.clone()])],
+            decisions: Default::default(),
+            selected: 0,
+        };
+        resolution.decisions.insert("conflicted.txt".into(), 1);
+        let keyed = resolution.keyed_decisions();
+        assert_eq!(keyed["conflicted.txt"], key_b, "index maps to stable key");
     }
 
     #[test]

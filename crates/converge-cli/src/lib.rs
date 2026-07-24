@@ -7,9 +7,7 @@ use serde::Serialize;
 
 use converge_client::diff::{DiffLine, diff_trees, tree_from_store};
 use converge_client::model::{ObjectId, ResolutionDecision};
-use converge_client::resolve::{
-    apply_resolution, superposition_variant_counts, validate_resolution,
-};
+use converge_client::resolve::{apply_resolution, superposition_variants, validate_resolution};
 use converge_client::workspace::Workspace;
 
 /// Convergence client. The CLI is the canonical semantic contract; every
@@ -117,6 +115,8 @@ enum Command {
     Bundle { bundle_id: String },
     /// Show workspace status: changes, head, snaps, remote.
     Status,
+    /// Set or replace a snap's message (identity is unaffected).
+    Annotate { snap_id: String, message: String },
     /// Show the configured remote for this workspace.
     Remote,
     /// Watch the workspace and capture automatic snaps on quiet periods.
@@ -499,6 +499,13 @@ fn run(cli: &Cli, mode: OutputMode) -> Result<serde_json::Value> {
                 println!("bundle {}: {:?}", b.bundle_id, b.status);
             })
         }
+        Command::Annotate { snap_id, message } => {
+            let ws = open_workspace()?;
+            ws.store.update_snap_message(snap_id, Some(message))?;
+            emit(mode, snap_id.clone(), |id| {
+                println!("annotated {id}");
+            })
+        }
         Command::Status => {
             let ws = open_workspace()?;
 
@@ -617,10 +624,16 @@ fn run_resolve(mode: OutputMode, command: &ResolveCommand) -> Result<serde_json:
     let ws = open_workspace()?;
     match command {
         ResolveCommand::List { snap_id } => {
-            let counts = superposition_variant_counts(&ws.store, &snap_root(&ws, snap_id)?)?;
-            emit(mode, counts, |counts| {
-                for (path, n) in counts {
-                    println!("{path}  {n} variants");
+            // Path -> stable variant keys (order matches display order).
+            let variants = superposition_variants(&ws.store, &snap_root(&ws, snap_id)?)?;
+            let keyed: std::collections::BTreeMap<String, Vec<converge_client::model::VariantKey>> =
+                variants
+                    .into_iter()
+                    .map(|(path, vs)| (path, vs.iter().map(|v| v.key()).collect()))
+                    .collect();
+            emit(mode, keyed, |keyed| {
+                for (path, keys) in keyed {
+                    println!("{path}  {} variants", keys.len());
                 }
             })
         }

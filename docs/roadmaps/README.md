@@ -29,11 +29,10 @@ records the closed state.
 
 ## Active strict lane
 
-- `g02.006` (continuous capture and workspace UX) is the active roadmap.
-- `docs/specs/006-continuous-capture-and-workspace-ux.md` is the active
-  strict planning lane; `g02.007`-`g02.010` are planned and open in
-  sequence.
-- ready card: `g02/batch-cards/021-interactive-views.md`
+- `g02.007` (lanes and collaboration) is the active roadmap.
+- `docs/specs/007-lanes-and-collaboration.md` is the active strict
+  planning lane; `g02.008`-`g02.010` are planned and open in sequence.
+- ready card: `g02/batch-cards/022-lane-model-and-registry.md`
 
 ## Rollover guardrail
 
@@ -47,4 +46,4 @@ Before rollover:
 
 ## Next Task
 
-Execute the ready `g02.006` Batch 6.3 interactive-views card.002` Batch 2.4 rebuild-architecture card.
+Execute the ready `g02.007` Batch 7.1 lane-registry card.002` Batch 2.4 rebuild-architecture card.

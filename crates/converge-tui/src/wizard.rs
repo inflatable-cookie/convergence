@@ -20,10 +20,12 @@ pub struct Field {
     pub kind: FieldKind,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum WizardKind {
     Login,
     Publish,
+    /// Annotate a snap (carries the snap id).
+    Annotate(String),
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -90,6 +92,21 @@ impl Wizard {
                     kind: text(Some("intake")),
                 },
             ],
+        )
+    }
+
+    pub fn annotate(snap_id: String) -> Self {
+        Self::new(
+            WizardKind::Annotate(snap_id),
+            "Annotate snap",
+            vec![Field {
+                name: "message",
+                prompt: "Message",
+                kind: FieldKind::Text {
+                    default: None,
+                    optional: false,
+                },
+            }],
         )
     }
 
@@ -240,7 +257,10 @@ impl Wizard {
                 .expect("field exists");
             self.values[idx].clone()
         };
-        match self.kind {
+        match &self.kind {
+            WizardKind::Annotate(snap_id) => {
+                vec!["annotate".into(), snap_id.clone(), value("message")]
+            }
             WizardKind::Login => vec![
                 "login".into(),
                 "--url".into(),

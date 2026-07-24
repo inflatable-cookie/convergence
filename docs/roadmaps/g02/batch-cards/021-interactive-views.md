@@ -1,6 +1,6 @@
 # 021 Interactive Views
 
-Status: ready
+Status: complete
 Updated: 2026-07-24
 Roadmap: `g02.006`
 Spec: `docs/specs/006-continuous-capture-and-workspace-ux.md`
@@ -44,6 +44,19 @@ resolve by stable variant key.
 - needs CLI semantics that do not exist — extend CLI first (annotate is
   the planned extension)
 
+## Outcome
+
+- history view is actionable: Up/Down selection, Enter -> confirmed
+  restore (generic pending-confirm state, UX spec §4.5), `d` diff
+  selected vs head, `m` annotate wizard; key legend in the view
+- CLI `annotate <snap> <message>`: message edit post-capture, identity
+  unchanged (doc 17 §1 paying off); one-field wizard in the TUI
+- `resolve list` now returns stable variant keys per path; TUI decisions
+  files carry keys, not indexes — decisions survive variant reordering;
+  key-based validate proven through the binary
+- reducer tests for selection/actions/confirm-cancel/key mapping;
+  66 workspace tests green
+
 ## Next Task
 
-On completion, close roadmap `g02.006` against its exit criteria.
+Close roadmap `g02.006`; open `g02.007` (lanes and collaboration).

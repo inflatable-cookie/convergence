@@ -1,10 +1,10 @@
 # 007 Lanes and Collaboration
 
-Status: planned
+Status: active
 Owner: repo maintainers
 Updated: 2026-07-24
 
-Opens after `g02.006`.
+
 
 ## Context
 
@@ -13,7 +13,7 @@ lanes stay in the vision and get built properly: the breadth/visibility
 partition that carries unpublished work between collaborators and gives
 superposition variants real provenance.
 
-## Planned Batches
+## Execution Plan (batch details in cards)
 
 - **7.1 Lane model and registry**: server-side lane registry per repo
   (id, owner, members, visibility); lane ACLs wired into the capability
@@ -35,4 +35,5 @@ superposition variants real provenance.
 
 ## Next Task
 
-Compile into batches with a ready card when `g02.006` closes.
+Execute the ready Batch 7.1 card
+(`batch-cards/022-lane-model-and-registry.md`).

@@ -76,6 +76,7 @@ fn run(terminal: &mut ratatui::DefaultTerminal, trace: &mut trace::Trace) -> Res
             }
             Some(Action::StartWizard(kind)) => {
                 app.wizard = Some(match kind {
+                    WizardKind::Annotate(snap_id) => Wizard::annotate(snap_id),
                     WizardKind::Login => Wizard::login(),
                     WizardKind::Publish => {
                         let default_gate = converge_cli::execute(["remote"])
@@ -89,15 +90,17 @@ fn run(terminal: &mut ratatui::DefaultTerminal, trace: &mut trace::Trace) -> Res
                 app.record_command(&["resolve".into(), "list".into(), snap_id.clone()]);
                 match converge_cli::execute(["resolve".into(), "list".into(), snap_id.clone()]) {
                     Ok(value) => {
-                        let mut paths: Vec<(String, u64)> = value
+                        let mut paths: Vec<(String, Vec<serde_json::Value>)> = value
                             .as_object()
                             .map(|m| {
                                 m.iter()
-                                    .map(|(k, v)| (k.clone(), v.as_u64().unwrap_or(0)))
+                                    .map(|(k, v)| {
+                                        (k.clone(), v.as_array().cloned().unwrap_or_default())
+                                    })
                                     .collect()
                             })
                             .unwrap_or_default();
-                        paths.sort();
+                        paths.sort_by(|a, b| a.0.cmp(&b.0));
                         app.record_result(Ok(serde_json::json!(format!(
                             "{} superposed path(s)",
                             paths.len()
@@ -115,8 +118,7 @@ fn run(terminal: &mut ratatui::DefaultTerminal, trace: &mut trace::Trace) -> Res
             }
             Some(Action::ApplyResolution) => {
                 if let Some(resolution) = app.resolution.take() {
-                    let decisions: std::collections::BTreeMap<&String, &u32> =
-                        resolution.decisions.iter().collect();
+                    let decisions = resolution.keyed_decisions();
                     let path = std::env::temp_dir().join(format!(
                         "converge-tui-decisions-{}.json",
                         std::process::id()
@@ -319,7 +321,8 @@ fn render(frame: &mut Frame, app: &App) {
                 .paths
                 .iter()
                 .enumerate()
-                .map(|(i, (path, count))| {
+                .map(|(i, (path, keys))| {
+                    let count = keys.len();
                     let decision = resolution
                         .decisions
                         .get(path)
@@ -342,18 +345,29 @@ fn render(frame: &mut Frame, app: &App) {
             frame.render_widget(List::new(items).block(view_block(app)), body);
         }
         View::History => {
-            let items: Vec<ListItem> = app
+            let mut items: Vec<ListItem> = app
                 .snaps
                 .iter()
-                .map(|s| {
+                .enumerate()
+                .map(|(i, s)| {
+                    let style = if i == app.history_selected {
+                        Style::default().add_modifier(Modifier::REVERSED)
+                    } else {
+                        Style::default()
+                    };
                     ListItem::new(format!(
                         "{}  {}  {}",
                         s["id"].as_str().unwrap_or("?"),
                         s["created_at"].as_str().unwrap_or(""),
                         s["message"].as_str().unwrap_or("")
                     ))
+                    .style(style)
                 })
                 .collect();
+            items.push(ListItem::new(""));
+            items.push(ListItem::new(
+                "keys: Enter restore (confirm)  d diff vs head  m annotate",
+            ));
             frame.render_widget(List::new(items).block(view_block(app)), body);
         }
     }
@@ -437,6 +451,8 @@ fn render(frame: &mut Frame, app: &App) {
     // Input line with prompt and key legend.
     let legend = if app.quit_confirm {
         "quit? Enter/y: yes  any other key: no".to_string()
+    } else if let Some((label, _)) = &app.pending_confirm {
+        format!("{label}? Enter/y: yes  any other key: no")
     } else {
         format!(
             "Enter: {}  Esc: back  Tab: context  q: quit",

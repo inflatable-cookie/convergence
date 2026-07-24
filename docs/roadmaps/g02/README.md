@@ -10,12 +10,12 @@ boundary was named.
 
 ## Current State
 
-`g02.006` (continuous capture and workspace UX) is active. `g02.005`
-closed: lineage, base-aware merge with supersession, windows, and gate
-strategies are live. `g02.007`-`g02.010` remain planned in sequence.
+`g02.007` (lanes and collaboration) is active. `g02.006` closed:
+auto-capture with thinning, one-call status, actionable history,
+annotate, variant-key resolution. `g02.008`-`g02.010` remain planned.
 
 Ready batch card:
-[`batch-cards/021-interactive-views.md`](./batch-cards/021-interactive-views.md)
+[`batch-cards/022-lane-model-and-registry.md`](./batch-cards/022-lane-model-and-registry.md)
 
 The paused posture is over. The lane is capture → archive cut → docs spine
 restructure → rebuild architecture definition. Batch 2.1 (capture) is
@@ -32,12 +32,12 @@ restructure) complete: docs tree reduced to the keeper spine.
 - [`003-rebuild-implementation-vertical-slice.md`](./003-rebuild-implementation-vertical-slice.md) — complete
 - [`004-tui-rebuild.md`](./004-tui-rebuild.md) — complete
 - [`005-convergence-semantics-revision.md`](./005-convergence-semantics-revision.md) — complete
-- [`006-continuous-capture-and-workspace-ux.md`](./006-continuous-capture-and-workspace-ux.md) — active
-- [`007-lanes-and-collaboration.md`](./007-lanes-and-collaboration.md) — planned
+- [`006-continuous-capture-and-workspace-ux.md`](./006-continuous-capture-and-workspace-ux.md) — complete
+- [`007-lanes-and-collaboration.md`](./007-lanes-and-collaboration.md) — active
 - [`008-releases-retention-and-gc.md`](./008-releases-retention-and-gc.md) — planned
 - [`009-git-interop.md`](./009-git-interop.md) — planned
 - [`010-scale-and-transport.md`](./010-scale-and-transport.md) — planned
 
 ## Next Task
 
-Execute the ready `g02.006` Batch 6.3 interactive-views card.002` Batch 2.4 rebuild-architecture card.
+Execute the ready `g02.007` Batch 7.1 lane-registry card.002` Batch 2.4 rebuild-architecture card.

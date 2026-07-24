@@ -1,6 +1,6 @@
 # 006 Continuous Capture and Workspace UX
 
-Status: active
+Status: complete
 Owner: repo maintainers
 Updated: 2026-07-24
 
@@ -46,7 +46,7 @@ finishes the workspace UX the rebuild left read-only.
 
 ### Batch 6.3 - Interactive Views
 
-- [ ] history selection verbs (Enter on a snap -> restore/diff), snap
+- [x] history selection verbs (Enter on a snap -> restore/diff), snap
       message editing, resolution by variant key
 
 ## Exit Criteria
@@ -54,6 +54,13 @@ finishes the workspace UX the rebuild left read-only.
 - a workspace left alone accumulates thinned automatic snaps; nothing else
   in the UX regresses; `effigy validate` green
 
+## Outcome
+
+All three batches complete; exit criteria met — a watched workspace
+accumulates thinned automatic snaps, the UX gained one-call status,
+actionable history, annotate, and variant-key resolution with no
+regressions.
+
 ## Next Task
 
-Execute the ready Batch 6.3 card (`batch-cards/021-interactive-views.md`).
+Open `g02.007` (lanes and collaboration).

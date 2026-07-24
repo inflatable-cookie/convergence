@@ -1,6 +1,6 @@
 # 006 Continuous Capture and Workspace UX
 
-Status: active
+Status: complete
 Updated: 2026-07-24
 Roadmap: `g02.006`
 
@@ -22,8 +22,7 @@ doubt the watcher skips a capture rather than guessing.
 
 - Batch 6.1 (auto-capture) complete.
 - Batch 6.2 (workspace status) complete.
-- Batch 6.3 has a ready card:
-  `docs/roadmaps/g02/batch-cards/021-interactive-views.md`
+- All three batches complete; roadmap `g02.006` closed.
 
 ## Exit Condition
 
@@ -31,4 +30,4 @@ Roadmap `g02.006` exit criteria met.
 
 ## Next Task
 
-Execute the ready Batch 6.3 card.
+Superseded by `docs/specs/007-lanes-and-collaboration.md`.
