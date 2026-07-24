@@ -85,7 +85,13 @@ g01 admitted gate/scope ACLs were never enforced. Rebuild rule: **every data
 plane operation names its `(repo, scope, gate)` and passes one authz check
 before touching state.** Roles are declarative grants stored in the control
 plane: subject (user/team) × scope pattern × capability (`read`, `snap-sync`,
-`publish`, `resolve`, `approve`, `promote`, `release`, `admin`). Edges
+`publish`, `resolve`, `approve`, `promote`, `release`, `admin`).
+Capability implication is minimal and explicit: a requested `snap-sync`
+is satisfied by a `snap-sync`, `publish`, or `admin` grant (publishing
+subsumes syncing unpublished work); every other capability is satisfied
+only by itself or `admin`. Lane namespace rule: `personal/<subject>` is
+reserved — the server refuses client-supplied creation of another
+subject's personal lane and auto-provisions the caller's own. Edges
 enforce read grants on cached content by validating tokens against the
 control plane (short-lived, capability-scoped tokens; offline edge grace
 bounded by token TTL). No endpoint ships before its grant check exists —

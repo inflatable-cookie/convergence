@@ -1,6 +1,6 @@
 # 011 Server Trust Boundaries
 
-Status: in progress (11.1 complete)
+Status: in progress (11.1-11.2 complete)
 Owner: repo maintainers
 Updated: 2026-07-24
 
@@ -36,9 +36,11 @@ in the audit program matters while they stand.
   and negotiate routes with an object→repo association recorded on
   every server-side write; bundle-id-keyed reads resolve the bundle's
   repo and require `read` there; doc 16 §1d records the contract
-- **11.2 Namespace and capability integrity**: reserve `personal/*`
-  server-side; add `snap-sync` capability and regate snap upload +
-  lane-head push; bring `add_lane_member` inside `authorize`
+- **11.2 Namespace and capability integrity** (complete, card 039):
+  `personal/*` reserved server-side; `SnapSync` capability with minimal
+  explicit implication (publish subsumes sync); sync surface (snaps,
+  lane heads, object writes, negotiate) regated; `add_lane_member`
+  inside `authorize`
 - **11.3 Read-only means read-only**: `verify` merges into a throwaway
   in-memory object store; error responses carry stable public messages
   with internals logged server-side only
@@ -56,4 +58,4 @@ in the audit program matters while they stand.
 
 ## Next Task
 
-Open batch card 11.2 (namespace and capability integrity).
+Open batch card 11.3 (read-only means read-only).

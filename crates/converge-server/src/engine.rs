@@ -276,7 +276,7 @@ impl Engine<'_> {
         snap_id: &str,
         force: bool,
     ) -> Result<LaneHead> {
-        require(&authz, Capability::Publish)?;
+        require(&authz, Capability::SnapSync)?;
         let lane_id = self.resolve_writable_lane(&authz, &lane_id)?;
 
         if self

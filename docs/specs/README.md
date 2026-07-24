@@ -24,4 +24,4 @@ Archived specs live in [`archive/`](./archive/).
 
 ## Next Task
 
-Open batch card 11.2 (namespace and capability integrity) under `g02.011`.
+Open batch card 11.3 (read-only means read-only) under `g02.011`.

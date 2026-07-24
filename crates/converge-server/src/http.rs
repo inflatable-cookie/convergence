@@ -160,7 +160,7 @@ async fn negotiate(
     headers: HeaderMap,
     Json(request): Json<NegotiateRequest>,
 ) -> Result<Json<NegotiateResponse>, ApiError> {
-    authorize_repo(&state, &headers, &repo, Capability::Publish)?;
+    authorize_repo(&state, &headers, &repo, Capability::SnapSync)?;
     check_wire_version(request.wire_version)?;
     // Present-but-unassociated counts as missing: the client's idempotent
     // re-put is cheap and repairs the association for this repo.
@@ -186,7 +186,7 @@ async fn put_object(
     headers: HeaderMap,
     body: Bytes,
 ) -> Result<Json<serde_json::Value>, ApiError> {
-    authorize_repo(&state, &headers, &repo, Capability::Publish)?;
+    authorize_repo(&state, &headers, &repo, Capability::SnapSync)?;
     let kind = parse_kind(&kind)?;
     scoped_objects(&state, &repo)
         .put_bytes(kind, &ObjectId(id), &body)
@@ -232,7 +232,7 @@ async fn put_batch(
     headers: HeaderMap,
     body: Bytes,
 ) -> Result<Json<serde_json::Value>, ApiError> {
-    authorize_repo(&state, &headers, &repo, Capability::Publish)?;
+    authorize_repo(&state, &headers, &repo, Capability::SnapSync)?;
     let frames: Vec<ObjectFrame> = ciborium::from_reader(body.as_ref())
         .map_err(|err| bad_request(format!("decode batch: {err}")))?;
     let scoped = scoped_objects(&state, &repo);
@@ -343,6 +343,15 @@ async fn create_lane(
             request.visibility
         )));
     }
+    // `personal/<subject>` is reserved (arch 14 §4): creating another
+    // subject's personal lane would capture their default publishes.
+    if request.lane_id.starts_with("personal/") && request.lane_id != format!("personal/{subject}")
+    {
+        return Err(forbidden(format!(
+            "lane id {} is in the reserved personal/ namespace",
+            request.lane_id
+        )));
+    }
     let lane = LaneRecord {
         lane_id: request.lane_id,
         repo_id: repo,
@@ -381,7 +390,10 @@ async fn add_lane_member(
     headers: HeaderMap,
     Json(request): Json<AddLaneMemberRequest>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
-    let subject = subject(&state, &headers)?;
+    // Inside the authorize discipline like every other write; the owner
+    // check below is the finer gate.
+    let authz = authorize_repo(&state, &headers, &repo, Capability::Read)?;
+    let subject = authz.subject().to_string();
     let record = state
         .meta
         .get_lane(&repo, &lane)
@@ -404,15 +416,7 @@ async fn put_snap(
     headers: HeaderMap,
     Json(snap): Json<SnapRecord>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
-    let subject = subject(&state, &headers)?;
-    let authz = authorize(
-        state.meta.as_ref(),
-        &subject,
-        &repo,
-        "*",
-        Capability::Publish,
-    )
-    .map_err(|err| forbidden(format!("{err:#}")))?;
+    let authz = authorize_repo(&state, &headers, &repo, Capability::SnapSync)?;
     if snap.id != id {
         return Err(bad_request("snap id mismatch with path"));
     }
@@ -448,15 +452,7 @@ async fn set_lane_head(
     headers: HeaderMap,
     Json(request): Json<SetLaneHeadRequest>,
 ) -> Result<Json<LaneHead>, ApiError> {
-    let subject = subject(&state, &headers)?;
-    let authz = authorize(
-        state.meta.as_ref(),
-        &subject,
-        &repo,
-        "*",
-        Capability::Publish,
-    )
-    .map_err(|err| forbidden(format!("{err:#}")))?;
+    let authz = authorize_repo(&state, &headers, &repo, Capability::SnapSync)?;
     let engine = Engine {
         meta: state.meta.as_ref(),
         objects: state.objects.as_ref(),

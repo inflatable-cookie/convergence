@@ -56,5 +56,5 @@ cargo nextest run -P ci
 ## Next task
 
 The audit hardening program `g02.011`-`g02.018` is open. Active
-roadmap: `g02.011` server trust boundaries; 11.1 complete, next is
-batch card 11.2 (namespace and capability integrity).
+roadmap: `g02.011` server trust boundaries; 11.1-11.2 complete, next
+is batch card 11.3 (read-only means read-only).

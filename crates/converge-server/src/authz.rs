@@ -6,6 +6,9 @@ use crate::storage::MetadataStore;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Capability {
     Read,
+    /// Sync unpublished work (snap records, lane heads) without the right
+    /// to publish into a gate (arch 14 §4).
+    SnapSync,
     Publish,
     Resolve,
     Approve,
@@ -18,6 +21,7 @@ impl Capability {
     pub fn as_str(&self) -> &'static str {
         match self {
             Capability::Read => "read",
+            Capability::SnapSync => "snap-sync",
             Capability::Publish => "publish",
             Capability::Resolve => "resolve",
             Capability::Approve => "approve",
@@ -67,8 +71,19 @@ pub fn authorize(
     scope_id: &str,
     capability: Capability,
 ) -> Result<AuthzContext> {
-    let granted = meta.has_grant(subject, repo_id, scope_id, capability.as_str())?
-        || meta.has_grant(subject, repo_id, scope_id, Capability::Admin.as_str())?;
+    // Implication is minimal and explicit (arch 14 §4): publish subsumes
+    // snap-sync; admin subsumes everything; nothing else implies.
+    let mut satisfying = vec![capability, Capability::Admin];
+    if capability == Capability::SnapSync {
+        satisfying.push(Capability::Publish);
+    }
+    let mut granted = false;
+    for candidate in satisfying {
+        if meta.has_grant(subject, repo_id, scope_id, candidate.as_str())? {
+            granted = true;
+            break;
+        }
+    }
     if !granted {
         bail!(
             "authorization denied: {subject} lacks {} on {repo_id}/{scope_id}",
