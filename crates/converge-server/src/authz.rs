@@ -90,6 +90,21 @@ pub fn authorize(
             capability.as_str()
         );
     }
+    // Scopes are declared repo state (batch 14.3, audit 2.4/M3): an
+    // unregistered scope id would otherwise mint a fresh partition and
+    // silently fragment windows. `*` is the repo-wide sentinel used by
+    // operations that name no single scope, so it is not a scope lookup.
+    if scope_id != "*" && !meta.scope_exists(repo_id, scope_id)? {
+        let known = meta.list_scopes(repo_id)?;
+        bail!(
+            "unknown scope {scope_id} in repo {repo_id}; registered scopes: {}",
+            if known.is_empty() {
+                "(none)".to_string()
+            } else {
+                known.join(", ")
+            }
+        );
+    }
     Ok(AuthzContext {
         subject: subject.to_string(),
         repo_id: repo_id.to_string(),

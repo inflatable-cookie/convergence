@@ -33,6 +33,10 @@ impl PostgresMetadataStore {
             CREATE TABLE IF NOT EXISTS repos (repo_id TEXT PRIMARY KEY);
             CREATE TABLE IF NOT EXISTS gate_graphs (
                 repo_id TEXT PRIMARY KEY, graph_json TEXT NOT NULL);
+            CREATE TABLE IF NOT EXISTS scopes (
+                repo_id TEXT NOT NULL, scope_id TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                PRIMARY KEY (repo_id, scope_id));
             CREATE TABLE IF NOT EXISTS publications (
                 publication_id TEXT PRIMARY KEY, repo_id TEXT NOT NULL,
                 scope_id TEXT NOT NULL, gate_id TEXT NOT NULL,
@@ -124,14 +128,17 @@ impl MetadataStore for PostgresMetadataStore {
         scope_id: &str,
         capability: &str,
     ) -> Result<bool> {
+        // Pattern semantics live in one shared helper (batch 14.3) so the
+        // backends cannot drift on an authorization decision.
         let mut c = self.client.lock().expect("pg lock");
-        let row = c.query_one(
-            "SELECT COUNT(*) FROM grants
-             WHERE subject = $1 AND repo_id = $2 AND capability = $3
-               AND (scope_pattern = '*' OR scope_pattern = $4)",
-            &[&subject, &repo_id, &capability, &scope_id],
+        let rows = c.query(
+            "SELECT scope_pattern FROM grants
+             WHERE subject = $1 AND repo_id = $2 AND capability = $3",
+            &[&subject, &repo_id, &capability],
         )?;
-        Ok(row.get::<_, i64>(0) > 0)
+        Ok(rows
+            .iter()
+            .any(|row| crate::storage::scope_pattern_matches(row.get::<_, &str>(0), scope_id)))
     }
 
     fn create_repo(&self, repo_id: &str) -> Result<()> {
@@ -140,7 +147,41 @@ impl MetadataStore for PostgresMetadataStore {
             "INSERT INTO repos (repo_id) VALUES ($1) ON CONFLICT DO NOTHING",
             &[&repo_id],
         )?;
+        // Every repo starts with a `default` scope (batch 14.3).
+        c.execute(
+            "INSERT INTO scopes (repo_id, scope_id, created_at)
+             VALUES ($1, 'default', '') ON CONFLICT DO NOTHING",
+            &[&repo_id],
+        )?;
         Ok(())
+    }
+
+    fn create_scope(&self, repo_id: &str, scope_id: &str, created_at: &str) -> Result<()> {
+        let mut c = self.client.lock().expect("pg lock");
+        c.execute(
+            "INSERT INTO scopes (repo_id, scope_id, created_at)
+             VALUES ($1, $2, $3) ON CONFLICT DO NOTHING",
+            &[&repo_id, &scope_id, &created_at],
+        )?;
+        Ok(())
+    }
+
+    fn list_scopes(&self, repo_id: &str) -> Result<Vec<String>> {
+        let mut c = self.client.lock().expect("pg lock");
+        let rows = c.query(
+            "SELECT scope_id FROM scopes WHERE repo_id = $1 ORDER BY scope_id",
+            &[&repo_id],
+        )?;
+        Ok(rows.iter().map(|r| r.get(0)).collect())
+    }
+
+    fn scope_exists(&self, repo_id: &str, scope_id: &str) -> Result<bool> {
+        let mut c = self.client.lock().expect("pg lock");
+        let row = c.query_one(
+            "SELECT COUNT(*) FROM scopes WHERE repo_id = $1 AND scope_id = $2",
+            &[&repo_id, &scope_id],
+        )?;
+        Ok(row.get::<_, i64>(0) > 0)
     }
 
     fn list_repos(&self) -> Result<Vec<String>> {

@@ -45,6 +45,10 @@ fn uploaded_objects_survive_gc_before_publish_then_publish_succeeds() -> Result<
     let data = tempfile::tempdir()?;
     let meta = SqliteMetadataStore::open(&data.path().join("meta.sqlite"))?;
     meta.create_repo("repo")?;
+    // Scopes are declared repo state (batch 14.3).
+    for scope in ["scope", "resolved-scope"] {
+        meta.create_scope("repo", scope, "2026-07-25T00:00:00Z")?;
+    }
     meta.set_gate_graph(
         "repo",
         &GateGraph {

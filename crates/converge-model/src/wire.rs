@@ -147,6 +147,12 @@ pub struct CreateLaneRequest {
     pub visibility: String,
 }
 
+/// Register a scope in a repo (g02.014 batch 14.3).
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct CreateScopeRequest {
+    pub scope_id: String,
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct AddLaneMemberRequest {
     pub member: String,

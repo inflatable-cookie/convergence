@@ -51,6 +51,12 @@ impl SqliteMetadataStore {
                 repo_id TEXT PRIMARY KEY,
                 graph_json TEXT NOT NULL
             );
+            CREATE TABLE IF NOT EXISTS scopes (
+                repo_id TEXT NOT NULL,
+                scope_id TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                PRIMARY KEY (repo_id, scope_id)
+            );
             CREATE TABLE IF NOT EXISTS publications (
                 publication_id TEXT PRIMARY KEY,
                 repo_id TEXT NOT NULL,
@@ -180,12 +186,48 @@ impl MetadataStore for SqliteMetadataStore {
         scope_id: &str,
         capability: &str,
     ) -> Result<bool> {
+        // Pattern semantics live in one shared helper (batch 14.3) so the
+        // backends cannot drift on an authorization decision.
+        let conn = self.conn.lock().expect("meta lock");
+        let mut stmt = conn.prepare(
+            "SELECT scope_pattern FROM grants
+             WHERE subject = ?1 AND repo_id = ?2 AND capability = ?3",
+        )?;
+        let rows = stmt.query_map(params![subject, repo_id, capability], |row| {
+            row.get::<_, String>(0)
+        })?;
+        for row in rows {
+            if crate::storage::scope_pattern_matches(&row?, scope_id) {
+                return Ok(true);
+            }
+        }
+        Ok(false)
+    }
+
+    fn create_scope(&self, repo_id: &str, scope_id: &str, created_at: &str) -> Result<()> {
+        let conn = self.conn.lock().expect("meta lock");
+        conn.execute(
+            "INSERT OR IGNORE INTO scopes (repo_id, scope_id, created_at)
+             VALUES (?1, ?2, ?3)",
+            params![repo_id, scope_id, created_at],
+        )?;
+        Ok(())
+    }
+
+    fn list_scopes(&self, repo_id: &str) -> Result<Vec<String>> {
+        let conn = self.conn.lock().expect("meta lock");
+        let mut stmt =
+            conn.prepare("SELECT scope_id FROM scopes WHERE repo_id = ?1 ORDER BY scope_id")?;
+        let rows = stmt.query_map(params![repo_id], |row| row.get(0))?;
+        rows.collect::<std::result::Result<_, _>>()
+            .context("list scopes")
+    }
+
+    fn scope_exists(&self, repo_id: &str, scope_id: &str) -> Result<bool> {
         let conn = self.conn.lock().expect("meta lock");
         let n: u32 = conn.query_row(
-            "SELECT COUNT(*) FROM grants
-             WHERE subject = ?1 AND repo_id = ?2 AND capability = ?3
-               AND (scope_pattern = '*' OR scope_pattern = ?4)",
-            params![subject, repo_id, capability, scope_id],
+            "SELECT COUNT(*) FROM scopes WHERE repo_id = ?1 AND scope_id = ?2",
+            params![repo_id, scope_id],
             |row| row.get(0),
         )?;
         Ok(n > 0)
@@ -195,6 +237,13 @@ impl MetadataStore for SqliteMetadataStore {
         let conn = self.conn.lock().expect("meta lock");
         conn.execute(
             "INSERT OR IGNORE INTO repos (repo_id) VALUES (?1)",
+            params![repo_id],
+        )?;
+        // Every repo starts with a `default` scope so the common path
+        // needs no ceremony (batch 14.3).
+        conn.execute(
+            "INSERT OR IGNORE INTO scopes (repo_id, scope_id, created_at)
+             VALUES (?1, 'default', '')",
             params![repo_id],
         )?;
         Ok(())

@@ -57,9 +57,11 @@ partitioning does *not* yet buy is parallelism — all partitions share
 one process and one metadata connection, so writes to unrelated
 partitions still serialize behind the same lock.
 
-**Deferred** (§7): horizontal scaling across partitions; **deferred**:
-`scope_id` is an unvalidated free string today, so partitions are minted
-by whatever a client sends (roadmap `g02.014` batch 14.3).
+Scopes are **declared repo state**: a repo starts with a `default`
+scope, admins register more, and any operation naming an unregistered
+scope is refused with an error listing the registered ones. A typo can
+no longer mint a partition and fragment windows. **Deferred** (§7):
+horizontal scaling across partitions.
 
 **Deferred** — remote sites get **edge nodes**: read-through caches for
 objects and bundle manifests, upload buffering for publishes. Edges hold no
@@ -154,8 +156,11 @@ subject's personal lane and auto-provisions the caller's own. No endpoint
 ships before its grant check exists — enforced by making the authz context a
 required constructor argument of every data-plane handler.
 
-Scope patterns are **literal equality or `*`**; no globbing, and no
-registry constrains which scopes exist (roadmap `g02.014` batch 14.3).
+A grant's `scope_pattern` accepts exactly three shapes: `*` (every scope
+in the repo), a literal scope id, or `prefix/*` (that path-segment
+prefix and everything under it). Nothing else is a wildcard — `foo*`
+matches only the literal `foo*`. One shared matcher serves both
+backends so an authorization decision cannot drift between them.
 
 **Deferred** — identity: bearer tokens map to subjects through a static
 map loaded at startup. They do not expire, carry no capabilities of
@@ -254,17 +259,29 @@ trigger building it, so the list stays a plan rather than a wish.
 
 | Property | State | Owner / trigger |
 | --- | --- | --- |
-| Async bundle builds, partition workers | not built; publish merges inline | roadmap `g02.014` batch 14.2 |
-| Scope registry, real grant patterns | not built; free-string scopes, literal grants | roadmap `g02.014` batch 14.3 |
+| Async bundle builds, partition workers | not built; publish merges inline | backlog; trigger = measured publish-latency pain (see note below) |
 | Event retention, off-thread partition-scoped GC | not built; unbounded events, global inline GC | roadmap `g02.014` batch 14.4 |
 | Horizontal scaling across partitions | not built; one process, one metadata connection | backlog; trigger = measured write ceiling from the scale-walls roadmap |
 | Edge nodes (read-through cache, upload buffering) | not built | backlog; trigger = a real multi-site customer with locality pain |
 | Short-lived capability-scoped tokens, revocation | not built; static startup token map | backlog; trigger = any deployment outside a trusted network |
 
-The pluggable-backend seam, the partition key, guarded transactional
-writes, and enforced authz are deliberately *not* on this list: they
-ship today, and they are what make the deferred items additive rather
-than rewrites.
+The pluggable-backend seam, the partition key, the scope registry,
+guarded transactional writes, and enforced authz are deliberately *not*
+on this list: they ship today, and they are what make the deferred
+items additive rather than rewrites.
+
+**Why async builds are deferred rather than next.** Publish currently
+commits its publication, its bundle, and its event in a *single* guarded
+batch (§3). Splitting the build out means the publication commits first
+and the bundle lands later, which reintroduces exactly the interleaving
+window that batch closed and adds a new failure mode (worker dies with
+publications enqueued and no bundle). The gain is publish latency —
+already bounded by *changed* paths over a window that promotion keeps
+small. So the trade is a real correctness property for a latency
+improvement nobody has measured a need for. Build it when a deployment
+shows publish latency actually hurting; do it then with the queue and
+its crash semantics designed deliberately, not as a side effect of
+wanting a status enum to be reachable.
 
 ## Open questions carried forward (deferred, with rationale)
 

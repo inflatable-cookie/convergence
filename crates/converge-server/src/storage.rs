@@ -148,6 +148,12 @@ pub trait MetadataStore: Send + Sync {
     fn set_gate_graph(&self, repo_id: &str, graph: &GateGraph) -> Result<()>;
     fn get_gate_graph(&self, repo_id: &str) -> Result<GateGraph>;
 
+    // scope registry (g02.014 batch 14.3): scopes are declared repo state,
+    // so a typo cannot mint a partition and fragment windows.
+    fn create_scope(&self, repo_id: &str, scope_id: &str, created_at: &str) -> Result<()>;
+    fn list_scopes(&self, repo_id: &str) -> Result<Vec<String>>;
+    fn scope_exists(&self, repo_id: &str, scope_id: &str) -> Result<bool>;
+
     // lanes (g02.007)
     fn create_lane(&self, lane: &LaneRecord) -> Result<()>;
     fn get_lane(&self, repo_id: &str, lane_id: &str) -> Result<Option<LaneRecord>>;
@@ -238,6 +244,22 @@ pub trait MetadataStore: Send + Sync {
     fn unpin_object(&self, repo_id: &str, kind: ObjectKind, id: &ObjectId) -> Result<()>;
     /// Is this object pinned by any repo? (shared store → global check).
     fn is_object_pinned(&self, kind: ObjectKind, id: &ObjectId) -> Result<bool>;
+}
+
+/// Does a grant's `scope_pattern` cover `scope_id`? The accepted syntax is
+/// exactly three shapes (arch 14 §4): `*` (every scope in the repo), a
+/// literal scope id, or `prefix/*` covering that path segment prefix.
+/// Nothing else is a wildcard — `foo*` matches only the literal `foo*`.
+pub fn scope_pattern_matches(pattern: &str, scope_id: &str) -> bool {
+    if pattern == "*" {
+        return true;
+    }
+    if let Some(prefix) = pattern.strip_suffix("/*") {
+        return scope_id
+            .strip_prefix(prefix)
+            .is_some_and(|rest| rest.starts_with('/'));
+    }
+    pattern == scope_id
 }
 
 /// Repo-scoped view over the shared object store: every write also records

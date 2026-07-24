@@ -51,6 +51,10 @@ pub fn router(state: AppState) -> Router {
         .route("/api/bundles/:id/verify", get(verify_bundle))
         .route("/api/bundles/:id/approve", post(approve))
         .route("/api/bundles/:id/promote", post(promote))
+        .route(
+            "/api/repos/:repo/scopes",
+            post(create_scope).get(list_scopes),
+        )
         .route("/api/repos/:repo/lanes", post(create_lane).get(list_lanes))
         .route(
             "/api/repos/:repo/lanes/:lane/members",
@@ -392,6 +396,45 @@ async fn create_lane(
         .create_lane(&lane)
         .map_err(|err| bad_request(format!("{err:#}")))?;
     Ok(Json(lane))
+}
+
+/// Register a scope (batch 14.3). Admin-only: scopes define the
+/// partitioning of a repo, so minting them is a policy act.
+async fn create_scope(
+    State(state): State<SharedState>,
+    Path(repo): Path<String>,
+    headers: HeaderMap,
+    Json(request): Json<converge_model::CreateScopeRequest>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let subject = subject(&state, &headers)?;
+    authorize(state.meta.as_ref(), &subject, &repo, "*", Capability::Admin)
+        .map_err(|err| forbidden(format!("{err:#}")))?;
+    if request.scope_id.is_empty() || request.scope_id == "*" {
+        return Err(bad_request(format!(
+            "invalid scope id {:?}",
+            request.scope_id
+        )));
+    }
+    let created_at = time::OffsetDateTime::now_utc()
+        .format(&time::format_description::well_known::Rfc3339)
+        .map_err(|err| internal_error(anyhow::anyhow!("format timestamp: {err}")))?;
+    state
+        .meta
+        .create_scope(&repo, &request.scope_id, &created_at)
+        .map_err(internal_error)?;
+    Ok(Json(serde_json::json!({ "ok": true })))
+}
+
+async fn list_scopes(
+    State(state): State<SharedState>,
+    Path(repo): Path<String>,
+    headers: HeaderMap,
+) -> Result<Json<Vec<String>>, ApiError> {
+    let subject = subject(&state, &headers)?;
+    authorize(state.meta.as_ref(), &subject, &repo, "*", Capability::Read)
+        .map_err(|err| forbidden(format!("{err:#}")))?;
+    let scopes = state.meta.list_scopes(&repo).map_err(internal_error)?;
+    Ok(Json(scopes))
 }
 
 async fn list_lanes(

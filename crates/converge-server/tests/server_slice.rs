@@ -22,6 +22,10 @@ fn fixture() -> Result<Fixture> {
     meta.upsert_user("alice")?;
     meta.upsert_user("bob")?;
     meta.create_repo("repo")?;
+    // Scopes are declared repo state (batch 14.3).
+    for scope in ["scope", "resolved-scope"] {
+        meta.create_scope("repo", scope, "2026-07-25T00:00:00Z")?;
+    }
     meta.set_gate_graph(
         "repo",
         &GateGraph {

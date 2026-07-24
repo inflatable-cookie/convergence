@@ -21,6 +21,25 @@ fn conform_metadata(meta: &dyn MetadataStore) -> Result<()> {
     assert!(meta.has_grant("alice", "conf", "any-scope", "publish")?);
     assert!(!meta.has_grant("alice", "conf", "any-scope", "admin")?);
 
+    // scope registry + pattern grants (batch 14.3)
+    assert_eq!(
+        meta.list_scopes("conf")?,
+        vec!["default".to_string()],
+        "repo creation registers `default`"
+    );
+    assert!(meta.scope_exists("conf", "default")?);
+    assert!(!meta.scope_exists("conf", "team/web")?);
+    meta.create_scope("conf", "team/web", "2026-07-25T00:00:00Z")?;
+    meta.create_scope("conf", "team/web", "2026-07-25T00:00:00Z")?; // idempotent
+    assert!(meta.scope_exists("conf", "team/web")?);
+    assert!(
+        !meta.scope_exists("other", "team/web")?,
+        "scopes are per repo"
+    );
+    meta.add_grant("alice", "conf", "team/*", "promote")?;
+    assert!(meta.has_grant("alice", "conf", "team/web", "promote")?);
+    assert!(!meta.has_grant("alice", "conf", "teams/web", "promote")?);
+
     meta.set_gate_graph(
         "conf",
         &GateGraph {

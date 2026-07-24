@@ -334,6 +334,33 @@ impl RemoteClient {
         Ok(())
     }
 
+    /// Register a scope (admin). Scopes are declared repo state — an
+    /// unregistered scope is refused rather than minting a partition.
+    pub fn create_scope(&self, repo_id: &str, scope_id: &str) -> Result<()> {
+        Self::check(
+            self.http
+                .post(self.url(&format!("/api/repos/{repo_id}/scopes")))
+                .bearer_auth(&self.token)
+                .json(&crate::model::CreateScopeRequest {
+                    scope_id: scope_id.into(),
+                })
+                .send()
+                .context("create scope")?,
+        )?;
+        Ok(())
+    }
+
+    pub fn list_scopes(&self, repo_id: &str) -> Result<Vec<String>> {
+        let response = Self::check(
+            self.http
+                .get(self.url(&format!("/api/repos/{repo_id}/scopes")))
+                .bearer_auth(&self.token)
+                .send()
+                .context("list scopes")?,
+        )?;
+        response.json().context("parse scopes")
+    }
+
     pub fn create_lane(
         &self,
         repo_id: &str,

@@ -15,6 +15,10 @@ use converge_server::{AppState, FsObjectStore, MetadataStore, SqliteMetadataStor
 fn start_server(data_dir: &std::path::Path, users: usize) -> Result<(String, Vec<String>)> {
     let meta = SqliteMetadataStore::open(&data_dir.join("meta.sqlite"))?;
     meta.create_repo("repo")?;
+    // Scopes are declared repo state (batch 14.3).
+    for scope in ["scope", "resolved-scope"] {
+        meta.create_scope("repo", scope, "2026-07-25T00:00:00Z")?;
+    }
     meta.set_gate_graph(
         "repo",
         &GateGraph {
@@ -122,6 +126,7 @@ use converge_server::{
 fn guard_setup(data: &std::path::Path) -> Result<SqliteMetadataStore> {
     let meta = SqliteMetadataStore::open(&data.join("meta.sqlite"))?;
     meta.create_repo("repo")?;
+    meta.create_scope("repo", "scope", "2026-07-25T00:00:00Z")?;
     meta.set_gate_graph(
         "repo",
         &GateGraph {

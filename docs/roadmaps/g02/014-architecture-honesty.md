@@ -1,6 +1,6 @@
 # 014 Architecture Honesty
 
-Status: in progress (14.1 complete)
+Status: in progress (14.1, 14.3 complete; 14.2 deferred)
 Owner: repo maintainers
 Updated: 2026-07-24
 
@@ -38,12 +38,17 @@ so the docs are true again.
   name each gap's owner, and §7 tables the unbuilt target with
   triggers; doc 16 corrected (in-request builds, edge claims); edge
   nodes and real identity stay backlog
-- **14.2 Async bundle builds**: publish enqueues; a build worker
-  produces bundles through the `building → ready/failed` status
-  machine; clients observe status via events
-- **14.3 Scope registry**: scopes declared per repo (auto-provision
-  policy decided in the card); publish/fetch validate scope existence;
-  grant patterns either implemented or renamed to literal
+- **14.2 Async bundle builds** — **deferred to backlog** (decision
+  2026-07-25, recorded in doc 14 §7). Publish commits its publication,
+  bundle, and event in one guarded batch (batch 13.1); splitting the
+  build out reintroduces that interleaving window and adds worker-crash
+  semantics, in exchange for latency relief on a merge already bounded
+  by changed paths over a small window. Trigger to build it: a
+  deployment showing publish latency actually hurting
+- **14.3 Scope registry** (complete, card 051): scopes declared per
+  repo with a `default` registered at repo creation; every operation
+  naming an unregistered scope is refused before touching state; grant
+  patterns implemented as `*` / literal / `prefix/*`
 - **14.4 Operational hygiene**: event retention (prune beyond a
   configured horizon with cursor-gap signalling), GC moved off the
   request thread, per-repo GC marking where the shared store allows
@@ -52,10 +57,12 @@ so the docs are true again.
 
 - every claim in docs 14/16/17 is either implemented or explicitly
   marked deferred; `effigy qa:docs` clean
-- publish returns before merge completes; bundle status observable
-  through the event feed
+- ~~publish returns before merge completes; bundle status observable
+  through the event feed~~ — dropped with the 14.2 deferral; the
+  honesty requirement it served is met by doc 14 §5 stating that builds
+  are synchronous and `Building` is never constructed
 - unknown scope refused; events table bounded under sustained load
 
 ## Next Task
 
-Open batch card 14.2 (async bundle builds).
+Open batch card 14.4 (operational hygiene).

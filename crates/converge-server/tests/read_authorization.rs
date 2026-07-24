@@ -31,6 +31,7 @@ fn start_server(data_dir: &std::path::Path) -> Result<String> {
     let meta = SqliteMetadataStore::open(&data_dir.join("meta.sqlite"))?;
     for repo in ["repo-a", "repo-b"] {
         meta.create_repo(repo)?;
+        meta.create_scope(repo, "scope", "2026-07-25T00:00:00Z")?;
         meta.set_gate_graph(repo, &gate_graph())?;
     }
     for (subject, repo) in [("alice", "repo-a"), ("bob", "repo-b")] {

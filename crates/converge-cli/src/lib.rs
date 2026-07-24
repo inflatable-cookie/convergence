@@ -177,6 +177,11 @@ enum Command {
         #[command(subcommand)]
         command: LaneCommand,
     },
+    /// Scope registry operations.
+    Scope {
+        #[command(subcommand)]
+        command: ScopeCommand,
+    },
     /// Show the configured remote for this workspace.
     Remote,
     /// Watch the workspace and capture automatic snaps on quiet periods.
@@ -252,6 +257,15 @@ enum LaneCommand {
     List,
     /// Add a member to a lane you own.
     AddMember { lane_id: String, member: String },
+}
+
+#[derive(Subcommand)]
+enum ScopeCommand {
+    /// Register a scope (admin). Publishing to an unregistered scope is
+    /// refused, so a typo cannot mint a partition.
+    Create { scope_id: String },
+    /// List the repo's registered scopes.
+    List,
 }
 
 #[derive(Subcommand)]
@@ -913,6 +927,26 @@ fn run(cli: &Cli, mode: OutputMode) -> Result<serde_json::Value> {
                     client.add_lane_member(&remote.repo_id, lane_id, member)?;
                     emit(mode, format!("{member} -> {lane_id}"), |m| {
                         println!("added {m}");
+                    })
+                }
+            }
+        }
+        Command::Scope { command } => {
+            let ws = open_workspace()?;
+            let (client, remote) = remote_client(&ws)?;
+            match command {
+                ScopeCommand::Create { scope_id } => {
+                    client.create_scope(&remote.repo_id, scope_id)?;
+                    emit(mode, scope_id.clone(), |s| {
+                        println!("scope {s} registered");
+                    })
+                }
+                ScopeCommand::List => {
+                    let scopes = client.list_scopes(&remote.repo_id)?;
+                    emit(mode, scopes, |scopes| {
+                        for scope in scopes {
+                            println!("{scope}");
+                        }
                     })
                 }
             }
