@@ -11,6 +11,7 @@ backend-s3 = ["dep:rust-s3"]
 [dependencies]
 postgres = { workspace = true, optional = true }
 rust-s3 = { workspace = true, optional = true }
+age.workspace = true
 anyhow.workspace = true
 axum.workspace = true
 blake3.workspace = true

@@ -173,6 +173,30 @@ pub struct AddMemberRequest {
     pub issue_token: bool,
 }
 
+/// Register a public key for the calling subject (g02.019 batch 19.1).
+///
+/// The subject is taken from the token, never from the body: a caller
+/// must not be able to register a key *as* someone else, which would
+/// let them receive secrets meant for that person.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct RegisterKeyRequest {
+    /// age recipient string (`age1...`).
+    pub public_key: String,
+    /// Free-text hint, usually the machine it was made on.
+    pub label: String,
+}
+
+/// A registered public key. Public by definition — this record carries
+/// nothing that needs protecting.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+pub struct PublicKeyRecord {
+    pub key_id: String,
+    pub subject: String,
+    pub public_key: String,
+    pub label: String,
+    pub created_at: String,
+}
+
 /// One member's standing in a repo.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct MemberRecord {

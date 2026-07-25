@@ -51,6 +51,15 @@ impl SqliteMetadataStore {
                 token_hash TEXT PRIMARY KEY,
                 subject TEXT NOT NULL
             );
+            CREATE TABLE IF NOT EXISTS public_keys (
+                repo_id TEXT NOT NULL,
+                key_id TEXT NOT NULL,
+                subject TEXT NOT NULL,
+                public_key TEXT NOT NULL,
+                label TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                PRIMARY KEY (repo_id, key_id)
+            );
             CREATE TABLE IF NOT EXISTS gate_graphs (
                 repo_id TEXT PRIMARY KEY,
                 graph_json TEXT NOT NULL
@@ -297,6 +306,43 @@ impl MetadataStore for SqliteMetadataStore {
         })?;
         rows.collect::<std::result::Result<_, _>>()
             .context("list grants")
+    }
+
+    fn add_public_key(&self, repo_id: &str, key: &converge_model::PublicKeyRecord) -> Result<()> {
+        let conn = self.conn.lock().expect("meta lock");
+        conn.execute(
+            "INSERT OR REPLACE INTO public_keys
+             (repo_id, key_id, subject, public_key, label, created_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            params![
+                repo_id,
+                key.key_id,
+                key.subject,
+                key.public_key,
+                key.label,
+                key.created_at
+            ],
+        )?;
+        Ok(())
+    }
+
+    fn list_public_keys(&self, repo_id: &str) -> Result<Vec<converge_model::PublicKeyRecord>> {
+        let conn = self.conn.lock().expect("meta lock");
+        let mut stmt = conn.prepare(
+            "SELECT key_id, subject, public_key, label, created_at FROM public_keys
+             WHERE repo_id = ?1 ORDER BY subject, created_at, key_id",
+        )?;
+        let rows = stmt.query_map(params![repo_id], |row| {
+            Ok(converge_model::PublicKeyRecord {
+                key_id: row.get(0)?,
+                subject: row.get(1)?,
+                public_key: row.get(2)?,
+                label: row.get(3)?,
+                created_at: row.get(4)?,
+            })
+        })?;
+        rows.collect::<std::result::Result<_, _>>()
+            .context("list public keys")
     }
 
     fn list_repos(&self) -> Result<Vec<String>> {

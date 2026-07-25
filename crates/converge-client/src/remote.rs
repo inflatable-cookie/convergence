@@ -435,6 +435,38 @@ impl RemoteClient {
         response.json().context("parse add member response")
     }
 
+    /// Register a public key for the calling subject (batch 19.1).
+    pub fn register_key(
+        &self,
+        repo_id: &str,
+        public_key: &str,
+        label: &str,
+    ) -> Result<crate::model::PublicKeyRecord> {
+        let response = Self::check(
+            self.http
+                .post(self.url(&format!("/api/repos/{repo_id}/keys")))
+                .bearer_auth(&self.token)
+                .json(&crate::model::RegisterKeyRequest {
+                    public_key: public_key.into(),
+                    label: label.into(),
+                })
+                .send()
+                .context("register key")?,
+        )?;
+        response.json().context("parse key record")
+    }
+
+    pub fn list_keys(&self, repo_id: &str) -> Result<Vec<crate::model::PublicKeyRecord>> {
+        let response = Self::check(
+            self.http
+                .get(self.url(&format!("/api/repos/{repo_id}/keys")))
+                .bearer_auth(&self.token)
+                .send()
+                .context("list keys")?,
+        )?;
+        response.json().context("parse keys")
+    }
+
     pub fn list_members(&self, repo_id: &str) -> Result<Vec<crate::model::MemberRecord>> {
         let response = Self::check(
             self.http

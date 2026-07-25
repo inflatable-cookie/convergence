@@ -158,6 +158,12 @@ pub trait MetadataStore: Send + Sync {
     /// (subject, capability, scope_pattern) rows for one repo, ordered.
     fn list_grants(&self, repo_id: &str) -> Result<Vec<(String, String, String)>>;
 
+    // public keys (g02.019 batch 19.1): the recipients secrets are
+    // sealed to. Public data — stored so members can encrypt to each
+    // other without an out-of-band exchange.
+    fn add_public_key(&self, repo_id: &str, key: &converge_model::PublicKeyRecord) -> Result<()>;
+    fn list_public_keys(&self, repo_id: &str) -> Result<Vec<converge_model::PublicKeyRecord>>;
+
     /// Server-wide admin: a grant recorded against the `*` repo. Repo
     /// grants stay exact-match (see `has_grant`) so this cannot widen an
     /// ordinary repo admin into a site admin by accident.

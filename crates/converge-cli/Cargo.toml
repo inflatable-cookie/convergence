@@ -8,10 +8,12 @@ name = "converge"
 path = "src/main.rs"
 
 [dependencies]
+age.workspace = true
 anyhow.workspace = true
 clap.workspace = true
 converge-client.workspace = true
 converge-model.workspace = true
+rpassword.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 time.workspace = true

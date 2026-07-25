@@ -61,6 +61,7 @@ pub fn router(state: AppState) -> Router {
             "/api/repos/:repo/members",
             post(add_member).get(list_members),
         )
+        .route("/api/repos/:repo/keys", post(register_key).get(list_keys))
         .route(
             "/api/repos/:repo/scopes",
             post(create_scope).get(list_scopes),
@@ -599,6 +600,59 @@ async fn add_member(
         granted: request.capabilities,
         token,
     }))
+}
+
+/// Register a public key for the *calling* subject (batch 19.1).
+///
+/// The subject comes from the token, never the body. Letting a caller
+/// name someone else would let them register a key that future secrets
+/// get sealed to — the whole guarantee, given away in one field.
+async fn register_key(
+    State(state): State<SharedState>,
+    Path(repo): Path<String>,
+    headers: HeaderMap,
+    Json(request): Json<converge_model::RegisterKeyRequest>,
+) -> Result<Json<converge_model::PublicKeyRecord>, ApiError> {
+    let authz = authorize_repo(&state, &headers, &repo, Capability::Read)?;
+    // Parsed, not trusted: a malformed recipient would be stored and
+    // then fail at encryption time, somewhere much less obvious.
+    let recipient: age::x25519::Recipient = request
+        .public_key
+        .trim()
+        .parse()
+        .map_err(|err| bad_request(format!("not an age recipient: {err}")))?;
+    let public_key = recipient.to_string();
+
+    let record = converge_model::PublicKeyRecord {
+        key_id: blake3::hash(public_key.as_bytes())
+            .to_hex()
+            .chars()
+            .take(16)
+            .collect(),
+        subject: authz.subject().to_string(),
+        public_key,
+        label: request.label,
+        created_at: now_rfc3339()?,
+    };
+    state
+        .meta
+        .add_public_key(&repo, &record)
+        .map_err(internal_error)?;
+    Ok(Json(record))
+}
+
+/// Every registered key in the repo. Public data: members need each
+/// other's keys to share a secret, and hiding them would only mean an
+/// out-of-band exchange that is easier to get wrong.
+async fn list_keys(
+    State(state): State<SharedState>,
+    Path(repo): Path<String>,
+    headers: HeaderMap,
+) -> Result<Json<Vec<converge_model::PublicKeyRecord>>, ApiError> {
+    authorize_repo(&state, &headers, &repo, Capability::Read)?;
+    Ok(Json(
+        state.meta.list_public_keys(&repo).map_err(internal_error)?,
+    ))
 }
 
 async fn list_members(

@@ -33,6 +33,11 @@ time = { version = "0.3", features = ["formatting", "parsing"] }
 tempfile = "3"
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 getrandom = "0.3"
+# Client-side secrets (g02.019). age gives multi-recipient X25519
+# envelopes and scrypt passphrase encryption in one reviewed format.
+age = "0.12"
+secrecy = "0.10"
+rpassword = "7"
 converge-model = { path = "crates/converge-model" }
 converge-client = { path = "crates/converge-client" }
 converge-cli = { path = "crates/converge-cli" }

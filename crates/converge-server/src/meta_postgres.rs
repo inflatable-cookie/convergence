@@ -35,6 +35,15 @@ impl PostgresMetadataStore {
                 token_hash TEXT PRIMARY KEY,
                 subject TEXT NOT NULL
             );
+            CREATE TABLE IF NOT EXISTS public_keys (
+                repo_id TEXT NOT NULL,
+                key_id TEXT NOT NULL,
+                subject TEXT NOT NULL,
+                public_key TEXT NOT NULL,
+                label TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                PRIMARY KEY (repo_id, key_id)
+            );
             CREATE TABLE IF NOT EXISTS gate_graphs (
                 repo_id TEXT PRIMARY KEY, graph_json TEXT NOT NULL);
             CREATE TABLE IF NOT EXISTS scopes (
@@ -228,6 +237,47 @@ impl MetadataStore for PostgresMetadataStore {
         Ok(rows
             .iter()
             .map(|r| (r.get(0), r.get(1), r.get(2)))
+            .collect())
+    }
+
+    fn add_public_key(&self, repo_id: &str, key: &converge_model::PublicKeyRecord) -> Result<()> {
+        let mut c = self.client.lock().expect("pg lock");
+        c.execute(
+            "INSERT INTO public_keys (repo_id, key_id, subject, public_key, label, created_at)
+             VALUES ($1, $2, $3, $4, $5, $6)
+             ON CONFLICT (repo_id, key_id) DO UPDATE SET
+               subject = EXCLUDED.subject,
+               public_key = EXCLUDED.public_key,
+               label = EXCLUDED.label,
+               created_at = EXCLUDED.created_at",
+            &[
+                &repo_id,
+                &key.key_id,
+                &key.subject,
+                &key.public_key,
+                &key.label,
+                &key.created_at,
+            ],
+        )?;
+        Ok(())
+    }
+
+    fn list_public_keys(&self, repo_id: &str) -> Result<Vec<converge_model::PublicKeyRecord>> {
+        let mut c = self.client.lock().expect("pg lock");
+        let rows = c.query(
+            "SELECT key_id, subject, public_key, label, created_at FROM public_keys
+             WHERE repo_id = $1 ORDER BY subject, created_at, key_id",
+            &[&repo_id],
+        )?;
+        Ok(rows
+            .iter()
+            .map(|r| converge_model::PublicKeyRecord {
+                key_id: r.get(0),
+                subject: r.get(1),
+                public_key: r.get(2),
+                label: r.get(3),
+                created_at: r.get(4),
+            })
             .collect())
     }
 

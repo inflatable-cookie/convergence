@@ -339,6 +339,11 @@ enum Command {
         #[command(subcommand)]
         command: MemberCommand,
     },
+    /// Personal key material for encrypted secrets.
+    Key {
+        #[command(subcommand)]
+        command: KeyCommand,
+    },
     /// Show the configured remote for this workspace.
     Remote,
     /// Show or set the workflow profile (shapes guidance, not behavior).
@@ -438,6 +443,27 @@ enum ScopeCommand {
     Create { scope_id: String },
     /// List the repo's registered scopes.
     List,
+}
+
+#[derive(Subcommand)]
+enum KeyCommand {
+    /// Generate a keypair and register its public half.
+    Init {
+        /// Hint for recognising this key later; defaults to the hostname.
+        #[arg(long)]
+        label: Option<String>,
+        /// Skip the no-recovery confirmation (for scripts that have
+        /// already told the human).
+        #[arg(long)]
+        yes: bool,
+    },
+    /// List keys: this machine's, and everyone's registered in the repo.
+    List,
+    /// Generate a new key and register it, keeping the old one.
+    Rotate {
+        #[arg(long)]
+        label: Option<String>,
+    },
 }
 
 #[derive(Subcommand)]
@@ -1395,6 +1421,109 @@ fn run(cli: &Cli, mode: OutputMode, session: &Session) -> Result<serde_json::Val
                 }
             }
         }
+        Command::Key { command } => {
+            match command {
+                KeyCommand::Init { label, yes } => {
+                    // Said before anything is generated, because after
+                    // the fact it is just an explanation of what was
+                    // lost (doc 19 §1).
+                    if !yes && mode == OutputMode::Human {
+                        println!("A personal key encrypts your secrets. There is no recovery:");
+                        println!("  if you lose the passphrase, every secret sealed to this key");
+                        println!("  is gone. No admin, and no operator, can restore it.");
+                        println!();
+                    }
+                    let passphrase = read_passphrase(true)?;
+                    let label = label.clone().unwrap_or_else(default_label);
+                    let key = converge_client::identity::KeyPair::create(
+                        &passphrase,
+                        &label,
+                        &now_rfc3339()?,
+                    )?;
+                    let registered = register_key_if_possible(session, &key.public)?;
+
+                    emit(
+                        mode,
+                        serde_json::json!({
+                            "key_id": key.public.key_id,
+                            "public_key": key.public.public_key,
+                            "label": key.public.label,
+                            "registered": registered,
+                        }),
+                        |k| {
+                            println!("key {} created ({})", k["key_id"], k["label"]);
+                            println!("  public: {}", k["public_key"].as_str().unwrap_or(""));
+                            if k["registered"].as_bool().unwrap_or(false) {
+                                println!("  registered with the remote");
+                            } else {
+                                println!("  not registered: no remote configured yet");
+                                println!("  next: converge login …, then converge key rotate");
+                            }
+                        },
+                    )
+                }
+                KeyCommand::List => {
+                    let local = converge_client::identity::local_keys()?;
+                    let remote = session
+                        .workspace()
+                        .ok()
+                        .and_then(|ws| remote_client(session, &ws, mode).ok())
+                        .and_then(|(client, remote)| client.list_keys(&remote.repo_id).ok())
+                        .unwrap_or_default();
+                    emit(
+                        mode,
+                        serde_json::json!({ "local": local, "repo": remote }),
+                        |k| {
+                            println!("this machine:");
+                            for key in k["local"].as_array().into_iter().flatten() {
+                                println!(
+                                    "  {}  {}",
+                                    key["key_id"].as_str().unwrap_or(""),
+                                    key["label"].as_str().unwrap_or("")
+                                );
+                            }
+                            if k["local"].as_array().is_none_or(|l| l.is_empty()) {
+                                println!("  none — run `converge key init`");
+                            }
+                            println!("registered in this repo:");
+                            for key in k["repo"].as_array().into_iter().flatten() {
+                                println!(
+                                    "  {}  {}  {}",
+                                    key["key_id"].as_str().unwrap_or(""),
+                                    key["subject"].as_str().unwrap_or(""),
+                                    key["label"].as_str().unwrap_or("")
+                                );
+                            }
+                        },
+                    )
+                }
+                KeyCommand::Rotate { label } => {
+                    // The old key stays: secrets already sealed to it
+                    // stay readable until 19.3 can re-encrypt them.
+                    let passphrase = read_passphrase(true)?;
+                    let label = label.clone().unwrap_or_else(default_label);
+                    let key = converge_client::identity::KeyPair::create(
+                        &passphrase,
+                        &label,
+                        &now_rfc3339()?,
+                    )?;
+                    let registered = register_key_if_possible(session, &key.public)?;
+                    emit(
+                        mode,
+                        serde_json::json!({
+                            "key_id": key.public.key_id,
+                            "registered": registered,
+                        }),
+                        |k| {
+                            println!("new key {} registered", k["key_id"]);
+                            println!(
+                                "  the previous key is kept: secrets sealed to it stay readable"
+                            );
+                        },
+                    )
+                }
+            }
+        }
         Command::Repo { command } => {
             let ws = session.workspace()?;
             let (client, remote) = remote_client(session, &ws, mode)?;
@@ -1759,6 +1888,58 @@ fn report_progress(progress: converge_client::remote::Progress) {
         progress.objects_total,
         mib(progress.bytes_done)
     );
+}
+
+/// Prompt for a passphrase, or take it from `CONVERGE_PASSPHRASE`.
+///
+/// The env var exists because tests and CI need one; it is documented as
+/// the weaker path since an environment variable is visible to anything
+/// running as you.
+fn read_passphrase(confirm: bool) -> Result<age::secrecy::SecretString> {
+    if let Ok(from_env) = std::env::var("CONVERGE_PASSPHRASE") {
+        return Ok(age::secrecy::SecretString::from(from_env));
+    }
+    let first = rpassword::prompt_password("passphrase: ").context("read passphrase")?;
+    if first.is_empty() {
+        anyhow::bail!("passphrase must not be empty");
+    }
+    if confirm {
+        let again =
+            rpassword::prompt_password("passphrase (again): ").context("read passphrase")?;
+        if again != first {
+            anyhow::bail!("passphrases did not match");
+        }
+    }
+    Ok(age::secrecy::SecretString::from(first))
+}
+
+fn default_label() -> String {
+    std::env::var("HOSTNAME")
+        .or_else(|_| std::env::var("COMPUTERNAME"))
+        .unwrap_or_else(|_| "this machine".to_string())
+}
+
+fn now_rfc3339() -> Result<String> {
+    time::OffsetDateTime::now_utc()
+        .format(&time::format_description::well_known::Rfc3339)
+        .context("format timestamp")
+}
+
+/// Register a public key when a remote is configured; say so plainly
+/// when there is none, rather than failing a local operation that
+/// succeeded.
+fn register_key_if_possible(
+    session: &Session,
+    public: &converge_client::identity::PublicKey,
+) -> Result<bool> {
+    let Ok(ws) = session.workspace() else {
+        return Ok(false);
+    };
+    let Ok((client, remote)) = remote_client(session, &ws, OutputMode::Capture) else {
+        return Ok(false);
+    };
+    client.register_key(&remote.repo_id, &public.public_key, &public.label)?;
+    Ok(true)
 }
 
 /// Address a bundle by id or by channel head (batch 16.4, audit P3).

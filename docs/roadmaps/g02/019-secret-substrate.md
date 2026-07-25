@@ -1,6 +1,6 @@
 # 019 Secret Substrate
 
-Status: in progress (19.1 ready)
+Status: in progress (19.1 complete)
 Owner: repo maintainers
 Updated: 2026-07-25
 
@@ -32,9 +32,10 @@ secrets follow in `g02.020`, which depends on this.
 
 ## Execution Plan (batch details in cards)
 
-- **19.1 Key identity**: `converge key init|list|rotate`; X25519 keypair
-  via `age`; private key encrypted at rest under a passphrase-derived
-  key; public keys registered through the membership surface
+- **19.1 Key identity** (complete, card 069): `converge key
+  init|list|rotate`; X25519 keypair via `age`; private key sealed under
+  a passphrase and stored `0600` under `CONVERGE_HOME`, not the
+  workspace; public keys registered against the token's subject
 - **19.2 Secret records and endpoints**: `SecretRecord` storage in both
   metadata backends, a `secret` capability, version-guarded writes, and
   endpoints that move ciphertext without inspecting it
@@ -65,4 +66,4 @@ secrets follow in `g02.020`, which depends on this.
 
 ## Next Task
 
-Batch card 19.1 (key identity).
+Batch card 19.2 (secret records and endpoints).

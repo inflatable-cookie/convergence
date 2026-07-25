@@ -1,6 +1,6 @@
 # 069 Key Identity
 
-Status: ready
+Status: complete
 Updated: 2026-07-25
 Roadmap: `g02.019`
 
@@ -48,6 +48,36 @@ takes a keypair the server never sees the private half of.
 
 - `effigy validate`
 - `effigy qa:docs`
+
+## Outcome
+
+- `converge key init|list|rotate`, with the private half sealed by
+  `age`'s scrypt recipient and written `0600`. The on-disk file is an
+  age file: a test asserts it does not contain `AGE-SECRET-KEY`, because
+  "encrypted at rest" is the kind of claim that quietly stops being true
+- **keys live under the user's home, not the workspace** (`CONVERGE_HOME`
+  overrides). An identity is a person, not a checkout; per-workspace
+  keys would mean a second clone is a second identity that existing
+  secrets were never sealed to
+- **the subject comes from the token, never the request body.** Letting
+  a caller name someone else would let them register a key that future
+  secrets get encrypted to — the entire guarantee, given away in one
+  field. Pinned by a test that registers under one token and checks the
+  recorded subject
+- the server parses the recipient before storing it. A malformed key
+  would otherwise sit in the table and fail later at encryption time,
+  somewhere much harder to diagnose
+- every path in the identity module has an explicit-home variant, so
+  tests point somewhere other than a developer's real keys without
+  mutating a process-wide env var while other tests run
+- `key init` prints the no-recovery warning *before* generating
+  anything, since afterwards it is only an explanation of what was lost.
+  `--yes` skips it for scripts that already told the human
+- `key init` works without a remote and says `registered: false` rather
+  than failing a local operation that succeeded
+- rotation keeps the old key: secrets sealed to it stay readable until
+  19.3 can re-encrypt them
+- 205 tests green
 
 ## Next Task
 
