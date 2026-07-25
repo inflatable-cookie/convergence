@@ -15,7 +15,8 @@ pub mod storage;
 pub use authz::{AuthzContext, Capability, authorize};
 pub use engine::{Engine, PublishInput};
 pub use gc::GcReport;
-pub use http::{AppState, router};
+pub use http::mint_admin_token;
+pub use http::{AppState, router, token_hash};
 pub use merge::{MergeInput, merge_window};
 #[cfg(feature = "backend-postgres")]
 pub use meta_postgres::PostgresMetadataStore;

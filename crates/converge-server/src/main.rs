@@ -9,6 +9,10 @@ use converge_server::{AppState, FsObjectStore, SqliteMetadataStore, router};
 
 /// Dev-grade entrypoint for the vertical slice:
 /// `converge-server --addr 127.0.0.1:8080 --data-dir ./data --token dev=alice --seed-dev`
+///
+/// Real onboarding starts with `--bootstrap-admin <handle>`, which mints
+/// the first admin token (batch 16.3); everything after that is done
+/// over the API with `converge repo create` and `converge member add`.
 fn main() -> Result<()> {
     let mut addr = "127.0.0.1:8080".to_string();
     let mut data_dir = PathBuf::from("./converge-data");
@@ -16,6 +20,7 @@ fn main() -> Result<()> {
     let mut objects_url: Option<String> = None;
     let mut tokens = HashMap::new();
     let mut seed_dev = false;
+    let mut bootstrap_admin: Option<String> = None;
 
     let mut args = std::env::args().skip(1);
     while let Some(arg) = args.next() {
@@ -34,6 +39,9 @@ fn main() -> Result<()> {
             "--metadata" => metadata = Some(args.next().context("--metadata needs a value")?),
             "--objects" => objects_url = Some(args.next().context("--objects needs a value")?),
             "--seed-dev" => seed_dev = true,
+            "--bootstrap-admin" => {
+                bootstrap_admin = Some(args.next().context("--bootstrap-admin needs a handle")?)
+            }
             other => anyhow::bail!("unknown argument {other}"),
         }
     }
@@ -91,6 +99,10 @@ fn main() -> Result<()> {
         seed(meta.as_ref(), &tokens)?;
     }
 
+    if let Some(handle) = &bootstrap_admin {
+        bootstrap(meta.as_ref(), handle)?;
+    }
+
     let state = AppState {
         meta,
         objects,
@@ -106,6 +118,30 @@ fn main() -> Result<()> {
         println!("converge-server listening on {addr}");
         axum::serve(listener, router(state)).await.context("serve")
     })
+}
+
+/// Create the first server admin and print a token for them, once.
+///
+/// Idempotent by design: a restart with the same flag must not spray new
+/// credentials into the logs, so a token is minted only when the admin
+/// has none. Recovery is deliberate — delete their tokens, restart.
+fn bootstrap(meta: &dyn converge_server::MetadataStore, handle: &str) -> Result<()> {
+    meta.upsert_user(handle)?;
+    // Site admin is a grant against the `*` repo: repo grants stay
+    // exact-match, so this cannot be confused with a repo-level admin.
+    meta.add_grant(handle, "*", "*", "admin")?;
+    if meta.token_count(handle)? > 0 {
+        println!("admin {handle} already has a token; not issuing another");
+        return Ok(());
+    }
+    let token = converge_server::mint_admin_token()?;
+    meta.create_token(&converge_server::token_hash(&token), handle)?;
+    println!("admin {handle} token (shown once): {token}");
+    println!(
+        "next: converge login --url <this server> --token {token} --repo <new repo> --scope default --gate intake"
+    );
+    println!("      converge repo create <new repo>");
+    Ok(())
 }
 
 /// Dev seed: repo `dev`, intake -> main gates, full grants for every

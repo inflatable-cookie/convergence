@@ -76,5 +76,4 @@ permanent.
 
 ## Next Task
 
-Batch card 16.3 (team onboarding: bootstrap verb, member management,
-two-user quickstart).
+Batch card 16.3 (team onboarding) — done, card 059.

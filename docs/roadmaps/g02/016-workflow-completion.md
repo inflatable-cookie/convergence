@@ -1,6 +1,6 @@
 # 016 Workflow Completion
 
-Status: in progress (16.1-16.2 complete)
+Status: in progress (16.1-16.3 complete)
 Owner: repo maintainers
 Updated: 2026-07-25
 
@@ -52,9 +52,11 @@ conflicts-as-data flow must complete without reading source code.
   paths as such; `unsnap` undoes the capture and leaves the work,
   refusing on non-leaf or published snaps. Both arrival verbs now name
   the next command instead of printing an id
-- **16.3 Team onboarding**: server bootstrap verb (first admin, repo
-  create, grant issue), member add/list from the CLI, documented
-  two-user quickstart that works start to finish
+- **16.3 Team onboarding** (complete, card 059): tokens persisted
+  hashed with runtime issuance, `--bootstrap-admin` for the first admin,
+  site admin as a `*`-repo grant, `converge repo create` /
+  `member add|list`, and `docs/guides/001-two-user-quickstart.md` kept
+  honest by `onboarding_e2e.rs`
 - **16.4 Output polish**: Debug-format leaks removed; unified
   `-m/--message` across verbs; `watch --json` envelope compliance;
   transfer progress reporting on push/pull/fetch for chunked blobs
@@ -69,4 +71,4 @@ conflicts-as-data flow must complete without reading source code.
 
 ## Next Task
 
-Open batch card 16.3 (team onboarding).
+Open batch card 16.4 (output polish).

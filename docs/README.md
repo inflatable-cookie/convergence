@@ -12,6 +12,7 @@ Northstar-aligned documentation authority for Convergence.
 - `rebuild/`: g01-era capture artifacts (lessons, TUI UX spec, salvage)
 - `roadmaps/`: segmented executable milestones and backlog
 - `logs/`: month-sharded execution history and decision/rationale records
+- `guides/`: task-shaped walkthroughs proven by tests
 - `git-podcast/`: origin rationale summary
 - `policy/`: writing style and docs QA policy inputs
 
@@ -49,5 +50,6 @@ prefers `cargo nextest` when it is available on the machine.
 
 The audit hardening program `g02.011`-`g02.018` is open (findings
 record: `logs/2026-07/24-180000-audit-findings-and-hardening-program.md`).
-`g02.011` complete. Active roadmap: `g02.012` data safety; batches 12.1-12.2
-complete, next is batch card 12.3.
+`g02.011`-`g02.015` complete. Active roadmap: `g02.016` workflow
+completion; batches 16.1-16.3 complete, next is batch card 16.4 (output
+polish).

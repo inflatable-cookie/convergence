@@ -31,6 +31,10 @@ impl PostgresMetadataStore {
                 scope_pattern TEXT NOT NULL, capability TEXT NOT NULL,
                 PRIMARY KEY (subject, repo_id, scope_pattern, capability));
             CREATE TABLE IF NOT EXISTS repos (repo_id TEXT PRIMARY KEY);
+            CREATE TABLE IF NOT EXISTS tokens (
+                token_hash TEXT PRIMARY KEY,
+                subject TEXT NOT NULL
+            );
             CREATE TABLE IF NOT EXISTS gate_graphs (
                 repo_id TEXT PRIMARY KEY, graph_json TEXT NOT NULL);
             CREATE TABLE IF NOT EXISTS scopes (
@@ -184,6 +188,47 @@ impl MetadataStore for PostgresMetadataStore {
             &[&repo_id, &scope_id],
         )?;
         Ok(row.get::<_, i64>(0) > 0)
+    }
+
+    fn create_token(&self, token_hash: &str, subject: &str) -> Result<()> {
+        let mut c = self.client.lock().expect("pg lock");
+        c.execute(
+            "INSERT INTO tokens (token_hash, subject) VALUES ($1, $2)
+             ON CONFLICT (token_hash) DO UPDATE SET subject = EXCLUDED.subject",
+            &[&token_hash, &subject],
+        )?;
+        Ok(())
+    }
+
+    fn subject_for_token_hash(&self, token_hash: &str) -> Result<Option<String>> {
+        let mut c = self.client.lock().expect("pg lock");
+        let rows = c.query(
+            "SELECT subject FROM tokens WHERE token_hash = $1",
+            &[&token_hash],
+        )?;
+        Ok(rows.first().map(|row| row.get(0)))
+    }
+
+    fn token_count(&self, subject: &str) -> Result<usize> {
+        let mut c = self.client.lock().expect("pg lock");
+        let row = c.query_one(
+            "SELECT COUNT(*) FROM tokens WHERE subject = $1",
+            &[&subject],
+        )?;
+        Ok(row.get::<_, i64>(0) as usize)
+    }
+
+    fn list_grants(&self, repo_id: &str) -> Result<Vec<(String, String, String)>> {
+        let mut c = self.client.lock().expect("pg lock");
+        let rows = c.query(
+            "SELECT subject, capability, scope_pattern FROM grants
+             WHERE repo_id = $1 ORDER BY subject, capability, scope_pattern",
+            &[&repo_id],
+        )?;
+        Ok(rows
+            .iter()
+            .map(|r| (r.get(0), r.get(1), r.get(2)))
+            .collect())
     }
 
     fn list_repos(&self) -> Result<Vec<String>> {

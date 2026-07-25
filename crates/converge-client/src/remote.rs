@@ -337,6 +337,57 @@ impl RemoteClient {
 
     /// Register a scope (admin). Scopes are declared repo state — an
     /// unregistered scope is refused rather than minting a partition.
+    /// Create a repo with its default scope and gate (batch 16.3).
+    /// Server admins only — this is what runs before a repo exists.
+    pub fn create_repo(&self, repo_id: &str) -> Result<serde_json::Value> {
+        let response = Self::check(
+            self.http
+                .post(self.url("/api/repos"))
+                .bearer_auth(&self.token)
+                .json(&crate::model::CreateRepoRequest {
+                    repo_id: repo_id.into(),
+                })
+                .send()
+                .context("create repo")?,
+        )?;
+        response.json().context("parse create repo response")
+    }
+
+    pub fn add_member(
+        &self,
+        repo_id: &str,
+        subject: &str,
+        capabilities: &[String],
+        scope_pattern: &str,
+        issue_token: bool,
+    ) -> Result<crate::model::MemberAdded> {
+        let response = Self::check(
+            self.http
+                .post(self.url(&format!("/api/repos/{repo_id}/members")))
+                .bearer_auth(&self.token)
+                .json(&crate::model::AddMemberRequest {
+                    subject: subject.into(),
+                    capabilities: capabilities.to_vec(),
+                    scope_pattern: scope_pattern.into(),
+                    issue_token,
+                })
+                .send()
+                .context("add member")?,
+        )?;
+        response.json().context("parse add member response")
+    }
+
+    pub fn list_members(&self, repo_id: &str) -> Result<Vec<crate::model::MemberRecord>> {
+        let response = Self::check(
+            self.http
+                .get(self.url(&format!("/api/repos/{repo_id}/members")))
+                .bearer_auth(&self.token)
+                .send()
+                .context("list members")?,
+        )?;
+        response.json().context("parse members")
+    }
+
     pub fn create_scope(&self, repo_id: &str, scope_id: &str) -> Result<()> {
         Self::check(
             self.http

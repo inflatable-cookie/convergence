@@ -1,5 +1,7 @@
 use anyhow::Result;
 
+use crate::authz::Capability;
+
 use converge_model::{
     BundleStatus, EventRecord, GateGraph, LaneHead, LaneRecord, ObjectId, PublicationRecord,
     ReleaseRecord, RetentionPolicy, SnapRecord,
@@ -143,6 +145,25 @@ pub trait MetadataStore: Send + Sync {
         capability: &str,
     ) -> Result<bool>;
     fn create_repo(&self, repo_id: &str) -> Result<()>;
+
+    // membership + tokens (g02.016 batch 16.3): onboarding a teammate is
+    // a runtime operation, so tokens live in the store rather than only
+    // in the process's startup flags.
+    /// Store a token by hash. The raw token is never persisted: the
+    /// server only ever needs to recognise it, and a leaked database
+    /// should not hand an attacker working credentials.
+    fn create_token(&self, token_hash: &str, subject: &str) -> Result<()>;
+    fn subject_for_token_hash(&self, token_hash: &str) -> Result<Option<String>>;
+    fn token_count(&self, subject: &str) -> Result<usize>;
+    /// (subject, capability, scope_pattern) rows for one repo, ordered.
+    fn list_grants(&self, repo_id: &str) -> Result<Vec<(String, String, String)>>;
+
+    /// Server-wide admin: a grant recorded against the `*` repo. Repo
+    /// grants stay exact-match (see `has_grant`) so this cannot widen an
+    /// ordinary repo admin into a site admin by accident.
+    fn is_site_admin(&self, subject: &str) -> Result<bool> {
+        self.has_grant(subject, "*", "*", Capability::Admin.as_str())
+    }
     fn list_repos(&self) -> Result<Vec<String>>;
     fn repo_exists(&self, repo_id: &str) -> Result<bool>;
     fn set_gate_graph(&self, repo_id: &str, graph: &GateGraph) -> Result<()>;

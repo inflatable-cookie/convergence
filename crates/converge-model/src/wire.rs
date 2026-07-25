@@ -153,6 +153,43 @@ pub struct CreateScopeRequest {
     pub scope_id: String,
 }
 
+/// Create a repo, its default scope, and a starting gate (g02.016 batch
+/// 16.3). Server admins only — this is the operation that exists before
+/// any repo does.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct CreateRepoRequest {
+    pub repo_id: String,
+}
+
+/// Add a teammate to a repo: upsert the user, grant capabilities, and
+/// optionally issue a token they can log in with (g02.016 batch 16.3).
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct AddMemberRequest {
+    pub subject: String,
+    pub capabilities: Vec<String>,
+    /// Scope pattern the grants apply to; `*` for the whole repo.
+    pub scope_pattern: String,
+    /// Mint a token for this subject and return it once.
+    pub issue_token: bool,
+}
+
+/// One member's standing in a repo.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct MemberRecord {
+    pub subject: String,
+    /// (capability, scope_pattern) pairs, ordered.
+    pub grants: Vec<(String, String)>,
+}
+
+/// Result of adding a member. `token` is present exactly once — when it
+/// was just issued — because the server keeps only its hash.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct MemberAdded {
+    pub subject: String,
+    pub granted: Vec<String>,
+    pub token: Option<String>,
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct AddLaneMemberRequest {
     pub member: String,

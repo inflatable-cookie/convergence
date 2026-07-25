@@ -3,7 +3,7 @@
 Status: active
 Updated: 2026-07-25
 Roadmap: `g02.002` Batch 2.4; reconciled with the implementation in
-`g02.014` Batch 14.1
+`g02.014` Batch 14.1; onboarding in `g02.016` Batch 16.3
 
 The server design for the rebuild. This doc owns the claim the g01 era never
 honored: large distributed development organizations as the primary target.
@@ -168,13 +168,37 @@ prefix and everything under it). Nothing else is a wildcard — `foo*`
 matches only the literal `foo*`. One shared matcher serves both
 backends so an authorization decision cannot drift between them.
 
-**Deferred** — identity: bearer tokens map to subjects through a static
-map loaded at startup. They do not expire, carry no capabilities of
-their own, and cannot be revoked without a restart. Short-lived
-capability-scoped tokens, and edges validating them against the control
-plane with offline grace bounded by token TTL, are target state (§7).
-Authorization itself — the grant checks — is fully enforced; it is
-*authentication* that is slice-grade.
+### 4a. Onboarding and tokens (batch 16.3)
+
+A team is set up over the API, not by editing server flags:
+
+- `converge-server --bootstrap-admin <handle>` creates the first admin
+  and prints one token. Only the token's **hash** is stored, so it can
+  never be printed again; a restart with the same flag issues nothing
+  new, because a restart that sprayed fresh credentials into the logs
+  would be worse than losing one
+- **site admin** is a grant recorded against the `*` repo. Repo grants
+  stay exact-match on `repo_id`, so a repo admin can never be mistaken
+  for a site admin. Only site admins create repos — the one operation
+  that runs before any repo exists
+- `converge repo create` provisions the repo with a `default` scope and
+  an `intake` gate, and grants the creator everything in it. A gateless
+  repo cannot accept a publish, so leaving that as a second step would
+  be a trap
+- `converge member add <subject> --capability … [--issue-token]` upserts
+  the user, records grants, and optionally mints a token, shown once.
+  Unknown capability strings are refused rather than stored as rows that
+  grant nothing
+- `converge login` writes local config and contacts no one, which is why
+  an admin can name a repo that does not exist yet and then create it
+
+**Deferred** — identity: tokens still do not expire, carry no
+capabilities of their own, and are revoked only by deleting their row.
+Startup `--token` pairs remain for dev. Short-lived capability-scoped
+tokens, and edges validating them against the control plane with offline
+grace bounded by token TTL, are target state (§7). Authorization itself
+— the grant checks — is fully enforced; it is *authentication* that is
+slice-grade.
 
 ## 5. Bundle coalescing at scale
 
@@ -273,7 +297,7 @@ trigger building it, so the list stays a plan rather than a wish.
 | Async bundle builds, partition workers | not built; publish merges inline | backlog; trigger = measured publish-latency pain (see note below) |
 | Horizontal scaling across partitions | not built; one process, one metadata connection | backlog; trigger = measured write ceiling from the scale-walls roadmap |
 | Edge nodes (read-through cache, upload buffering) | not built | backlog; trigger = a real multi-site customer with locality pain |
-| Short-lived capability-scoped tokens, revocation | not built; static startup token map | backlog; trigger = any deployment outside a trusted network |
+| Short-lived capability-scoped tokens, TTL, rotation | not built; tokens are issued and stored hashed (§4a) but never expire | backlog; trigger = any deployment outside a trusted network |
 
 The pluggable-backend seam, the partition key, the scope registry,
 event retention, guarded transactional writes, and enforced authz are

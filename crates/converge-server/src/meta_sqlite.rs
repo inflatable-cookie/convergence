@@ -47,6 +47,10 @@ impl SqliteMetadataStore {
                 PRIMARY KEY (subject, repo_id, scope_pattern, capability)
             );
             CREATE TABLE IF NOT EXISTS repos (repo_id TEXT PRIMARY KEY);
+            CREATE TABLE IF NOT EXISTS tokens (
+                token_hash TEXT PRIMARY KEY,
+                subject TEXT NOT NULL
+            );
             CREATE TABLE IF NOT EXISTS gate_graphs (
                 repo_id TEXT PRIMARY KEY,
                 graph_json TEXT NOT NULL
@@ -251,6 +255,48 @@ impl MetadataStore for SqliteMetadataStore {
             params![repo_id],
         )?;
         Ok(())
+    }
+
+    fn create_token(&self, token_hash: &str, subject: &str) -> Result<()> {
+        let conn = self.conn.lock().expect("meta lock");
+        conn.execute(
+            "INSERT OR REPLACE INTO tokens (token_hash, subject) VALUES (?1, ?2)",
+            params![token_hash, subject],
+        )?;
+        Ok(())
+    }
+
+    fn subject_for_token_hash(&self, token_hash: &str) -> Result<Option<String>> {
+        let conn = self.conn.lock().expect("meta lock");
+        let mut stmt = conn.prepare("SELECT subject FROM tokens WHERE token_hash = ?1")?;
+        let mut rows = stmt.query(params![token_hash])?;
+        Ok(match rows.next()? {
+            Some(row) => Some(row.get(0)?),
+            None => None,
+        })
+    }
+
+    fn token_count(&self, subject: &str) -> Result<usize> {
+        let conn = self.conn.lock().expect("meta lock");
+        let n: u32 = conn.query_row(
+            "SELECT COUNT(*) FROM tokens WHERE subject = ?1",
+            params![subject],
+            |row| row.get(0),
+        )?;
+        Ok(n as usize)
+    }
+
+    fn list_grants(&self, repo_id: &str) -> Result<Vec<(String, String, String)>> {
+        let conn = self.conn.lock().expect("meta lock");
+        let mut stmt = conn.prepare(
+            "SELECT subject, capability, scope_pattern FROM grants
+             WHERE repo_id = ?1 ORDER BY subject, capability, scope_pattern",
+        )?;
+        let rows = stmt.query_map(params![repo_id], |row| {
+            Ok((row.get(0)?, row.get(1)?, row.get(2)?))
+        })?;
+        rows.collect::<std::result::Result<_, _>>()
+            .context("list grants")
     }
 
     fn list_repos(&self) -> Result<Vec<String>> {

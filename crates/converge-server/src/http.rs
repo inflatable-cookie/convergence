@@ -56,6 +56,11 @@ pub fn router(state: AppState) -> Router {
         .route("/api/bundles/:id/verify", get(verify_bundle))
         .route("/api/bundles/:id/approve", post(approve))
         .route("/api/bundles/:id/promote", post(promote))
+        .route("/api/repos", post(create_repo))
+        .route(
+            "/api/repos/:repo/members",
+            post(add_member).get(list_members),
+        )
         .route(
             "/api/repos/:repo/scopes",
             post(create_scope).get(list_scopes),
@@ -111,11 +116,31 @@ fn subject(state: &AppState, headers: &HeaderMap) -> Result<String, ApiError> {
         .and_then(|v| v.to_str().ok())
         .and_then(|v| v.strip_prefix("Bearer "))
         .ok_or_else(|| ApiError(StatusCode::UNAUTHORIZED, "missing bearer token".into()))?;
+    // Startup-flag tokens first (dev), then tokens issued at runtime
+    // (batch 16.3). Issued tokens are stored hashed, so the comparison is
+    // over the hash and the database never holds a usable credential.
+    if let Some(subject) = state.tokens.get(token) {
+        return Ok(subject.clone());
+    }
     state
-        .tokens
-        .get(token)
-        .cloned()
+        .meta
+        .subject_for_token_hash(&token_hash(token))
+        .map_err(internal_error)?
         .ok_or_else(|| ApiError(StatusCode::UNAUTHORIZED, "unknown token".into()))
+}
+
+/// Tokens are recognised by hash, never stored raw.
+pub fn token_hash(token: &str) -> String {
+    blake3::hash(token.as_bytes()).to_hex().to_string()
+}
+
+/// Server-wide admin check for operations that name no repo yet.
+fn site_admin(state: &AppState, headers: &HeaderMap) -> Result<String, ApiError> {
+    let subject = subject(state, headers)?;
+    if state.meta.is_site_admin(&subject).map_err(internal_error)? {
+        return Ok(subject);
+    }
+    Err(forbidden(format!("{subject} is not a server admin")))
 }
 
 fn parse_kind(kind: &str) -> Result<ObjectKind, ApiError> {
@@ -405,6 +430,202 @@ async fn create_lane(
 
 /// Register a scope (batch 14.3). Admin-only: scopes define the
 /// partitioning of a repo, so minting them is a policy act.
+/// Create a repo with its `default` scope and an `intake` gate (batch
+/// 16.3). Server admins only: this runs before the repo exists, so there
+/// is no repo-scoped grant to check.
+async fn create_repo(
+    State(state): State<SharedState>,
+    headers: HeaderMap,
+    Json(request): Json<converge_model::CreateRepoRequest>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let admin = site_admin(&state, &headers)?;
+    if request.repo_id.is_empty() || request.repo_id == "*" {
+        return Err(bad_request(format!(
+            "invalid repo id {:?}",
+            request.repo_id
+        )));
+    }
+    if state
+        .meta
+        .repo_exists(&request.repo_id)
+        .map_err(internal_error)?
+    {
+        return Err(bad_request(format!("repo {} exists", request.repo_id)));
+    }
+    let created_at = now_rfc3339()?;
+    state
+        .meta
+        .create_repo(&request.repo_id)
+        .map_err(internal_error)?;
+    state
+        .meta
+        .create_scope(&request.repo_id, "default", &created_at)
+        .map_err(internal_error)?;
+    // A repo with no gate cannot accept a publish, so an empty one would
+    // be a second setup step nobody is told about.
+    state
+        .meta
+        .set_gate_graph(
+            &request.repo_id,
+            &converge_model::GateGraph {
+                gates: vec![converge_model::GateNode {
+                    gate_id: "intake".into(),
+                    name: "Intake".into(),
+                    upstreams: vec![],
+                    required_approvals: 0,
+                    strategy: "whole-file".into(),
+                    may_release: true,
+                }],
+            },
+        )
+        .map_err(internal_error)?;
+    // The creator can work in it immediately.
+    for capability in [
+        Capability::Read,
+        Capability::Publish,
+        Capability::Resolve,
+        Capability::Approve,
+        Capability::Promote,
+        Capability::Release,
+        Capability::Admin,
+    ] {
+        state
+            .meta
+            .add_grant(&admin, &request.repo_id, "*", capability.as_str())
+            .map_err(internal_error)?;
+    }
+    Ok(Json(serde_json::json!({
+        "repo_id": request.repo_id,
+        "scope": "default",
+        "gate": "intake",
+    })))
+}
+
+/// Add a teammate: upsert, grant, and optionally issue a token (batch
+/// 16.3, audit P1.6). Repo admins only.
+async fn add_member(
+    State(state): State<SharedState>,
+    Path(repo): Path<String>,
+    headers: HeaderMap,
+    Json(request): Json<converge_model::AddMemberRequest>,
+) -> Result<Json<converge_model::MemberAdded>, ApiError> {
+    let subject = subject(&state, &headers)?;
+    authorize(state.meta.as_ref(), &subject, &repo, "*", Capability::Admin)
+        .map_err(|err| forbidden(format!("{err:#}")))?;
+    if request.subject.is_empty() {
+        return Err(bad_request("member subject is required"));
+    }
+    if request.capabilities.is_empty() {
+        return Err(bad_request("at least one capability is required"));
+    }
+    // Unknown capability strings would sit in the table forever granting
+    // nothing, so they are refused rather than stored.
+    let known = [
+        Capability::Read,
+        Capability::SnapSync,
+        Capability::Publish,
+        Capability::Resolve,
+        Capability::Approve,
+        Capability::Promote,
+        Capability::Release,
+        Capability::Admin,
+    ];
+    for capability in &request.capabilities {
+        if !known.iter().any(|c| c.as_str() == capability) {
+            return Err(bad_request(format!(
+                "unknown capability {capability}; known: {}",
+                known
+                    .iter()
+                    .map(Capability::as_str)
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            )));
+        }
+    }
+    let scope_pattern = if request.scope_pattern.is_empty() {
+        "*".to_string()
+    } else {
+        request.scope_pattern.clone()
+    };
+
+    state
+        .meta
+        .upsert_user(&request.subject)
+        .map_err(internal_error)?;
+    for capability in &request.capabilities {
+        state
+            .meta
+            .add_grant(&request.subject, &repo, &scope_pattern, capability)
+            .map_err(internal_error)?;
+    }
+
+    let token = if request.issue_token {
+        let token = mint_token()?;
+        state
+            .meta
+            .create_token(&token_hash(&token), &request.subject)
+            .map_err(internal_error)?;
+        Some(token)
+    } else {
+        None
+    };
+
+    Ok(Json(converge_model::MemberAdded {
+        subject: request.subject,
+        granted: request.capabilities,
+        token,
+    }))
+}
+
+async fn list_members(
+    State(state): State<SharedState>,
+    Path(repo): Path<String>,
+    headers: HeaderMap,
+) -> Result<Json<Vec<converge_model::MemberRecord>>, ApiError> {
+    let subject = subject(&state, &headers)?;
+    authorize(state.meta.as_ref(), &subject, &repo, "*", Capability::Read)
+        .map_err(|err| forbidden(format!("{err:#}")))?;
+    let mut members: Vec<converge_model::MemberRecord> = Vec::new();
+    for (subject, capability, scope_pattern) in
+        state.meta.list_grants(&repo).map_err(internal_error)?
+    {
+        match members.last_mut() {
+            Some(member) if member.subject == subject => {
+                member.grants.push((capability, scope_pattern))
+            }
+            _ => members.push(converge_model::MemberRecord {
+                subject,
+                grants: vec![(capability, scope_pattern)],
+            }),
+        }
+    }
+    Ok(Json(members))
+}
+
+fn now_rfc3339() -> Result<String, ApiError> {
+    time::OffsetDateTime::now_utc()
+        .format(&time::format_description::well_known::Rfc3339)
+        .map_err(|err| internal_error(anyhow::anyhow!("format timestamp: {err}")))
+}
+
+/// 256 bits from the OS CSPRNG, hex encoded. The server keeps only the
+/// hash, so this string exists exactly once: in the response that issued
+/// it.
+fn mint_token() -> Result<String, ApiError> {
+    mint_admin_token().map_err(internal_error)
+}
+
+/// The same minting the API uses, for the bootstrap path in `main`.
+pub fn mint_admin_token() -> anyhow::Result<String> {
+    let mut bytes = [0u8; 32];
+    getrandom::fill(&mut bytes).map_err(|err| anyhow::anyhow!("read system randomness: {err}"))?;
+    Ok(blake3::Hasher::new()
+        .update(&bytes)
+        .finalize()
+        .to_hex()
+        .to_string())
+}
+
 async fn create_scope(
     State(state): State<SharedState>,
     Path(repo): Path<String>,

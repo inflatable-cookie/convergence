@@ -308,6 +308,16 @@ enum Command {
         #[command(subcommand)]
         command: ScopeCommand,
     },
+    /// Repo administration (server admins).
+    Repo {
+        #[command(subcommand)]
+        command: RepoCommand,
+    },
+    /// Repo membership: who can do what, and their tokens.
+    Member {
+        #[command(subcommand)]
+        command: MemberCommand,
+    },
     /// Show the configured remote for this workspace.
     Remote,
     /// Watch the workspace and capture automatic snaps on quiet periods.
@@ -400,6 +410,36 @@ enum ScopeCommand {
     /// refused, so a typo cannot mint a partition.
     Create { scope_id: String },
     /// List the repo's registered scopes.
+    List,
+}
+
+#[derive(Subcommand)]
+enum RepoCommand {
+    /// Create a repo with a `default` scope and an `intake` gate.
+    Create {
+        /// Repo id; defaults to the configured remote's repo.
+        repo_id: Option<String>,
+    },
+}
+
+#[derive(Subcommand)]
+enum MemberCommand {
+    /// Grant a teammate capabilities, optionally issuing their token.
+    Add {
+        subject: String,
+        /// Capability to grant; repeat for several.
+        #[arg(long = "capability", default_values_t = [
+            "read".to_string(), "publish".to_string(), "resolve".to_string(),
+        ])]
+        capabilities: Vec<String>,
+        /// Scope pattern the grants apply to.
+        #[arg(long, default_value = "*")]
+        scope_pattern: String,
+        /// Mint a login token and print it once.
+        #[arg(long)]
+        issue_token: bool,
+    },
+    /// List repo members and their capabilities.
     List,
 }
 
@@ -1258,6 +1298,78 @@ fn run(cli: &Cli, mode: OutputMode, session: &Session) -> Result<serde_json::Val
                     emit(mode, scopes, |scopes| {
                         for scope in scopes {
                             println!("{scope}");
+                        }
+                    })
+                }
+            }
+        }
+        Command::Repo { command } => {
+            let ws = session.workspace()?;
+            let (client, remote) = remote_client(session, &ws)?;
+            match command {
+                RepoCommand::Create { repo_id } => {
+                    // Defaulting to the configured repo means the flow is
+                    // login-then-create: `login` writes local config only,
+                    // so naming a repo that does not exist yet is fine.
+                    let repo_id = repo_id.clone().unwrap_or_else(|| remote.repo_id.clone());
+                    let created = client.create_repo(&repo_id)?;
+                    emit(mode, created, |c| {
+                        println!(
+                            "repo {} created (scope {}, gate {})",
+                            c["repo_id"].as_str().unwrap_or(&repo_id),
+                            c["scope"].as_str().unwrap_or("default"),
+                            c["gate"].as_str().unwrap_or("intake")
+                        );
+                        println!("next: converge member add <teammate> --issue-token");
+                    })
+                }
+            }
+        }
+        Command::Member { command } => {
+            let ws = session.workspace()?;
+            let (client, remote) = remote_client(session, &ws)?;
+            match command {
+                MemberCommand::Add {
+                    subject,
+                    capabilities,
+                    scope_pattern,
+                    issue_token,
+                } => {
+                    let added = client.add_member(
+                        &remote.repo_id,
+                        subject,
+                        capabilities,
+                        scope_pattern,
+                        *issue_token,
+                    )?;
+                    emit(mode, added, |m| {
+                        println!("{} granted {}", m.subject, m.granted.join(", "));
+                        if let Some(token) = &m.token {
+                            // Only chance to see it: the server keeps a hash.
+                            println!("token (shown once): {token}");
+                            println!(
+                                "they run: converge login --url {} --token {token} --repo {} --scope {} --gate {}",
+                                remote.base_url, remote.repo_id, remote.scope, remote.gate
+                            );
+                        }
+                    })
+                }
+                MemberCommand::List => {
+                    let members = client.list_members(&remote.repo_id)?;
+                    emit(mode, members, |members| {
+                        for member in members {
+                            let caps: Vec<String> = member
+                                .grants
+                                .iter()
+                                .map(|(capability, scope)| {
+                                    if scope == "*" {
+                                        capability.clone()
+                                    } else {
+                                        format!("{capability}@{scope}")
+                                    }
+                                })
+                                .collect();
+                            println!("{}  {}", member.subject, caps.join(", "));
                         }
                     })
                 }

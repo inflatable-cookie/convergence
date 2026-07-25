@@ -492,6 +492,7 @@ dependencies = [
  "converge-client",
  "converge-model",
  "diffy",
+ "getrandom 0.3.4",
  "postgres",
  "reqwest",
  "rusqlite",

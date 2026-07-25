@@ -32,6 +32,7 @@ serde_json = "1"
 time = { version = "0.3", features = ["formatting", "parsing"] }
 tempfile = "3"
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
+getrandom = "0.3"
 converge-model = { path = "crates/converge-model" }
 converge-client = { path = "crates/converge-client" }
 converge-cli = { path = "crates/converge-cli" }

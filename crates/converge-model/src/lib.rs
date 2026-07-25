@@ -23,10 +23,10 @@ pub use self::manifest::{
 pub use self::resolution::{Resolution, ResolutionDecision, VariantKey, VariantKeyKind};
 pub use self::snap::{FileRecipe, FileRecipeChunk, SnapRecord, SnapStats, compute_snap_id};
 pub use self::wire::{
-    AddLaneMemberRequest, ApproveRequest, BundleProvenance, BundleRecord, BundleStatus,
-    CreateLaneRequest, CreateScopeRequest, EventPage, EventRecord, GateGraph, GateNode,
-    InboxBundle, InboxLane, InboxPublication, InboxReport, LaneHead, LaneRecord, NegotiateRequest,
-    NegotiateResponse, ObjectFrame, ObjectSet, Page, PromoteRequest, PublicationRecord,
-    PublishRequest, ReleaseRecord, ReleaseRequest, RetentionPolicy, SetLaneHeadRequest,
-    VerifyReport, WIRE_VERSION,
+    AddLaneMemberRequest, AddMemberRequest, ApproveRequest, BundleProvenance, BundleRecord,
+    BundleStatus, CreateLaneRequest, CreateRepoRequest, CreateScopeRequest, EventPage, EventRecord,
+    GateGraph, GateNode, InboxBundle, InboxLane, InboxPublication, InboxReport, LaneHead,
+    LaneRecord, MemberAdded, MemberRecord, NegotiateRequest, NegotiateResponse, ObjectFrame,
+    ObjectSet, Page, PromoteRequest, PublicationRecord, PublishRequest, ReleaseRecord,
+    ReleaseRequest, RetentionPolicy, SetLaneHeadRequest, VerifyReport, WIRE_VERSION,
 };
