@@ -8,6 +8,17 @@ use converge_model::{
 };
 
 use crate::authz::{AuthzContext, Capability};
+
+/// How many of a bundle's inputs the inbox reads to name contributors
+/// (batch 23.4).
+///
+/// The label is "who is waiting on this", and nobody reads past the
+/// second name — but a coalesced window can hold a hundred
+/// publications, and reading all of them per gate per inbox call would
+/// make a cosmetic label the most expensive thing in the response.
+/// Capped rather than uncapped-and-regretted, and the cap is stated on
+/// the wire type so a client knows the list is partial.
+const INBOX_CONTRIBUTOR_SCAN: usize = 8;
 use crate::merge::{MergeInput, merge_window};
 use crate::storage::{
     BatchConflict, MetaOp, MetadataStore, ObjectStore, PartitionState, StoredBundle,
@@ -576,12 +587,25 @@ impl Engine<'_> {
                 BundleStatus::Ready { promotable: true } if approvals < required => "approve",
                 _ => continue,
             };
+            // Who is waiting on this bundle: whoever published into it.
+            // Bounded, because a wide window would turn one inbox call
+            // into a hundred record reads to produce a label nobody
+            // reads past the second name.
+            let mut contributors: Vec<String> = Vec::new();
+            for publication_id in bundle.inputs.iter().take(INBOX_CONTRIBUTOR_SCAN) {
+                if let Some(publication) = self.meta.get_publication(publication_id)?
+                    && !contributors.contains(&publication.publisher)
+                {
+                    contributors.push(publication.publisher);
+                }
+            }
             report.bundles.push(InboxBundle {
                 bundle_id: bundle.bundle_id,
                 gate_id,
                 recommendation: recommendation.to_string(),
                 approvals,
                 required_approvals: required,
+                contributors,
             });
         }
         Ok(report)

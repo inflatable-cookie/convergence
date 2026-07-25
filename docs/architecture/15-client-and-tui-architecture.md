@@ -45,6 +45,8 @@ converge-tui  ── argv contract ──▶ converge-cli ──▶ converge-cli
 - Structured option prompts — unrecognized input is an error, never silently
   swallowed.
 - Quit is explicit; stray `Esc` at root does not exit.
+- Inbox ranking lives in `converge_cli::inbox_actions`, not in a
+  front-end: every surface reads one order (batch 23.4).
 - One Root, not a Local/Remote mode: batch 23.1 removed the split after
   driving the real TUI (spec 002 §7).
 - Consistent contextual key layer alongside the console (direct view-jump

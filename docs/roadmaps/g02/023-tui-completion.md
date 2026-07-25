@@ -1,6 +1,6 @@
 # 023 TUI Completion
 
-Status: in progress (23.1-23.3 complete)
+Status: in progress (23.1-23.4 complete)
 Owner: repo maintainers
 Updated: 2026-07-25
 
@@ -63,9 +63,13 @@ how a product accumulates surfaces that each made sense alone.
   shown-once token into uselessness, wizard execution skipped the
   confirm-once rule, and the wizard overlay never cleared the view
   behind it
-- **23.4 Dashboard recommendations**: ranked next actions with counts
-  and owners, sourced from the same `inbox_actions` the console uses so
-  the two cannot disagree
+- **23.4 Dashboard recommendations** (complete, card 085): ranked by
+  **what blocks other people, first**, with the sort inside
+  `converge_cli::inbox_actions` so every surface reads one order.
+  `Enter` on Root runs the top one. Owner labels needed a real field —
+  the first pass read one that did not exist — so `InboxBundle` now
+  carries bounded `contributors`. Driving it caught 23.1's overflow
+  finding reintroduced in a new place
 - **23.5 Superposition detail**: the 65/35 split with variant preview,
   and a reducer test suite for the new panes
 
@@ -80,4 +84,4 @@ how a product accumulates surfaces that each made sense alone.
 
 ## Next Task
 
-Batch card 23.4 (dashboard recommendations).
+Batch card 23.5 (superposition detail).

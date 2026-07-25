@@ -29,6 +29,11 @@ enum Intent {
     Refresh,
     /// Inbox report destined for the inbox screen.
     Inbox,
+    /// Inbox report wanted for its *data* only — the Root dashboard's
+    /// ranked recommendations (batch 23.4). Distinct from `Inbox`
+    /// because that one navigates on arrival, and a dashboard refresh
+    /// that yanked you into another view would be a bug.
+    InboxData,
     /// Rows for a list view.
     Rows(View),
     /// `resolve list <ref>` destined for the resolution view.
@@ -108,6 +113,16 @@ fn run(terminal: &mut ratatui::DefaultTerminal, trace: &mut trace::Trace) -> Res
     let session = std::sync::Arc::new(converge_cli::Session::new());
     let (tx, rx) = std::sync::mpsc::channel::<WorkerResult>();
     spawn_refresh(&tx, &session);
+    // The dashboard leads with ranked recommendations, so the inbox is
+    // needed before anyone asks for it. On the worker, so a slow or
+    // unreachable server delays a panel rather than the first frame.
+    spawn_verb(
+        &mut app,
+        &tx,
+        &session,
+        vec!["inbox".into()],
+        Intent::InboxData,
+    );
     trace.session_start();
 
     // Event poller (doc 14 §5b): replaces blind remote refresh. Events are
@@ -188,6 +203,12 @@ fn run(terminal: &mut ratatui::DefaultTerminal, trace: &mut trace::Trace) -> Res
                             }
                         }
                         Err(err) => app.record_result(Err(err)),
+                    }
+                    app.mark_loaded(View::Inbox);
+                }
+                Intent::InboxData => {
+                    if let Ok(report) = result {
+                        app.load_inbox_entries(&report);
                     }
                     app.mark_loaded(View::Inbox);
                 }
@@ -368,7 +389,7 @@ fn trace_screen(trace: &mut trace::Trace, app: &App) {
             .unwrap_or_default(),
         View::Root | View::Help => Vec::new(),
     };
-    trace.screen_view(&screen_id, &selectable, app.primary_action().0);
+    trace.screen_view(&screen_id, &selectable, &app.primary_action().0);
 }
 
 /// One row of a list view, rendered from whatever the verb returned.
@@ -530,10 +551,13 @@ fn absorb_events(
         value["kinds"].as_str().unwrap_or("")
     ))));
     spawn_refresh(tx, session);
-    // Remote events change the inbox, not just status — but only reload
-    // it when it is on screen or already loaded.
-    if !app.inbox_entries.is_empty() || app.current_view() == View::Inbox {
+    // Remote events change the inbox, not just status. Root needs it too
+    // now that the dashboard ranks from it, and that refresh must not
+    // navigate — hence the data-only intent (batch 23.4).
+    if app.current_view() == View::Inbox {
         spawn_verb(app, tx, session, vec!["inbox".into()], Intent::Inbox);
+    } else if !app.inbox_entries.is_empty() || app.current_view() == View::Root {
+        spawn_verb(app, tx, session, vec!["inbox".into()], Intent::InboxData);
     }
 }
 
@@ -647,7 +671,7 @@ fn render(frame: &mut Frame, app: &App) {
                 .as_ref()
                 .and_then(|s| s["profile"]["flow"].as_str().map(str::to_string))
                 .unwrap_or_default();
-            let lines = vec![
+            let mut lines = vec![
                 Line::raw(head_line),
                 Line::raw(format!(
                     "pending changes: {}    automatic captures: {auto}",
@@ -659,12 +683,48 @@ fn render(frame: &mut Frame, app: &App) {
                     "last published snap: {last_published}    last seen bundle: {last_seen}"
                 )),
                 Line::styled(flow, Style::default().fg(Color::DarkGray)),
-                Line::raw(""),
-                Line::styled(
-                    format!("Enter: {primary}"),
-                    Style::default().add_modifier(Modifier::BOLD),
-                ),
             ];
+
+            // Ranked next actions (spec §4.7, batch 23.4). Ordered by
+            // what blocks other people; the ranking lives in
+            // `converge_cli::inbox_actions`, so this panel and the Inbox
+            // view cannot disagree about what matters.
+            if !app.recommendations.is_empty() {
+                lines.push(Line::raw(""));
+                lines.push(Line::styled(
+                    "next",
+                    Style::default().add_modifier(Modifier::BOLD),
+                ));
+                for recommendation in &app.recommendations {
+                    let owners = if recommendation.owners.is_empty() {
+                        String::new()
+                    } else {
+                        format!("  ({})", recommendation.owners.join(", "))
+                    };
+                    // The view, never the argv. A bundle id is 64
+                    // characters and spelling one out here pushes the
+                    // rest of the line off the edge; the Inbox is where
+                    // a row is a command you can paste.
+                    let where_to = format!("  → {}", recommendation.view);
+                    lines.push(Line::styled(
+                        format!("  {}{owners}{where_to}", recommendation.headline),
+                        // Blocking work is not the same colour as news.
+                        match recommendation.kind {
+                            converge_cli::ActionKind::Resolve => Style::default().fg(Color::Yellow),
+                            converge_cli::ActionKind::Publication => {
+                                Style::default().fg(Color::DarkGray)
+                            }
+                            _ => Style::default(),
+                        },
+                    ));
+                }
+            }
+
+            lines.push(Line::raw(""));
+            lines.push(Line::styled(
+                format!("Enter: {primary}"),
+                Style::default().add_modifier(Modifier::BOLD),
+            ));
             frame.render_widget(Paragraph::new(lines).block(view_block(app)), body);
         }
         View::Resolution => {
@@ -1251,5 +1311,67 @@ mod screen_tests {
             text.contains("http://server"),
             "only the credential goes: {text}"
         );
+    }
+
+    /// The dashboard's whole job: what needs doing, how much of it, and
+    /// who is waiting — in blocking order.
+    #[test]
+    fn the_dashboard_ranks_counts_and_names_owners() {
+        let mut app = App {
+            status: Some(serde_json::json!({
+                "head": {"id": "a".repeat(64), "trigger": "explicit"},
+                "snaps": {"automatic": 0},
+                "remote": {"configured": true, "target": "acme/default/intake @ http://s"},
+            })),
+            ..App::default()
+        };
+        app.load_inbox_entries(&serde_json::json!({
+            "lanes": [{"lane_id": "personal/erin", "updated_at": "t"}],
+            "publications": [{"publisher": "alice", "gate_id": "intake"}],
+            "bundles": [{"bundle_id": "b2", "gate_id": "intake", "recommendation": "resolve",
+                         "approvals": 0, "required_approvals": 0, "contributors": ["carol", "dana"]}]
+        }));
+        let text = screen(&app, 100, 24).join("\n");
+
+        let blocked = text.find("blocked by superpositions").expect("resolve row");
+        let lane = text.find("with work to pull").expect("lane row");
+        let news = text.find("in an open window").expect("publication row");
+        assert!(
+            blocked < lane && lane < news,
+            "ranked by what blocks other people: {text}"
+        );
+        assert!(text.contains("(carol)"), "the owner is named: {text}");
+        assert!(
+            text.contains("(erin)"),
+            "a personal lane names its owner: {text}"
+        );
+        assert!(
+            text.contains("→ bundles"),
+            "the row points at the view that lists it: {text}"
+        );
+        // The 23.1 finding, guarded here too: a 64-character id in a
+        // dashboard row pushes everything after it off the edge.
+        for line in screen(&app, 100, 24) {
+            assert!(
+                !line.contains(&"b".repeat(20)),
+                "a full bundle id reached the dashboard: {line}"
+            );
+        }
+    }
+
+    /// An empty inbox should leave the dashboard alone rather than
+    /// showing an empty heading.
+    #[test]
+    fn a_quiet_repo_gets_no_next_section() {
+        let mut app = App::default();
+        app.load_inbox_entries(&serde_json::json!({
+            "lanes": [], "publications": [], "bundles": []
+        }));
+        let text = screen(&app, 100, 24).join("\n");
+        assert!(
+            !text.contains("next"),
+            "nothing to say, so say nothing: {text}"
+        );
+        assert!(text.contains("Enter: history"));
     }
 }

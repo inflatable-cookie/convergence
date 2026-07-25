@@ -391,6 +391,13 @@ pub struct InboxBundle {
     pub recommendation: String,
     pub approvals: u32,
     pub required_approvals: u32,
+    /// Who published into this bundle, deduped — the people actually
+    /// waiting on it (g02.023 batch 23.4). Bounded: see the server's
+    /// `INBOX_CONTRIBUTOR_SCAN`, because a wide window would otherwise
+    /// make one inbox call read a hundred publication records to
+    /// produce a label.
+    #[serde(default)]
+    pub contributors: Vec<String>,
 }
 
 /// Server-side retention policy, stored per repo in the control plane.

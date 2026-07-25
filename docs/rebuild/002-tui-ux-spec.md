@@ -276,11 +276,16 @@ places at once. `secret rotate` is handed over unconditionally.
   access token had been doing exactly that: the Login wizard echoed one
   while typing and again at review. Credential fields are masked, and
   argv is redacted where it is displayed or traced
-- **Ranked recommendations with owner labels on the remote dashboard
-  (§4.7)**: the inbox already ranks and names runnable commands (batch
-  16.1); duplicating that on the dashboard needs a ranking rule that is
-  not just "what the inbox said". Trigger: the inbox growing past one
-  screen for a real team
+- ~~**Ranked recommendations with owner labels on the dashboard
+  (§4.7)**~~ — built in batch 23.4. The deferral was right that it
+  needed a ranking rule rather than "what the inbox said". The rule is
+  **what blocks other people, first**: a superposed bundle stops its
+  gate window for everyone, an approval holds up one publisher, lane
+  work blocks nobody, and a publication is news. It lives in
+  `converge_cli::inbox_actions`, which sorts before returning, so the
+  Inbox view and the dashboard read the same order by construction
+  rather than by agreement — a second traversal would have been a
+  second rule waiting to drift
 - **List + detail 65/35 split for Superpositions (§6)**: variant detail
   is currently summarised in the row. Trigger: variants carrying more
   than a source and a size — a diff preview, for instance

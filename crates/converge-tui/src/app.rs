@@ -408,6 +408,11 @@ pub struct App {
     pub history_selected: usize,
     /// Inbox report entries as (label, action argv or None).
     pub inbox_entries: Vec<(String, Option<Vec<String>>)>,
+    /// Ranked groups for the Root dashboard (batch 23.4). Held rather
+    /// than recomputed per frame, and filled from the same inbox report
+    /// the Inbox view uses, so the two cannot disagree about what
+    /// matters.
+    pub recommendations: Vec<converge_cli::Recommendation>,
     pub inbox_selected: usize,
     /// Resolution view state.
     pub resolution: Option<ResolutionState>,
@@ -451,6 +456,7 @@ impl Default for App {
             pending_confirm: None,
             history_selected: 0,
             inbox_entries: Vec::new(),
+            recommendations: Vec::new(),
             inbox_selected: 0,
             resolution: None,
             rows: BTreeMap::new(),
@@ -476,11 +482,11 @@ impl App {
     /// Gates, where Enter actually runs the selected row's action. A
     /// hint bar that names the wrong key is worse than no hint bar,
     /// because it is believed.
-    pub fn primary_action(&self) -> (&'static str, Action) {
+    pub fn primary_action(&self) -> (String, Action) {
         // Nothing else is reachable without a workspace, so nothing else
         // can be the primary action (audit P1.5).
         if self.workspace_missing {
-            return ("init", Action::Run(vec!["init".into()]));
+            return ("init".into(), Action::Run(vec!["init".into()]));
         }
         match self.current_view() {
             View::Resolution => {
@@ -489,29 +495,41 @@ impl App {
                     .as_ref()
                     .is_some_and(|r| !r.paths.is_empty() && r.undecided() == 0);
                 if all_decided {
-                    ("apply", Action::ApplyResolution)
+                    ("apply".into(), Action::ApplyResolution)
                 } else {
-                    ("next unresolved", Action::Enter(View::Resolution))
+                    ("next unresolved".into(), Action::Enter(View::Resolution))
                 }
             }
             // Row views act on the selection; `handle_rows_key` runs
             // before this, so naming anything else here would be a lie.
             view @ (View::Bundles | View::Releases | View::Lanes | View::Gates) => {
-                ("open selected", Action::Enter(view))
+                ("open selected".into(), Action::Enter(view))
             }
             // Enter does nothing here on purpose: every action on a
             // secret is destructive or narrowing, so each has its own
             // named key and its own confirmation.
-            View::Secrets => ("(r rotate, u unshare)", Action::Enter(View::Secrets)),
-            View::Inbox => ("open selected", Action::LoadInbox),
-            View::History => ("restore selected", Action::Enter(View::History)),
-            View::Help => ("back", Action::Enter(View::Help)),
+            View::Secrets => ("(r rotate, u unshare)".into(), Action::Enter(View::Secrets)),
+            View::Inbox => ("open selected".into(), Action::LoadInbox),
+            View::History => ("restore selected".into(), Action::Enter(View::History)),
+            View::Help => ("back".into(), Action::Enter(View::Help)),
             View::Root => {
+                // Your own uncaptured work first: it is local, cheap,
+                // and the only thing here that can be lost.
                 if self.pending_changes > 0 {
-                    ("snap", Action::Run(vec!["snap".into()]))
-                } else {
-                    ("history", Action::Enter(View::History))
+                    return ("snap".into(), Action::Run(vec!["snap".into()]));
                 }
+                // Then whatever is blocking other people. The dashboard
+                // ranks it (batch 23.4); Enter should do the top of that
+                // list rather than something unrelated to it. The label
+                // is the kind, not the argv: a 64-character bundle id in
+                // the hint bar pushes the key legend off the screen.
+                if let Some(top) = self.recommendations.iter().find(|r| r.argv.is_some()) {
+                    return (
+                        top.kind.cta().to_string(),
+                        Action::Run(top.argv.clone().expect("checked")),
+                    );
+                }
+                ("history".into(), Action::Enter(View::History))
             }
         }
     }
@@ -1130,6 +1148,7 @@ impl App {
             .into_iter()
             .map(|action| (action.label, action.argv))
             .collect();
+        self.recommendations = converge_cli::recommendations(report);
         self.inbox_selected = 0;
     }
 
@@ -1500,67 +1519,112 @@ mod tests {
         assert_eq!(keyed["conflicted.txt"], key_b, "index maps to stable key");
     }
 
+    /// Ordered by what blocks other people, not by the order the report
+    /// happened to list things (batch 23.4). The ranking lives in
+    /// `converge_cli`, so the Inbox view and the Root dashboard read the
+    /// same order by construction rather than by agreement.
     #[test]
-    fn inbox_entries_map_to_recommended_actions() {
+    fn inbox_entries_are_ranked_by_what_blocks_other_people() {
         let mut app = App::default();
         app.load_inbox_entries(&serde_json::json!({
             "lanes": [{"lane_id": "shared/wip", "head_snap_id": "s", "updated_at": "t"}],
             "publications": [{"publisher": "alice", "gate_id": "intake"}],
             "bundles": [
                 {"bundle_id": "b1", "gate_id": "intake", "recommendation": "approve",
-                 "approvals": 0, "required_approvals": 2},
+                 "approvals": 0, "required_approvals": 2, "published_by": "bob"},
                 {"bundle_id": "b2", "gate_id": "intake", "recommendation": "resolve",
-                 "approvals": 0, "required_approvals": 0}
+                 "approvals": 0, "required_approvals": 0, "contributors": ["carol"]}
             ]
         }));
         assert_eq!(app.inbox_entries.len(), 4);
         assert_eq!(
             app.inbox_entries[0].1,
+            Some(vec!["resolve".into(), "list".into(), "b2".into()]),
+            "a superposed bundle stops the gate for everyone: it goes first"
+        );
+        assert_eq!(
+            app.inbox_entries[1].1,
+            Some(vec!["approve".into(), "b1".into()]),
+            "then the one bundle waiting on this person"
+        );
+        assert_eq!(
+            app.inbox_entries[2].1,
             Some(vec![
                 "sync".into(),
                 "pull".into(),
                 "--lane".into(),
                 "shared/wip".into()
-            ])
-        );
-        assert_eq!(app.inbox_entries[1].1, None, "publications informational");
-        assert_eq!(
-            app.inbox_entries[2].1,
-            Some(vec!["approve".into(), "b1".into()])
-        );
-        // A superposed bundle recommends the runnable resolve command,
-        // not `fetch` (batch 16.1, audit P1.2: fetch could not accept it).
-        assert_eq!(
-            app.inbox_entries[3].1,
-            Some(vec!["resolve".into(), "list".into(), "b2".into()])
-        );
-
-        // Enter on the approve entry asks first: an approval is visible
-        // to the whole team the moment it lands (UX spec §4.5).
-        app.frames.push(View::Inbox);
-        app.inbox_selected = 2;
-        assert_eq!(app.handle_key(key(KeyCode::Enter)), None);
-        assert_eq!(
-            app.pending_confirm,
-            Some((
-                "approve b1".to_string(),
-                Action::Run(vec!["approve".into(), "b1".into()])
-            ))
+            ]),
+            "then work available but blocking nobody"
         );
         assert_eq!(
-            app.handle_key(key(KeyCode::Char('y'))),
-            Some(Action::Run(vec!["approve".into(), "b1".into()]))
-        );
-
-        // Enter on the superposed bundle opens the resolution view over
-        // the bundle itself — same command, richer front-end.
-        app.inbox_selected = 3;
-        assert_eq!(
-            app.handle_key(key(KeyCode::Enter)),
-            Some(Action::EnterResolution("b2".into()))
+            app.inbox_entries[3].1, None,
+            "informational rows last, and still unrunnable"
         );
     }
 
+    /// The dashboard counts and names, and refuses to choose when a
+    /// group has more than one runnable member.
+    #[test]
+    fn recommendations_group_count_and_name_owners() {
+        let mut app = App::default();
+        app.load_inbox_entries(&serde_json::json!({
+            "lanes": [],
+            "publications": [
+                {"publisher": "alice", "gate_id": "intake"},
+                {"publisher": "bob", "gate_id": "intake"},
+                {"publisher": "alice", "gate_id": "intake"}
+            ],
+            "bundles": [
+                {"bundle_id": "b1", "gate_id": "intake", "recommendation": "approve",
+                 "approvals": 0, "required_approvals": 2, "contributors": ["carol"]},
+                {"bundle_id": "b2", "gate_id": "intake", "recommendation": "approve",
+                 "approvals": 0, "required_approvals": 2, "contributors": ["dana", "erin"]}
+            ]
+        }));
+        let approvals = &app.recommendations[0];
+        assert_eq!(approvals.headline, "2 bundles waiting on your approval");
+        assert_eq!(approvals.owners, vec!["carol", "dana"]);
+        assert!(
+            approvals.argv.is_none(),
+            "two runnable members: the dashboard reports, it does not pick one"
+        );
+
+        let publications = &app.recommendations[1];
+        assert_eq!(publications.headline, "3 publications in an open window");
+        assert_eq!(
+            publications.owners,
+            vec!["alice", "bob"],
+            "owners are deduped, and three publications are still three"
+        );
+        assert_eq!(publications.count, 3);
+    }
+
+    /// A dashboard that ranks work and then makes Enter do something
+    /// unrelated has not helped.
+    #[test]
+    fn enter_on_root_does_the_top_ranked_thing() {
+        let mut app = App::default();
+        app.load_inbox_entries(&serde_json::json!({
+            "lanes": [], "publications": [],
+            "bundles": [{"bundle_id": "b2", "gate_id": "intake", "recommendation": "resolve",
+                         "approvals": 0, "required_approvals": 0}]
+        }));
+        let (label, action) = app.primary_action();
+        assert_eq!(
+            action,
+            Action::Run(vec!["resolve".into(), "list".into(), "b2".into()])
+        );
+        assert_eq!(
+            label, "resolve superpositions",
+            "the label is the kind; a 64-character id here eats the key legend"
+        );
+
+        // Uncaptured local work still wins: it is the only thing here
+        // that can be lost.
+        app.pending_changes = 3;
+        assert_eq!(app.primary_action().0, "snap");
+    }
     #[test]
     fn jump_keys_enter_each_view_once() {
         let mut app = App::default();
@@ -1833,7 +1897,7 @@ mod tests {
         };
         assert_eq!(
             app.primary_action(),
-            ("init", Action::Run(vec!["init".into()]))
+            ("init".to_string(), Action::Run(vec!["init".into()]))
         );
     }
 
