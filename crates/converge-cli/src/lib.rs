@@ -476,6 +476,12 @@ enum SecretCommand {
     List,
     /// Who can read what, and which recipients have gone stale.
     Audit,
+    /// Replace a secret's value, keeping its recipients.
+    ///
+    /// The same write `set` performs on an existing secret; a separate
+    /// verb because "I rotated this credential" is worth being able to
+    /// say, and to see afterwards in `secret audit`.
+    Rotate { name: String },
     /// Delete one of your secrets.
     Rm { name: String },
     /// Let someone else read one of your secrets.
@@ -1523,29 +1529,16 @@ fn run(cli: &Cli, mode: OutputMode, session: &Session) -> Result<serde_json::Val
             let ws = session.workspace()?;
             let (client, remote) = remote_client(session, &ws, mode)?;
             match command {
-                SecretCommand::Set { name } => {
+                SecretCommand::Set { name } | SecretCommand::Rotate { name } => {
                     let value = read_secret_value()?;
-                    let recipients = my_recipients(&client, &remote.repo_id)?;
-                    let ciphertext =
-                        converge_client::identity::seal(&recipients.keys, value.as_bytes())?;
-
-                    // Read-modify-write against the version guard from
-                    // 19.2: if someone else rotated while we were
-                    // typing, this is refused rather than erasing them.
-                    let current = client
-                        .get_secret(&remote.repo_id, name)
-                        .map(|record| record.version)
-                        .unwrap_or(0);
-                    let summary = client.set_secret(
-                        &remote.repo_id,
-                        name,
-                        &ciphertext,
-                        &recipients.key_ids,
-                        current,
-                    )?;
+                    let summary = write_value(&client, &remote.repo_id, name, &value)?;
                     emit(mode, summary, |s| {
                         println!("{} stored (version {})", s.name, s.version);
-                        println!("  readable by {} key(s) you hold", s.recipients.len());
+                        println!(
+                            "  sealed to {} key(s); value version {}",
+                            s.recipients.len(),
+                            s.value_version
+                        );
                     })
                 }
                 SecretCommand::Get { name, owner } => {
@@ -1628,6 +1621,8 @@ fn run(cli: &Cli, mode: OutputMode, session: &Session) -> Result<serde_json::Val
                                 "name": secret.name,
                                 "owner": secret.owner,
                                 "version": secret.version,
+                                "value_version": secret.value_version,
+                                "value_updated_at": secret.value_updated_at,
                                 "readers": readers,
                                 "stale": stale,
                             })
@@ -1656,6 +1651,14 @@ fn run(cli: &Cli, mode: OutputMode, session: &Session) -> Result<serde_json::Val
                                 } else {
                                     readers.join(", ")
                                 }
+                            );
+                            // The question an audit actually asks: when
+                            // did the credential last change, as opposed
+                            // to its recipient list.
+                            println!(
+                                "  value last changed {} (value version {})",
+                                row["value_updated_at"].as_str().unwrap_or("unknown"),
+                                row["value_version"]
                             );
                             for stale in row["stale"].as_array().into_iter().flatten() {
                                 println!(
@@ -2327,6 +2330,66 @@ fn ensure_ignored(ws: &Workspace, path: &std::path::Path) -> Result<bool> {
     Ok(true)
 }
 
+/// Write a new value, keeping whoever could already read it.
+///
+/// The recipient list is *preserved and re-resolved*: sealing to only
+/// the caller's keys would silently unshare everyone else (the defect
+/// batch 20.3 found), and sealing to the stored key ids would lock out
+/// anyone who has rotated since. Both failures are quiet, which is what
+/// makes them worth spelling out here.
+fn write_value(
+    client: &converge_client::remote::RemoteClient,
+    repo_id: &str,
+    name: &str,
+    value: &str,
+) -> Result<converge_client::model::SecretSummary> {
+    let existing = client.get_secret(repo_id, name).ok();
+    let registered = client.list_keys(repo_id)?;
+
+    let (recipients, key_ids) = match &existing {
+        Some(record) => {
+            // Subjects who can read it now, resolved to their current
+            // keys.
+            let mut subjects: Vec<String> = record
+                .recipients
+                .iter()
+                .filter_map(|key_id| {
+                    registered
+                        .iter()
+                        .find(|k| &k.key_id == key_id)
+                        .map(|k| k.subject.clone())
+                })
+                .collect();
+            subjects.push(record.owner.clone());
+            subjects.sort();
+            subjects.dedup();
+
+            let mut keys = Vec::new();
+            let mut ids = Vec::new();
+            for key in registered.iter().filter(|k| subjects.contains(&k.subject)) {
+                keys.push(
+                    key.public_key
+                        .parse::<age::x25519::Recipient>()
+                        .map_err(|err| anyhow::anyhow!("key {} is unusable: {err}", key.key_id))?,
+                );
+                ids.push(key.key_id.clone());
+            }
+            (keys, ids)
+        }
+        None => {
+            let mine = my_recipients(client, repo_id)?;
+            (mine.keys, mine.key_ids)
+        }
+    };
+
+    let ciphertext = converge_client::identity::seal(&recipients, value.as_bytes())?;
+    // Read-modify-write against the version guard from 19.2: if someone
+    // else wrote while we were typing, this is refused rather than
+    // erasing them.
+    let current = existing.map(|record| record.version).unwrap_or(0);
+    client.write_secret(repo_id, name, &ciphertext, &key_ids, current, true)
+}
+
 /// Re-seal a secret to a changed recipient set (batch 20.1).
 ///
 /// Sharing is an encryption-time decision, so it costs a decrypt and a
@@ -2399,7 +2462,11 @@ fn reseal(
     }
 
     let ciphertext = converge_client::identity::seal(&recipients, &plaintext)?;
-    let summary = client.set_secret(repo_id, name, &ciphertext, &key_ids, record.version)?;
+    // A re-share is not a rotation: leaving `value_changed` false keeps
+    // the audit's answer to "when did this credential last change?"
+    // truthful across any number of membership edits.
+    let summary =
+        client.write_secret(repo_id, name, &ciphertext, &key_ids, record.version, false)?;
     let changed: Vec<String> = if add.is_empty() {
         remove.to_vec()
     } else {

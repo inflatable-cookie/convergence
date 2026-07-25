@@ -1,6 +1,6 @@
 # 020 Shared Secrets
 
-Status: in progress (20.1-20.2 complete)
+Status: in progress (20.1-20.3 complete)
 Owner: repo maintainers
 Updated: 2026-07-25
 
@@ -34,9 +34,11 @@ recipients — the substrate has to exist first.
   `converge secret audit` flags recipients who left or whose key is
   gone. Automatic re-encryption is impossible by design (doc 19 §7), so
   the work is reported to whoever can do it rather than claimed
-- **20.3 Rotation workflow**: `converge secret rotate` as a first-class
-  verb — new value, new version, re-encrypted to the current list — plus
-  an audit view of when each secret last actually changed
+- **20.3 Rotation workflow** (complete, card 076): `converge secret
+  rotate`, plus the fix for a live defect — `set` sealed to the writer's
+  own keys, silently unsharing everyone else on every update.
+  `value_version` separates a rotation from a re-share so an audit can
+  answer "when did this credential last change?"
 - **20.4 Adversarial**: a removed member cannot read the next version;
   a stale recipient list cannot silently persist; concurrent share and
   rotate do not lose a recipient
@@ -50,4 +52,4 @@ recipients — the substrate has to exist first.
 
 ## Next Task
 
-Batch card 20.3 (rotation workflow).
+Batch card 20.4 (adversarial).

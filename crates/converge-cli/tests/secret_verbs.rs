@@ -781,3 +781,123 @@ fn audit_flags_recipients_who_are_no_longer_members() -> Result<()> {
     );
     Ok(())
 }
+
+/// Batch 20.3: the defect that prompted the card. Updating a shared
+/// secret must keep everyone who could read it — sealing to the writer's
+/// own keys unshares the rest silently, which is the worst way to lose
+/// access.
+#[test]
+fn updating_a_shared_secret_keeps_its_recipients() -> Result<()> {
+    let server_dir = tempfile::tempdir()?;
+    let base_url = start_server(server_dir.path())?;
+    let (alice_ws, alice_home) = member(&base_url, "token-a")?;
+    let (bob_ws, bob_home) = member(&base_url, "token-b")?;
+
+    converge_with_stdin(
+        alice_ws.path(),
+        alice_home.path(),
+        &["secret", "set", "deploy-key"],
+        Some("first"),
+    );
+    converge(
+        alice_ws.path(),
+        alice_home.path(),
+        &["secret", "share", "deploy-key", "--with", "bob"],
+    );
+
+    // Alice updates the value without touching sharing.
+    converge_with_stdin(
+        alice_ws.path(),
+        alice_home.path(),
+        &["secret", "set", "deploy-key"],
+        Some("second"),
+    );
+
+    let got = converge(
+        bob_ws.path(),
+        bob_home.path(),
+        &["secret", "get", "deploy-key"],
+    );
+    assert!(
+        got.status.success(),
+        "updating silently unshared bob: {}",
+        String::from_utf8_lossy(&got.stderr)
+    );
+    assert_eq!(String::from_utf8_lossy(&got.stdout).trim_end(), "second");
+
+    // Same for the explicit rotate verb.
+    converge_with_stdin(
+        alice_ws.path(),
+        alice_home.path(),
+        &["secret", "rotate", "deploy-key"],
+        Some("third"),
+    );
+    let got = converge(
+        bob_ws.path(),
+        bob_home.path(),
+        &["secret", "get", "deploy-key"],
+    );
+    assert_eq!(String::from_utf8_lossy(&got.stdout).trim_end(), "third");
+    Ok(())
+}
+
+/// An audit can tell a rotation from a re-share.
+#[test]
+fn value_version_counts_rotations_not_reshares() -> Result<()> {
+    let server_dir = tempfile::tempdir()?;
+    let base_url = start_server(server_dir.path())?;
+    let (alice_ws, alice_home) = member(&base_url, "token-a")?;
+    let (_bob_ws, _bob_home) = member(&base_url, "token-b")?;
+
+    let first = json_data(&converge_with_stdin(
+        alice_ws.path(),
+        alice_home.path(),
+        &["--json", "secret", "set", "api-key"],
+        Some("v1"),
+    ));
+    assert_eq!(first["version"], 1);
+    assert_eq!(first["value_version"], 1);
+
+    // Sharing writes a version but not a value version.
+    let shared = json_data(&converge(
+        alice_ws.path(),
+        alice_home.path(),
+        &["--json", "secret", "share", "api-key", "--with", "bob"],
+    ));
+    assert_eq!(shared["version"], 2, "sharing is still a write");
+    assert_eq!(
+        shared["value_version"], 1,
+        "sharing must not look like a rotation"
+    );
+
+    // Rotating moves both.
+    let rotated = json_data(&converge_with_stdin(
+        alice_ws.path(),
+        alice_home.path(),
+        &["--json", "secret", "rotate", "api-key"],
+        Some("v2"),
+    ));
+    assert_eq!(rotated["version"], 3);
+    assert_eq!(rotated["value_version"], 2, "a rotation is a value change");
+
+    // Unsharing does not.
+    let unshared = json_data(&converge(
+        alice_ws.path(),
+        alice_home.path(),
+        &["--json", "secret", "unshare", "api-key", "--from", "bob"],
+    ));
+    assert_eq!(unshared["value_version"], 2);
+
+    // And the audit reports it, which is the question an operator asks
+    // after somebody leaves.
+    let audit = String::from_utf8_lossy(
+        &converge(alice_ws.path(), alice_home.path(), &["secret", "audit"]).stdout,
+    )
+    .into_owned();
+    assert!(
+        audit.contains("value last changed"),
+        "audit does not report when the value changed: {audit}"
+    );
+    assert!(audit.contains("value version 2"), "{audit}");
+    Ok(())
+}

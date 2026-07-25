@@ -477,6 +477,27 @@ impl RemoteClient {
         recipients: &[String],
         expected_version: u64,
     ) -> Result<crate::model::SecretSummary> {
+        self.write_secret(
+            repo_id,
+            name,
+            ciphertext,
+            recipients,
+            expected_version,
+            true,
+        )
+    }
+
+    /// As `set_secret`, declaring whether the *value* changed so an
+    /// audit can tell a rotation from a re-share (batch 20.3).
+    pub fn write_secret(
+        &self,
+        repo_id: &str,
+        name: &str,
+        ciphertext: &str,
+        recipients: &[String],
+        expected_version: u64,
+        value_changed: bool,
+    ) -> Result<crate::model::SecretSummary> {
         let response = Self::check(
             self.http
                 .put(self.url(&format!("/api/repos/{repo_id}/secrets/{name}")))
@@ -485,6 +506,7 @@ impl RemoteClient {
                     ciphertext: ciphertext.into(),
                     recipients: recipients.to_vec(),
                     expected_version,
+                    value_changed,
                 })
                 .send()
                 .context("set secret")?,

@@ -138,6 +138,8 @@ recipients have left or rotated their key away.
 ## Housekeeping
 
 ```bash
+converge secret rotate NAME   # new value, same readers
+converge secret audit         # who reads what, and when values changed
 converge secret list          # names, owners, versions — never values
 converge secret rm NAME       # your own secrets only
 converge key rotate           # new key; old one kept so nothing strands

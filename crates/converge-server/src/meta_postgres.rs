@@ -42,6 +42,8 @@ impl PostgresMetadataStore {
                 recipients_json TEXT NOT NULL,
                 ciphertext TEXT NOT NULL,
                 version BIGINT NOT NULL,
+                value_version BIGINT NOT NULL DEFAULT 0,
+                value_updated_at TEXT NOT NULL DEFAULT '',
                 updated_at TEXT NOT NULL,
                 updated_by TEXT NOT NULL,
                 PRIMARY KEY (repo_id, owner, name)
@@ -264,7 +266,8 @@ impl MetadataStore for PostgresMetadataStore {
     fn list_secrets(&self, repo_id: &str) -> Result<Vec<converge_model::SecretRecord>> {
         let mut c = self.client.lock().expect("pg lock");
         let rows = c.query(
-            "SELECT name, owner, recipients_json, ciphertext, version, updated_at, updated_by
+            "SELECT name, owner, recipients_json, ciphertext, version, updated_at, updated_by,
+                    value_version, value_updated_at
              FROM secrets WHERE repo_id = $1 ORDER BY owner, name",
             &[&repo_id],
         )?;
@@ -1017,14 +1020,17 @@ fn apply_op_pg(c: &mut impl postgres::GenericClient, op: &MetaOp) -> Result<()> 
         MetaOp::PutSecret { repo_id, record } => {
             c.execute(
                 "INSERT INTO secrets
-                 (repo_id, owner, name, recipients_json, ciphertext, version, updated_at, updated_by)
-                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+                 (repo_id, owner, name, recipients_json, ciphertext, version, updated_at,
+                  updated_by, value_version, value_updated_at)
+                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
                  ON CONFLICT (repo_id, owner, name) DO UPDATE SET
                    recipients_json = EXCLUDED.recipients_json,
                    ciphertext = EXCLUDED.ciphertext,
                    version = EXCLUDED.version,
                    updated_at = EXCLUDED.updated_at,
-                   updated_by = EXCLUDED.updated_by",
+                   updated_by = EXCLUDED.updated_by,
+                   value_version = EXCLUDED.value_version,
+                   value_updated_at = EXCLUDED.value_updated_at",
                 &[
                     repo_id,
                     &record.owner,
@@ -1034,6 +1040,8 @@ fn apply_op_pg(c: &mut impl postgres::GenericClient, op: &MetaOp) -> Result<()> 
                     &(record.version as i64),
                     &record.updated_at,
                     &record.updated_by,
+                    &(record.value_version as i64),
+                    &record.value_updated_at,
                 ],
             )?;
             Ok(())
@@ -1220,6 +1228,8 @@ fn secret_from_row(r: &postgres::Row) -> converge_model::SecretRecord {
         version: r.get::<_, i64>(4) as u64,
         updated_at: r.get(5),
         updated_by: r.get(6),
+        value_version: r.get::<_, i64>(7) as u64,
+        value_updated_at: r.get(8),
     }
 }
 
@@ -1230,7 +1240,8 @@ fn get_secret_pg(
     name: &str,
 ) -> Result<Option<converge_model::SecretRecord>> {
     let row = c.query_opt(
-        "SELECT name, owner, recipients_json, ciphertext, version, updated_at, updated_by
+        "SELECT name, owner, recipients_json, ciphertext, version, updated_at, updated_by,
+                value_version, value_updated_at
          FROM secrets WHERE repo_id = $1 AND owner = $2 AND name = $3",
         &[&repo_id, &owner, &name],
     )?;

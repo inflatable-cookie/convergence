@@ -210,7 +210,16 @@ pub struct SecretRecord {
     /// Key ids that can decrypt. One entry until `g02.020` adds sharing.
     pub recipients: Vec<String>,
     pub ciphertext: String,
+    /// Every write bumps this.
     pub version: u64,
+    /// Bumped only when the *value* changed, so an audit can tell a
+    /// rotation from a re-share (g02.020 batch 20.3). The client says
+    /// which it did; the server cannot tell, because a re-seal produces
+    /// different ciphertext either way.
+    #[serde(default)]
+    pub value_version: u64,
+    #[serde(default)]
+    pub value_updated_at: String,
     pub updated_at: String,
     pub updated_by: String,
 }
@@ -222,6 +231,10 @@ pub struct SecretSummary {
     pub owner: String,
     pub recipients: Vec<String>,
     pub version: u64,
+    #[serde(default)]
+    pub value_version: u64,
+    #[serde(default)]
+    pub value_updated_at: String,
     pub updated_at: String,
     pub updated_by: String,
 }
@@ -234,6 +247,10 @@ pub struct SetSecretRequest {
     /// mismatch is refused rather than overwritten, so two people
     /// rotating the same credential cannot silently lose one of them.
     pub expected_version: u64,
+    /// True when this write carries a new value rather than a re-seal
+    /// of the same one (batch 20.3).
+    #[serde(default)]
+    pub value_changed: bool,
 }
 
 /// What removing a member did, and what it deliberately did not do.

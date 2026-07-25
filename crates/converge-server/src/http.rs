@@ -631,13 +631,32 @@ async fn set_secret(
         ));
     }
 
+    let now = now_rfc3339()?;
+    // A re-share keeps the previous value version and timestamp, so an
+    // audit can still answer "when was this credential last changed?"
+    // after any number of membership edits.
+    let previous = state
+        .meta
+        .get_secret(&repo, &subject, &name)
+        .map_err(internal_error)?;
+    let (value_version, value_updated_at) = match (&previous, request.value_changed) {
+        (_, true) => (
+            previous.as_ref().map(|p| p.value_version).unwrap_or(0) + 1,
+            now.clone(),
+        ),
+        (Some(previous), false) => (previous.value_version, previous.value_updated_at.clone()),
+        (None, false) => (1, now.clone()),
+    };
+
     let record = converge_model::SecretRecord {
         name: name.clone(),
         owner: subject.clone(),
         recipients: request.recipients,
         ciphertext: request.ciphertext,
         version: request.expected_version + 1,
-        updated_at: now_rfc3339()?,
+        value_version,
+        value_updated_at,
+        updated_at: now,
         updated_by: subject.clone(),
     };
     // Guarded like publish and promote (doc 14 §3): a stale write fails
@@ -763,6 +782,8 @@ fn summarize_secret(record: &converge_model::SecretRecord) -> converge_model::Se
         owner: record.owner.clone(),
         recipients: record.recipients.clone(),
         version: record.version,
+        value_version: record.value_version,
+        value_updated_at: record.value_updated_at.clone(),
         updated_at: record.updated_at.clone(),
         updated_by: record.updated_by.clone(),
     }

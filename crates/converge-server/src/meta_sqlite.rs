@@ -58,6 +58,8 @@ impl SqliteMetadataStore {
                 recipients_json TEXT NOT NULL,
                 ciphertext TEXT NOT NULL,
                 version INTEGER NOT NULL,
+                value_version INTEGER NOT NULL DEFAULT 0,
+                value_updated_at TEXT NOT NULL DEFAULT '',
                 updated_at TEXT NOT NULL,
                 updated_by TEXT NOT NULL,
                 PRIMARY KEY (repo_id, owner, name)
@@ -332,7 +334,8 @@ impl MetadataStore for SqliteMetadataStore {
     fn list_secrets(&self, repo_id: &str) -> Result<Vec<converge_model::SecretRecord>> {
         let conn = self.conn.lock().expect("meta lock");
         let mut stmt = conn.prepare(
-            "SELECT name, owner, recipients_json, ciphertext, version, updated_at, updated_by
+            "SELECT name, owner, recipients_json, ciphertext, version, updated_at, updated_by,
+                    value_version, value_updated_at
              FROM secrets WHERE repo_id = ?1 ORDER BY owner, name",
         )?;
         let rows = stmt.query_map(params![repo_id], |row| {
@@ -345,6 +348,8 @@ impl MetadataStore for SqliteMetadataStore {
                 version: row.get::<_, i64>(4)? as u64,
                 updated_at: row.get(5)?,
                 updated_by: row.get(6)?,
+                value_version: row.get::<_, i64>(7)? as u64,
+                value_updated_at: row.get(8)?,
             })
         })?;
         rows.collect::<std::result::Result<_, _>>()
@@ -1174,8 +1179,9 @@ fn apply_op_conn(conn: &Connection, op: &MetaOp) -> Result<()> {
         MetaOp::PutSecret { repo_id, record } => {
             conn.execute(
                 "INSERT OR REPLACE INTO secrets
-                 (repo_id, owner, name, recipients_json, ciphertext, version, updated_at, updated_by)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+                 (repo_id, owner, name, recipients_json, ciphertext, version, updated_at,
+                  updated_by, value_version, value_updated_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
                 params![
                     repo_id,
                     record.owner,
@@ -1184,7 +1190,9 @@ fn apply_op_conn(conn: &Connection, op: &MetaOp) -> Result<()> {
                     record.ciphertext,
                     record.version as i64,
                     record.updated_at,
-                    record.updated_by
+                    record.updated_by,
+                    record.value_version as i64,
+                    record.value_updated_at
                 ],
             )?;
             Ok(())
@@ -1378,7 +1386,8 @@ fn get_secret_conn(
     name: &str,
 ) -> anyhow::Result<Option<converge_model::SecretRecord>> {
     let mut stmt = conn.prepare(
-        "SELECT name, owner, recipients_json, ciphertext, version, updated_at, updated_by
+        "SELECT name, owner, recipients_json, ciphertext, version, updated_at, updated_by,
+                value_version, value_updated_at
          FROM secrets WHERE repo_id = ?1 AND owner = ?2 AND name = ?3",
     )?;
     let mut rows = stmt.query(params![repo_id, owner, name])?;
@@ -1394,6 +1403,8 @@ fn get_secret_conn(
         version: row.get::<_, i64>(4)? as u64,
         updated_at: row.get(5)?,
         updated_by: row.get(6)?,
+        value_version: row.get::<_, i64>(7)? as u64,
+        value_updated_at: row.get(8)?,
     }))
 }
 
