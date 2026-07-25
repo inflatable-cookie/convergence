@@ -7,28 +7,6 @@ use crossterm::event::{KeyCode, KeyEvent};
 
 use crate::wizard::{Wizard, WizardEvent, WizardKind};
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Context {
-    Local,
-    Remote,
-}
-
-impl Context {
-    pub fn label(&self) -> &'static str {
-        match self {
-            Context::Local => "LOCAL",
-            Context::Remote => "REMOTE",
-        }
-    }
-
-    pub fn toggle(&self) -> Context {
-        match self {
-            Context::Local => Context::Remote,
-            Context::Remote => Context::Local,
-        }
-    }
-}
-
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub enum View {
     Root,
@@ -298,7 +276,6 @@ pub enum LastLine {
 }
 
 pub struct App {
-    pub context: Context,
     pub frames: Vec<View>,
     pub input: String,
     pub command_history: Vec<String>,
@@ -348,7 +325,6 @@ pub struct App {
 impl Default for App {
     fn default() -> Self {
         Self {
-            context: Context::Local,
             frames: vec![View::Root],
             input: String::new(),
             command_history: Vec::new(),
@@ -383,14 +359,21 @@ impl App {
     }
 
     /// UX spec §4.2: one state-computed primary action per screen.
+    ///
+    /// Per *screen* is the point, and batch 23.1 found it was per
+    /// context: driving the real TUI showed "Enter: history" in the hint
+    /// bar on the History screen, and on Bundles, Releases, Lanes and
+    /// Gates, where Enter actually runs the selected row's action. A
+    /// hint bar that names the wrong key is worse than no hint bar,
+    /// because it is believed.
     pub fn primary_action(&self) -> (&'static str, Action) {
         // Nothing else is reachable without a workspace, so nothing else
         // can be the primary action (audit P1.5).
         if self.workspace_missing {
             return ("init", Action::Run(vec!["init".into()]));
         }
-        match self.context {
-            Context::Local if self.current_view() == View::Resolution => {
+        match self.current_view() {
+            View::Resolution => {
                 let all_decided = self
                     .resolution
                     .as_ref()
@@ -401,23 +384,19 @@ impl App {
                     ("next unresolved", Action::Enter(View::Resolution))
                 }
             }
-            Context::Local => {
+            // Row views act on the selection; `handle_rows_key` runs
+            // before this, so naming anything else here would be a lie.
+            view @ (View::Bundles | View::Releases | View::Lanes | View::Gates) => {
+                ("open selected", Action::Enter(view))
+            }
+            View::Inbox => ("open selected", Action::LoadInbox),
+            View::History => ("restore selected", Action::Enter(View::History)),
+            View::Help => ("back", Action::Enter(View::Help)),
+            View::Root => {
                 if self.pending_changes > 0 {
                     ("snap", Action::Run(vec!["snap".into()]))
                 } else {
                     ("history", Action::Enter(View::History))
-                }
-            }
-            Context::Remote => {
-                let configured = self
-                    .status
-                    .as_ref()
-                    .and_then(|s| s["remote"]["configured"].as_bool())
-                    .unwrap_or(false);
-                if configured {
-                    ("publish", Action::Run(vec!["publish".into()]))
-                } else {
-                    ("login", Action::Run(vec!["login".into()]))
                 }
             }
         }
@@ -481,8 +460,7 @@ impl App {
             View::Gates => "gates",
             View::Help => "help",
         };
-        // Wart fix: context is named in the prompt, not color-only.
-        format!("{} {view}>", self.context.label())
+        format!("{view}>")
     }
 
     /// Move the resolution cursor to the next missing (or invalid) path.
@@ -565,12 +543,8 @@ impl App {
             Some("publish") if argv.len() == 1 => Some(Action::StartWizard(WizardKind::Publish)),
             Some("resolve") if argv.len() == 2 => Some(Action::EnterResolution(argv[1].clone())),
             Some(_) => {
-                // Commands cross the context boundary rather than being
-                // refused (UX spec §3): typing a remote verb in Local
-                // switches context instead of teaching "wrong mode".
-                if is_remote_command(&argv) && self.context == Context::Local {
-                    self.context = Context::Remote;
-                }
+                // Every verb runs from every screen (UX spec §3). There
+                // is no mode to be in the wrong one of.
                 match confirmation_prompt(&argv) {
                     Some(prompt) => {
                         self.pending_confirm = Some((prompt, Action::Run(argv)));
@@ -695,9 +669,10 @@ impl App {
                 None
             }
             KeyCode::Tab => {
-                if self.input.is_empty() {
-                    self.context = self.context.toggle();
-                } else if let Some(s) = self.suggestions.get(self.suggestion_index) {
+                // Completion, and nothing else. Tab used to also toggle
+                // a Local/Remote mode when the input was empty, which
+                // made one key mean two things depending on state.
+                if let Some(s) = self.suggestions.get(self.suggestion_index) {
                     self.input = s.clone();
                     self.cursor = self.input.len();
                     self.refresh_suggestions();
@@ -1095,21 +1070,40 @@ mod tests {
         assert_eq!(action, Some(Action::Quit));
     }
 
+    /// The hint bar renders `primary_action().0`, so this is the test
+    /// that would have caught batch 23.1's finding: every screen used to
+    /// answer "history" because the answer came from a mode rather than
+    /// from the screen.
     #[test]
-    fn tab_toggles_context_only_with_empty_input() {
+    fn every_screen_names_its_own_primary_action() {
         let mut app = App::default();
-        assert_eq!(app.context, Context::Local);
-        app.handle_key(key(KeyCode::Tab));
-        assert_eq!(app.context, Context::Remote);
-        assert!(
-            app.prompt().starts_with("REMOTE"),
-            "context named in prompt"
-        );
+        for (view, expected) in [
+            (View::Root, "history"),
+            (View::History, "restore selected"),
+            (View::Inbox, "open selected"),
+            (View::Bundles, "open selected"),
+            (View::Releases, "open selected"),
+            (View::Lanes, "open selected"),
+            (View::Gates, "open selected"),
+            (View::Help, "back"),
+        ] {
+            app.frames = vec![View::Root, view];
+            assert_eq!(
+                app.primary_action().0,
+                expected,
+                "{} named the wrong primary action",
+                view.title()
+            );
+        }
+    }
 
+    #[test]
+    fn tab_only_completes() {
+        let mut app = App::default();
         typed(&mut app, "hist");
         app.handle_key(key(KeyCode::Tab));
-        assert_eq!(app.context, Context::Remote, "tab with input never toggles");
         assert_eq!(app.input, "history", "tab accepts the suggestion");
+        assert_eq!(app.prompt(), "root>", "the view is the whole prompt");
     }
 
     #[test]
@@ -1145,16 +1139,6 @@ mod tests {
         );
         assert!(app.input.is_empty());
         assert_eq!(app.command_history, vec!["snap -m hello"]);
-    }
-
-    #[test]
-    fn remote_context_primary_action_depends_on_configuration() {
-        let mut app = App::default();
-        app.handle_key(key(KeyCode::Tab));
-        assert_eq!(app.context, Context::Remote);
-        assert_eq!(app.primary_action().0, "login", "unconfigured -> login");
-        app.status = Some(serde_json::json!({"remote": {"configured": true}}));
-        assert_eq!(app.primary_action().0, "publish");
     }
 
     #[test]
@@ -1372,7 +1356,7 @@ mod tests {
 
     #[test]
     fn missing_workspace_makes_init_the_only_move() {
-        let mut app = App {
+        let app = App {
             workspace_missing: true,
             ..App::default()
         };
@@ -1380,9 +1364,6 @@ mod tests {
             app.primary_action(),
             ("init", Action::Run(vec!["init".into()]))
         );
-        // Even in remote context: nothing remote is reachable yet.
-        app.context = Context::Remote;
-        assert_eq!(app.primary_action().0, "init");
     }
 
     #[test]
@@ -1630,25 +1611,6 @@ mod tests {
         app.handle_key(key(KeyCode::Tab));
         assert_eq!(app.input, "unsnap");
         assert_eq!(app.cursor, app.input.len());
-    }
-
-    #[test]
-    fn remote_command_typed_in_local_crosses_the_boundary() {
-        let mut app = App::default();
-        assert_eq!(app.context, Context::Local);
-        typed(&mut app, "publish --lane lane-a");
-        app.handle_key(key(KeyCode::Enter));
-        assert_eq!(
-            app.context,
-            Context::Remote,
-            "a remote verb switches context instead of being refused"
-        );
-
-        // Local verbs leave the context alone.
-        app.context = Context::Local;
-        typed(&mut app, "changes");
-        app.handle_key(key(KeyCode::Enter));
-        assert_eq!(app.context, Context::Local);
     }
 
     #[test]

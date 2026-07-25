@@ -121,6 +121,40 @@ fn two_person_team_from_bootstrap_to_published_work() -> Result<()> {
     );
     assert_eq!(out.status.code(), Some(1));
 
+    // Every capability the server defines can actually be granted
+    // (batch 23.1). `secret` shipped in g02.019 and was never added to
+    // `member add`'s hand-written list, so for two roadmaps the one
+    // documented way to grant it refused it, and only admins — who
+    // subsume everything — could touch a secret at all.
+    for capability in [
+        "read",
+        "snap-sync",
+        "publish",
+        "resolve",
+        "approve",
+        "promote",
+        "release",
+        "secret",
+        "admin",
+    ] {
+        let out = converge(
+            admin,
+            &[
+                "--json",
+                "member",
+                "add",
+                &format!("grantee-{capability}"),
+                "--capability",
+                capability,
+            ],
+        );
+        assert!(
+            out.status.success(),
+            "{capability} could not be granted: {}",
+            String::from_utf8_lossy(&out.stdout)
+        );
+    }
+
     // Dana logs in with the issued token and does real work.
     let dana_dir = tempfile::tempdir()?;
     let dana = dana_dir.path();

@@ -721,22 +721,14 @@ async fn add_member(
         return Err(bad_request("at least one capability is required"));
     }
     // Unknown capability strings would sit in the table forever granting
-    // nothing, so they are refused rather than stored.
-    let known = [
-        Capability::Read,
-        Capability::SnapSync,
-        Capability::Publish,
-        Capability::Resolve,
-        Capability::Approve,
-        Capability::Promote,
-        Capability::Release,
-        Capability::Admin,
-    ];
+    // nothing, so they are refused rather than stored. The list comes
+    // from the enum: a hand-written copy is how `secret` ended up
+    // ungrantable for two roadmaps.
     for capability in &request.capabilities {
-        if !known.iter().any(|c| c.as_str() == capability) {
+        if !Capability::ALL.iter().any(|c| c.as_str() == capability) {
             return Err(bad_request(format!(
                 "unknown capability {capability}; known: {}",
-                known
+                Capability::ALL
                     .iter()
                     .map(Capability::as_str)
                     .collect::<Vec<_>>()

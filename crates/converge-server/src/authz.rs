@@ -22,6 +22,26 @@ pub enum Capability {
 }
 
 impl Capability {
+    /// Every capability, so anything that needs the list derives it
+    /// rather than keeping its own copy.
+    ///
+    /// `member add` used to hold a hand-written array here, and when
+    /// `Secret` was added in g02.019 it was not added there — so the one
+    /// documented way to grant it silently refused it, and only admins
+    /// (who subsume everything) could touch a secret. A second list is a
+    /// second thing to forget.
+    pub const ALL: [Capability; 9] = [
+        Capability::Read,
+        Capability::SnapSync,
+        Capability::Publish,
+        Capability::Resolve,
+        Capability::Approve,
+        Capability::Promote,
+        Capability::Release,
+        Capability::Secret,
+        Capability::Admin,
+    ];
+
     pub fn as_str(&self) -> &'static str {
         match self {
             Capability::Read => "read",

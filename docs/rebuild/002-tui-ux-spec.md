@@ -41,9 +41,11 @@ View chrome: bordered block titled `Title <timestamp>`.
 | Gate Graph | `gates>` | Gate DAG: upstreams, required approvals |
 | Settings | `settings>` | Config as selectable action list |
 
-Root splits into **Local and Remote contexts** with distinct command sets,
-default actions, and accent colors. The same color language repeats in prompt,
-input line, and Tab hint.
+Root was originally specified as **two contexts**, Local and Remote, with
+distinct command sets, default actions, and accent colors. Batch 23.1
+removed the split: see §7's wart and §8. There is one Root, showing head
+and pending changes alongside the remote target and what was last
+published and last seen.
 
 ## 3. Navigation and Keys
 
@@ -51,8 +53,9 @@ Key meaning depends on whether the input buffer is empty:
 
 - `q` quit
 - `Esc` layered back: clear input → pop view stack toward Root → quit
-- `Tab` empty input: toggle Local↔Remote; with suggestions open: accept
-  selected suggestion
+- `Tab` accept the selected suggestion. It used to also toggle
+  Local↔Remote on empty input, which made one key mean two things
+  depending on state (batch 23.1)
 - `Enter` empty input: run the computed **default action**; with input: run
   typed/selected command
 - `↑/↓` empty input: move view-list selection; suggestions open: move
@@ -63,9 +66,9 @@ Key meaning depends on whether the input buffer is empty:
   `Alt+f` next invalid, `Alt+n` next missing
 
 Views are entered by command (`history`, `inbox`, `bundles`, …), pushed onto a
-mode stack; `Esc` pops. Commands **auto-cross the Local/Remote boundary**: a
-remote command typed in Local context switches context with a status note —
-users never hit "wrong mode for this command."
+mode stack; `Esc` pops. Every verb runs from every screen: the
+auto-crossing rule existed so users never hit "wrong mode for this
+command", and with the mode gone there is no wrong mode to be in.
 
 ## 4. Core Interaction Principles (must preserve)
 
@@ -127,7 +130,7 @@ validation counts (missing/invalid/out-of-range), then apply.
   with a title-line summary
 - Modal kinds: Viewer, editable SnapMessage, ConfirmAction, TextInput
 - View stack push/pop like a nav stack
-- Two-color context theming for Local vs Remote
+- ~~Two-color context theming for Local vs Remote~~ (removed, batch 23.1)
 
 ## 7. Known Warts — Fix in Rebuild
 
@@ -145,7 +148,12 @@ validation counts (missing/invalid/out-of-range), then apply.
   quit needs its own confirmation or distinct key.
 - **Dual home dashboards** distinguished only by accent color behind one
   `root>` prompt — context easy to lose. Rebuild: explicit context label in
-  the prompt/header.
+  the prompt/header. **Batch 23.1 went further and deleted the split.**
+  Driving the real TUI showed both dashboards using four lines of a
+  thirty-line pane, each withholding what the other one showed: the
+  local one knew the head, the remote one knew where it published to,
+  and a person needed both at once. Labelling a mode is a smaller fix
+  than not having one.
 - Internal log pane is dead weight (superseded by the "Last" strip) — drop.
 
 ## 8. Implementation Status (batch 17.4)
@@ -156,15 +164,14 @@ against the build is a wish list.
 
 ### Built
 
-- shell model (§1) and both root contexts; the "Last" strip renders
-  fields rather than raw JSON (batch 17.3)
-- views (§2): Root Local/Remote, History, Inbox, Bundles, Releases,
-  Lanes, Gate Graph, Superpositions
-- keys (§3): `q`, layered `Esc` with quit confirmation, `Tab` context
-  toggle and suggestion accept, `Enter` primary action, `↑/↓` list and
-  history, `←/→`/Home/End caret movement, `Alt+1..9`/`Alt+0` variant
-  picks, `Alt+f` next invalid, `Alt+n` next missing, plus `Alt` jumps to
-  each view. Commands cross the Local/Remote boundary automatically
+- shell model (§1); the "Last" strip renders fields rather than raw JSON
+  (batch 17.3)
+- views (§2): Root, History, Inbox, Bundles, Releases, Lanes, Gate
+  Graph, Superpositions
+- keys (§3): `q`, layered `Esc` with quit confirmation, `Tab` suggestion
+  accept, `Enter` primary action, `↑/↓` list and history, `←/→`/Home/End
+  caret movement, `Alt+1..9`/`Alt+0` variant picks, `Alt+f` next
+  invalid, `Alt+n` next missing, plus `Alt` jumps to each view
 - principles (§4): argv contract (1), computed primary action (2), JSONL
   agent trace (3), console + fuzzy palette (4), confirm-once (5),
   ambient hints (7), idle auto-refresh (8, at 5s not 3s — the scan is
@@ -173,8 +180,25 @@ against the build is a wish list.
   review step; non-modal superposition resolution with live validation
 - warts (§7): all seven addressed — async loads with an in-flight
   indicator, contextual key layer, wizard step-back and review,
-  structured option prompts, `Esc`-quit confirmation, named context in
-  the prompt, no log pane
+  structured option prompts, `Esc`-quit confirmation, one Root instead
+  of a labelled mode (batch 23.1), no log pane
+
+### Known limits (batch 23.1, from a real session)
+
+- **the `Alt` jump layer does nothing on stock macOS terminals.**
+  Terminal.app and iTerm send composed characters for Option unless "Use
+  Option as Meta key" is enabled, so the whole shortcut layer silently
+  fails for the platform most likely to be running this. Typing the verb
+  still reaches every view. Help now says so. Not fixed by inventing a
+  second key scheme in a subtraction batch
+- **Superpositions asks for a decision it does not show.** A path lists
+  "[2 variants]" and `1-9 pick`, with no way to see what either variant
+  contains. This is §6's 65/35 split, deferred as polish; driving it
+  showed it is a decision-correctness problem, and 23.5 addresses it
+- **a bundle id is only ever printed once.** `publish` prints it; the
+  inbox lists a bundle only when it needs *your* action, so one that is
+  immediately ready never appears. `events` is the only place to find it
+  again, and it is documented as "hints; reconcile via inbox"
 
 ### Intentionally different
 

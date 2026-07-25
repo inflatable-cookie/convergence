@@ -325,11 +325,7 @@ fn trace_screen(trace: &mut trace::Trace, app: &App) {
     if !trace.enabled() {
         return;
     }
-    let screen_id = format!(
-        "{}:{}",
-        app.context.label().to_lowercase(),
-        app.current_view().title().to_lowercase()
-    );
+    let screen_id = app.current_view().title().to_lowercase();
     let selectable: Vec<String> = match app.current_view() {
         View::History => app
             .snaps
@@ -533,13 +529,11 @@ fn render(frame: &mut Frame, app: &App) {
     ])
     .areas(frame.area());
 
-    // Header: workspace context, named not color-only.
+    // Header: what this workspace is, how fresh, and whether the
+    // server is reachable.
     frame.render_widget(
         Paragraph::new(Line::from(vec![
-            Span::styled(
-                format!(" converge [{}] ", app.context.label()),
-                Style::default().add_modifier(Modifier::BOLD),
-            ),
+            Span::styled(" converge ", Style::default().add_modifier(Modifier::BOLD)),
             Span::raw(format!(
                 "{} snaps, {} pending changes",
                 app.snaps.len(),
@@ -565,49 +559,12 @@ fn render(frame: &mut Frame, app: &App) {
                 }),
             ),
         ]))
-        .style(Style::default().bg(match app.context {
-            app::Context::Local => Color::DarkGray,
-            app::Context::Remote => Color::Blue,
-        })),
+        .style(Style::default().bg(Color::DarkGray)),
         header,
     );
 
     // Body: active view.
     match app.current_view() {
-        View::Root if app.context == app::Context::Remote => {
-            let (primary, _) = app.primary_action();
-            let remote = app.status.as_ref().map(|s| s["remote"].clone());
-            let target = remote
-                .as_ref()
-                .filter(|r| r["configured"].as_bool().unwrap_or(false))
-                .and_then(|r| r["target"].as_str().map(str::to_string))
-                .unwrap_or_else(|| "not configured (run login)".to_string());
-            let last_published = remote
-                .as_ref()
-                .and_then(|r| r["last_published_snap"].as_str().map(str::to_string))
-                .unwrap_or_else(|| "none".to_string());
-            let last_seen = remote
-                .as_ref()
-                .and_then(|r| r["last_seen_bundle"].as_str().map(str::to_string))
-                .unwrap_or_else(|| "none".to_string());
-            let flow = app
-                .status
-                .as_ref()
-                .and_then(|s| s["profile"]["flow"].as_str().map(str::to_string))
-                .unwrap_or_default();
-            let lines = vec![
-                Line::raw(format!("remote: {target}")),
-                Line::raw(format!("last published snap: {last_published}")),
-                Line::raw(format!("last seen bundle: {last_seen}")),
-                Line::styled(flow, Style::default().fg(Color::DarkGray)),
-                Line::raw(""),
-                Line::styled(
-                    format!("Enter: {primary}"),
-                    Style::default().add_modifier(Modifier::BOLD),
-                ),
-            ];
-            frame.render_widget(Paragraph::new(lines).block(view_block(app)), body);
-        }
         View::Root if app.workspace_missing => {
             // A TUI started outside a workspace used to render an empty
             // shell and fail every refresh silently (audit P1.5).
@@ -623,6 +580,9 @@ fn render(frame: &mut Frame, app: &App) {
             frame.render_widget(Paragraph::new(lines).block(view_block(app)), body);
         }
         View::Root => {
+            // One Root. There used to be two — a local one and a remote
+            // one behind a mode toggle — each using four lines of a
+            // thirty-line pane to withhold what the other one showed.
             let (primary, _) = app.primary_action();
             let head = app.status.as_ref().map(|s| s["head"].clone());
             let head_line = head
@@ -630,7 +590,8 @@ fn render(frame: &mut Frame, app: &App) {
                 .and_then(|h| h["id"].as_str().map(str::to_string))
                 .map(|id| {
                     format!(
-                        "head: {id} ({})",
+                        "head: {} ({})",
+                        short_id(&id),
                         head.as_ref()
                             .and_then(|h| h["trigger"].as_str())
                             .unwrap_or("?")
@@ -642,12 +603,43 @@ fn render(frame: &mut Frame, app: &App) {
                 .as_ref()
                 .and_then(|s| s["snaps"]["automatic"].as_u64())
                 .unwrap_or(0);
+            let remote = app.status.as_ref().map(|s| s["remote"].clone());
+            let configured = remote
+                .as_ref()
+                .and_then(|r| r["configured"].as_bool())
+                .unwrap_or(false);
+            let target = remote
+                .as_ref()
+                .filter(|_| configured)
+                .and_then(|r| r["target"].as_str().map(str::to_string))
+                .unwrap_or_else(|| "not configured (run login)".to_string());
+            let last_published = remote
+                .as_ref()
+                .and_then(|r| r["last_published_snap"].as_str().map(str::to_string))
+                .map(|id| short_id(&id))
+                .unwrap_or_else(|| "none".to_string());
+            let last_seen = remote
+                .as_ref()
+                .and_then(|r| r["last_seen_bundle"].as_str().map(str::to_string))
+                .map(|id| short_id(&id))
+                .unwrap_or_else(|| "none".to_string());
+            let flow = app
+                .status
+                .as_ref()
+                .and_then(|s| s["profile"]["flow"].as_str().map(str::to_string))
+                .unwrap_or_default();
             let lines = vec![
-                Line::raw(format!("pending changes: {}", app.pending_changes)),
                 Line::raw(head_line),
                 Line::raw(format!(
-                    "automatic captures: {auto} (run `watch` in a terminal for continuous capture)"
+                    "pending changes: {}    automatic captures: {auto}",
+                    app.pending_changes
                 )),
+                Line::raw(""),
+                Line::raw(format!("remote: {target}")),
+                Line::raw(format!(
+                    "last published snap: {last_published}    last seen bundle: {last_seen}"
+                )),
+                Line::styled(flow, Style::default().fg(Color::DarkGray)),
                 Line::raw(""),
                 Line::styled(
                     format!("Enter: {primary}"),
@@ -702,11 +694,12 @@ fn render(frame: &mut Frame, app: &App) {
                     } else {
                         Style::default()
                     };
-                    let suffix = argv
-                        .as_ref()
-                        .map(|a| format!("  [Enter: {}]", a.join(" ")))
-                        .unwrap_or_default();
-                    ListItem::new(format!("{label}{suffix}")).style(style)
+                    // The row's action used to be spelled out here,
+                    // full 64-character bundle id and all, so it was
+                    // always cut off at the right edge. The hint bar
+                    // already names what Enter does.
+                    let _ = &argv;
+                    ListItem::new(label.clone()).style(style)
                 })
                 .collect();
             if items.is_empty() {
@@ -740,9 +733,17 @@ fn render(frame: &mut Frame, app: &App) {
         View::Help => {
             let mut lines = vec![
                 Line::styled("keys", Style::default().add_modifier(Modifier::BOLD)),
-                Line::raw("  Enter: primary action   Esc: back   q: quit   Tab: context"),
+                Line::raw("  Enter: primary action   Esc: back   q: quit   Tab: complete"),
                 Line::raw("  Alt+h history   Alt+i inbox   Alt+b bundles   Alt+l lanes"),
                 Line::raw("  Alt+e releases  Alt+g gates   Alt+? help    Alt+r root"),
+                Line::styled(
+                    "  (macOS Terminal and iTerm send composed characters for Option;",
+                    Style::default().fg(Color::DarkGray),
+                ),
+                Line::styled(
+                    "   enable \"Use Option as Meta key\", or type the verb instead.)",
+                    Style::default().fg(Color::DarkGray),
+                ),
                 Line::raw(""),
                 Line::styled(
                     "verbs (type any of these)",
@@ -786,10 +787,18 @@ fn render(frame: &mut Frame, app: &App) {
                     } else {
                         Style::default()
                     };
+                    // Short id, like every other list view. The full
+                    // 64 characters used to push the message off the
+                    // right edge, which left the one column a person
+                    // actually reads invisible.
                     ListItem::new(format!(
                         "{}  {}  {}",
-                        s["id"].as_str().unwrap_or("?"),
-                        s["created_at"].as_str().unwrap_or(""),
+                        short_id(s["id"].as_str().unwrap_or("?")),
+                        s["created_at"]
+                            .as_str()
+                            .unwrap_or("")
+                            .get(..19)
+                            .unwrap_or(""),
                         s["message"].as_str().unwrap_or("")
                     ))
                     .style(style)
@@ -886,7 +895,7 @@ fn render(frame: &mut Frame, app: &App) {
         format!("{label}? Enter/y: yes  any other key: no")
     } else {
         format!(
-            "Enter: {}  Esc: back  Tab: context  q: quit",
+            "Enter: {}  Esc: back  Tab: complete  q: quit",
             app.primary_action().0
         )
     };

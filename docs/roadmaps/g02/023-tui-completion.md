@@ -1,6 +1,6 @@
 # 023 TUI Completion
 
-Status: planned
+Status: in progress (23.1 complete)
 Owner: repo maintainers
 Updated: 2026-07-25
 
@@ -42,11 +42,12 @@ how a product accumulates surfaces that each made sense alone.
 
 ## Execution Plan (batch details in cards)
 
-- **23.1 Reality check and simplification sweep**: drive the real TUI,
-  including through the agent trace it was built to expose (spec §4.3);
-  record what is confusing, redundant, or dead; then *remove*. Nothing
-  is added in this batch. Its output is a findings note and a smaller
-  surface
+- **23.1 Reality check and simplification sweep** (complete, card 082):
+  drove the real binaries against a real server through a pty. Nine
+  findings, three of them defects: `secret` could not be granted to
+  anyone, the hint bar named the wrong key on six screens, and the
+  Local/Remote mode kept half of Root hidden from the other half. The
+  mode is gone. Net 247 → 246 tests
 - **23.2 Secrets view**: who can read what, value age, stale recipients,
   and the confirm-once paths for rotate and unshare. The audit output
   from 20.2-20.3 is already the right shape; this gives it a screen
@@ -71,5 +72,4 @@ how a product accumulates surfaces that each made sense alone.
 
 ## Next Task
 
-Scheduled after `g02.021`. Opens at batch card 23.1 (reality check and
-simplification sweep) — deliberately a subtraction before any addition.
+Batch card 23.2 (secrets view).
