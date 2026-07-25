@@ -1,8 +1,8 @@
 # 018 Adversarial Test Hardening
 
-Status: planned
+Status: in progress (18.1 complete)
 Owner: repo maintainers
-Updated: 2026-07-24
+Updated: 2026-07-25
 
 ## Context
 
@@ -31,9 +31,11 @@ is caught by CI, not by audit.
 
 ## Execution Plan (batch details in cards)
 
-- **18.1 Concurrency harness**: multi-client test rig; concurrent
-  publish/promote/GC interleavings against one partition; assertions
-  on window/base consistency
+- **18.1 Concurrency harness** (complete, card 065): `Cluster` rig with
+  N real clients over HTTP; publishes racing promotions, simultaneous
+  promotion of one bundle, GC looping against in-flight chunked
+  uploads. Found and fixed a duplicate-promotion record — promote is
+  now idempotent for retries (doc 14 §3)
 - **18.2 Failure injection**: process-kill and connection-drop
   helpers; mid-upload, mid-GC, mid-export, mid-restore interruption
   tests; corrupt-object verify-on-read paths
@@ -55,4 +57,4 @@ is caught by CI, not by audit.
 
 ## Next Task
 
-Blocked behind g02.015 and g02.017 completion.
+Open batch card 18.2 (failure injection).

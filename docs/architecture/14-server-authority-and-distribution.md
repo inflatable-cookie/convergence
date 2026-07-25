@@ -139,6 +139,11 @@ caller's point of view.
   promoted — is refused instead of rewinding the floor and re-opening
   consumed publications. Re-promoting the current W to a further downstream
   gate records the promotion without touching partition state (fan-out).
+  Repeating a promotion into a gate the bundle already reached is a no-op
+  that reports success (batch 18.1): the state half was already
+  idempotent, and a client whose request timed out has to be able to
+  retry without being told the promotion "already happened" — which is
+  indistinguishable from a refusal at the point where it matters.
 - **Cross-partition: eventually consistent, converged by gates.** A promotion
   from gate A to gate B is an atomic write in B's partition referencing an
   immutable bundle from A's. No transaction spans partitions; immutability of

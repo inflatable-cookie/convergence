@@ -767,6 +767,20 @@ impl Engine<'_> {
             }
         }
 
+        // Idempotent retry (batch 18.1): a client whose promote timed out
+        // and retried must not record the promotion twice. The state half
+        // is already idempotent — `is_current_w` skips the advance — so
+        // only the record needed the check. Fan-out to a *different* gate
+        // still goes through.
+        if self
+            .meta
+            .list_promotions(bundle_id)?
+            .iter()
+            .any(|(_, to, _)| to == to_gate)
+        {
+            return Ok(());
+        }
+
         let mut ops = vec![
             MetaOp::AssertPartitionState {
                 repo_id: authz.repo_id().to_string(),
