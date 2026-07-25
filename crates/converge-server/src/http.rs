@@ -43,6 +43,7 @@ const MAX_BODY_BYTES: usize = 64 * 1024 * 1024;
 const MAX_PAGE_ITEMS: usize = 1000;
 
 pub fn router(state: AppState) -> Router {
+    let shared: SharedState = Arc::new(state);
     Router::new()
         .route("/api/healthz", get(healthz))
         .route("/api/auth/config", get(auth_config))
@@ -104,7 +105,43 @@ pub fn router(state: AppState) -> Router {
         )
         .route("/api/repos/:repo/gc", post(run_gc))
         .layer(axum::extract::DefaultBodyLimit::max(MAX_BODY_BYTES))
-        .with_state(Arc::new(state))
+        .layer(axum::middleware::from_fn_with_state(
+            shared.clone(),
+            require_authentication,
+        ))
+        .with_state(shared)
+}
+
+/// Routes that must work without a credential.
+///
+/// Health is for load balancers; the two auth routes are how a client
+/// *gets* a credential, and `/api/auth/exchange` carries an identity
+/// token from the provider rather than one of ours.
+const PUBLIC_ROUTES: &[&str] = &["/api/healthz", "/api/auth/config", "/api/auth/exchange"];
+
+/// Authenticate before routing, not inside each handler (batch 21.4).
+///
+/// Handlers still authenticate — they need the subject, and a check
+/// that only exists in a layer is one route registration away from
+/// being skipped. What this adds is *ordering*: without it, axum runs
+/// the `Json` extractor first, so an anonymous caller reaches the body
+/// parser on every route, learns the request schema from a 422, and can
+/// push a body up to the size limit through it before anyone asks who
+/// they are.
+async fn require_authentication(
+    State(state): State<SharedState>,
+    request: axum::extract::Request,
+    next: axum::middleware::Next,
+) -> Response {
+    if PUBLIC_ROUTES.contains(&request.uri().path()) {
+        return next.run(request).await;
+    }
+    // Only authentication belongs here. Authorization needs the repo and
+    // the operation, which is a per-handler question.
+    if let Err(error) = subject(&state, request.headers()) {
+        return error.into_response();
+    }
+    next.run(request).await
 }
 
 struct ApiError(StatusCode, String);
@@ -238,11 +275,27 @@ pub fn token_hash(token: &str) -> String {
 
 /// Server-wide admin check for operations that name no repo yet.
 fn site_admin(state: &AppState, headers: &HeaderMap) -> Result<String, ApiError> {
-    let subject = subject(state, headers)?;
-    if state.meta.is_site_admin(&subject).map_err(internal_error)? {
-        return Ok(subject);
+    let caller = caller(state, headers)?;
+    // Scope applies here too: creating repos is the widest thing there
+    // is, and a token that cannot administer a repo it knows about
+    // should not be able to make new ones.
+    if !caller.permits(Capability::Admin) {
+        return Err(forbidden(format!(
+            "this token is scoped to {} and does not carry admin",
+            caller.scope.join(", ")
+        )));
     }
-    Err(forbidden(format!("{subject} is not a server admin")))
+    if state
+        .meta
+        .is_site_admin(&caller.subject)
+        .map_err(internal_error)?
+    {
+        return Ok(caller.subject);
+    }
+    Err(forbidden(format!(
+        "{} is not a server admin",
+        caller.subject
+    )))
 }
 
 fn parse_kind(kind: &str) -> Result<ObjectKind, ApiError> {
@@ -292,10 +345,19 @@ fn scoped_objects<'a>(state: &'a AppState, repo: &str) -> AssociatingObjects<'a>
     }
 }
 
-fn authorize_repo(
+/// The single authorization entry point: scope, then grant.
+///
+/// Batch 21.2 added the scope check here and left handlers that called
+/// `authorize` directly untouched, which made scope a property of the
+/// routes it happened to reach rather than of the token — `add_member`
+/// among them, so a read-scoped credential could grant itself admin.
+/// Batch 21.4 routes everything through this, and `authorize` is no
+/// longer called from a handler.
+fn authorize_scoped(
     state: &AppState,
     headers: &HeaderMap,
     repo: &str,
+    scope: &str,
     capability: Capability,
 ) -> Result<AuthzContext, ApiError> {
     let caller = caller(state, headers)?;
@@ -309,8 +371,23 @@ fn authorize_repo(
             capability.as_str()
         )));
     }
-    authorize(state.meta.as_ref(), &caller.subject, repo, "*", capability)
-        .map_err(|err| forbidden(format!("{err:#}")))
+    authorize(
+        state.meta.as_ref(),
+        &caller.subject,
+        repo,
+        scope,
+        capability,
+    )
+    .map_err(|err| forbidden(format!("{err:#}")))
+}
+
+fn authorize_repo(
+    state: &AppState,
+    headers: &HeaderMap,
+    repo: &str,
+    capability: Capability,
+) -> Result<AuthzContext, ApiError> {
+    authorize_scoped(state, headers, repo, "*", capability)
 }
 
 async fn negotiate(
@@ -485,16 +562,14 @@ async fn publish(
     headers: HeaderMap,
     Json(request): Json<PublishRequest>,
 ) -> Result<Json<BundleRecord>, ApiError> {
-    let subject = subject(&state, &headers)?;
     check_wire_version(request.wire_version)?;
-    let authz = authorize(
-        state.meta.as_ref(),
-        &subject,
+    let authz = authorize_scoped(
+        &state,
+        &headers,
         &request.repo_id,
         &request.scope_id,
         Capability::Publish,
-    )
-    .map_err(|err| forbidden(format!("{err:#}")))?;
+    )?;
     let scoped = scoped_objects(&state, &request.repo_id);
     let engine = Engine {
         meta: state.meta.as_ref(),
@@ -521,16 +596,9 @@ async fn create_lane(
     headers: HeaderMap,
     Json(request): Json<CreateLaneRequest>,
 ) -> Result<Json<LaneRecord>, ApiError> {
-    let subject = subject(&state, &headers)?;
     // Creating a lane is a publish-capability act on the repo.
-    authorize(
-        state.meta.as_ref(),
-        &subject,
-        &repo,
-        "*",
-        Capability::Publish,
-    )
-    .map_err(|err| forbidden(format!("{err:#}")))?;
+    let authz = authorize_repo(&state, &headers, &repo, Capability::Publish)?;
+    let subject = authz.subject().to_string();
     if !matches!(request.visibility.as_str(), "private" | "repo") {
         return Err(bad_request(format!(
             "unknown visibility {}",
@@ -644,9 +712,8 @@ async fn add_member(
     headers: HeaderMap,
     Json(request): Json<converge_model::AddMemberRequest>,
 ) -> Result<Json<converge_model::MemberAdded>, ApiError> {
-    let subject = subject(&state, &headers)?;
-    authorize(state.meta.as_ref(), &subject, &repo, "*", Capability::Admin)
-        .map_err(|err| forbidden(format!("{err:#}")))?;
+    let authz = authorize_repo(&state, &headers, &repo, Capability::Admin)?;
+    let subject = authz.subject().to_string();
     if request.subject.is_empty() {
         return Err(bad_request("member subject is required"));
     }
@@ -1343,9 +1410,7 @@ async fn list_members(
     Path(repo): Path<String>,
     headers: HeaderMap,
 ) -> Result<Json<Vec<converge_model::MemberRecord>>, ApiError> {
-    let subject = subject(&state, &headers)?;
-    authorize(state.meta.as_ref(), &subject, &repo, "*", Capability::Read)
-        .map_err(|err| forbidden(format!("{err:#}")))?;
+    authorize_repo(&state, &headers, &repo, Capability::Read)?;
     let mut members: Vec<converge_model::MemberRecord> = Vec::new();
     for (subject, capability, scope_pattern) in
         state.meta.list_grants(&repo).map_err(internal_error)?
@@ -1394,9 +1459,7 @@ async fn get_gates(
     Path(repo): Path<String>,
     headers: HeaderMap,
 ) -> Result<Json<converge_model::GateGraph>, ApiError> {
-    let subject = subject(&state, &headers)?;
-    authorize(state.meta.as_ref(), &subject, &repo, "*", Capability::Read)
-        .map_err(|err| forbidden(format!("{err:#}")))?;
+    authorize_repo(&state, &headers, &repo, Capability::Read)?;
     Ok(Json(
         state.meta.get_gate_graph(&repo).map_err(internal_error)?,
     ))
@@ -1408,9 +1471,7 @@ async fn create_scope(
     headers: HeaderMap,
     Json(request): Json<converge_model::CreateScopeRequest>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
-    let subject = subject(&state, &headers)?;
-    authorize(state.meta.as_ref(), &subject, &repo, "*", Capability::Admin)
-        .map_err(|err| forbidden(format!("{err:#}")))?;
+    authorize_repo(&state, &headers, &repo, Capability::Admin)?;
     if request.scope_id.is_empty() || request.scope_id == "*" {
         return Err(bad_request(format!(
             "invalid scope id {:?}",
@@ -1433,9 +1494,7 @@ async fn list_scopes(
     Query(params): Query<PageParams>,
     headers: HeaderMap,
 ) -> Result<Json<Page<String>>, ApiError> {
-    let subject = subject(&state, &headers)?;
-    authorize(state.meta.as_ref(), &subject, &repo, "*", Capability::Read)
-        .map_err(|err| forbidden(format!("{err:#}")))?;
+    authorize_repo(&state, &headers, &repo, Capability::Read)?;
     let limit = params.limit();
     let scopes = state
         .meta
@@ -1477,9 +1536,7 @@ async fn list_lanes(
     Query(params): Query<PageParams>,
     headers: HeaderMap,
 ) -> Result<Json<Page<LaneRecord>>, ApiError> {
-    let subject = subject(&state, &headers)?;
-    authorize(state.meta.as_ref(), &subject, &repo, "*", Capability::Read)
-        .map_err(|err| forbidden(format!("{err:#}")))?;
+    authorize_repo(&state, &headers, &repo, Capability::Read)?;
     let limit = params.limit();
     let lanes = state
         .meta
@@ -1539,9 +1596,7 @@ async fn get_snap(
     Path((repo, id)): Path<(String, String)>,
     headers: HeaderMap,
 ) -> Result<Json<SnapRecord>, ApiError> {
-    let subject = subject(&state, &headers)?;
-    authorize(state.meta.as_ref(), &subject, &repo, "*", Capability::Read)
-        .map_err(|err| forbidden(format!("{err:#}")))?;
+    authorize_repo(&state, &headers, &repo, Capability::Read)?;
     state
         .meta
         .get_snap_record(&repo, &id)
@@ -1572,9 +1627,7 @@ async fn get_lane_head(
     Path((repo, lane)): Path<(String, String)>,
     headers: HeaderMap,
 ) -> Result<Json<LaneHead>, ApiError> {
-    let subject = subject(&state, &headers)?;
-    let authz = authorize(state.meta.as_ref(), &subject, &repo, "*", Capability::Read)
-        .map_err(|err| forbidden(format!("{err:#}")))?;
+    let authz = authorize_repo(&state, &headers, &repo, Capability::Read)?;
     let engine = Engine {
         meta: state.meta.as_ref(),
         objects: state.objects.as_ref(),
@@ -1603,15 +1656,7 @@ async fn inbox(
     Query(params): Query<InboxParams>,
     headers: HeaderMap,
 ) -> Result<Json<InboxReport>, ApiError> {
-    let subject = subject(&state, &headers)?;
-    let authz = authorize(
-        state.meta.as_ref(),
-        &subject,
-        &repo,
-        &params.scope,
-        Capability::Read,
-    )
-    .map_err(|err| forbidden(format!("{err:#}")))?;
+    let authz = authorize_scoped(&state, &headers, &repo, &params.scope, Capability::Read)?;
     let engine = Engine {
         meta: state.meta.as_ref(),
         objects: state.objects.as_ref(),
@@ -1634,9 +1679,7 @@ async fn list_events(
     Query(params): Query<EventsParams>,
     headers: HeaderMap,
 ) -> Result<Json<converge_model::EventPage>, ApiError> {
-    let subject = subject(&state, &headers)?;
-    authorize(state.meta.as_ref(), &subject, &repo, "*", Capability::Read)
-        .map_err(|err| forbidden(format!("{err:#}")))?;
+    authorize_repo(&state, &headers, &repo, Capability::Read)?;
     let floor = state.meta.event_floor(&repo).map_err(internal_error)?;
     let events = state
         .meta
@@ -1659,12 +1702,13 @@ fn readable_bundle(
     headers: &HeaderMap,
     bundle_id: &str,
 ) -> Result<StoredBundle, ApiError> {
-    let subject = subject(state, headers)?;
     let missing = || ApiError(StatusCode::NOT_FOUND, format!("no bundle {bundle_id}"));
     let bundle = state.meta.get_bundle(bundle_id).map_err(|_| missing())?;
-    authorize(
-        state.meta.as_ref(),
-        &subject,
+    // A refusal here is a 404 on purpose (batch 11.3): whether a bundle
+    // exists is itself readable-only information.
+    authorize_scoped(
+        state,
+        headers,
         &bundle.repo_id,
         &bundle.scope_id,
         Capability::Read,
@@ -1729,15 +1773,13 @@ async fn approve(
     headers: HeaderMap,
     Json(request): Json<ApproveRequest>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
-    let subject = subject(&state, &headers)?;
-    let authz = authorize(
-        state.meta.as_ref(),
-        &subject,
+    let authz = authorize_scoped(
+        &state,
+        &headers,
         &request.repo_id,
         &request.scope_id,
         Capability::Approve,
-    )
-    .map_err(|err| forbidden(format!("{err:#}")))?;
+    )?;
     let engine = Engine {
         meta: state.meta.as_ref(),
         objects: state.objects.as_ref(),
@@ -1754,15 +1796,13 @@ async fn release(
     headers: HeaderMap,
     Json(request): Json<ReleaseRequest>,
 ) -> Result<Json<ReleaseRecord>, ApiError> {
-    let subject = subject(&state, &headers)?;
-    let authz = authorize(
-        state.meta.as_ref(),
-        &subject,
+    let authz = authorize_scoped(
+        &state,
+        &headers,
         &request.repo_id,
         &request.scope_id,
         Capability::Release,
-    )
-    .map_err(|err| forbidden(format!("{err:#}")))?;
+    )?;
     let engine = Engine {
         meta: state.meta.as_ref(),
         objects: state.objects.as_ref(),
@@ -1779,9 +1819,7 @@ async fn list_releases(
     Query(params): Query<PageParams>,
     headers: HeaderMap,
 ) -> Result<Json<Page<ReleaseRecord>>, ApiError> {
-    let subject = subject(&state, &headers)?;
-    authorize(state.meta.as_ref(), &subject, &repo, "*", Capability::Read)
-        .map_err(|err| forbidden(format!("{err:#}")))?;
+    authorize_repo(&state, &headers, &repo, Capability::Read)?;
     let limit = params.limit();
     let after_seq = params.after.as_deref().and_then(|c| c.parse::<u64>().ok());
     let rows = state
@@ -1800,9 +1838,7 @@ async fn channel_head(
     Path((repo, channel)): Path<(String, String)>,
     headers: HeaderMap,
 ) -> Result<Json<ReleaseRecord>, ApiError> {
-    let subject = subject(&state, &headers)?;
-    authorize(state.meta.as_ref(), &subject, &repo, "*", Capability::Read)
-        .map_err(|err| forbidden(format!("{err:#}")))?;
+    authorize_repo(&state, &headers, &repo, Capability::Read)?;
     state
         .meta
         .get_channel_head(&repo, &channel)
@@ -1821,9 +1857,7 @@ async fn get_retention(
     Path(repo): Path<String>,
     headers: HeaderMap,
 ) -> Result<Json<RetentionPolicy>, ApiError> {
-    let subject = subject(&state, &headers)?;
-    authorize(state.meta.as_ref(), &subject, &repo, "*", Capability::Read)
-        .map_err(|err| forbidden(format!("{err:#}")))?;
+    authorize_repo(&state, &headers, &repo, Capability::Read)?;
     let policy = state.meta.get_retention(&repo).map_err(internal_error)?;
     Ok(Json(policy))
 }
@@ -1834,10 +1868,8 @@ async fn set_retention(
     headers: HeaderMap,
     Json(policy): Json<RetentionPolicy>,
 ) -> Result<Json<RetentionPolicy>, ApiError> {
-    let subject = subject(&state, &headers)?;
     // Retention is control-plane config: admin only.
-    authorize(state.meta.as_ref(), &subject, &repo, "*", Capability::Admin)
-        .map_err(|err| forbidden(format!("{err:#}")))?;
+    authorize_repo(&state, &headers, &repo, Capability::Admin)?;
     state
         .meta
         .set_retention(&repo, &policy)
@@ -1861,9 +1893,7 @@ async fn run_gc(
     Query(params): Query<GcParams>,
     headers: HeaderMap,
 ) -> Result<Json<crate::gc::GcReport>, ApiError> {
-    let subject = subject(&state, &headers)?;
-    let authz = authorize(state.meta.as_ref(), &subject, &repo, "*", Capability::Admin)
-        .map_err(|err| forbidden(format!("{err:#}")))?;
+    let authz = authorize_repo(&state, &headers, &repo, Capability::Admin)?;
     // Single-flight (batch 14.4): a second concurrent GC would repeat the
     // whole-store walk for nothing.
     let _running = state
@@ -1898,15 +1928,13 @@ async fn promote(
     headers: HeaderMap,
     Json(request): Json<PromoteRequest>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
-    let subject = subject(&state, &headers)?;
-    let authz = authorize(
-        state.meta.as_ref(),
-        &subject,
+    let authz = authorize_scoped(
+        &state,
+        &headers,
         &request.repo_id,
         &request.scope_id,
         Capability::Promote,
-    )
-    .map_err(|err| forbidden(format!("{err:#}")))?;
+    )?;
     let engine = Engine {
         meta: state.meta.as_ref(),
         objects: state.objects.as_ref(),

@@ -239,6 +239,18 @@ Authentication is no longer slice-grade. What replaced the deferral:
 - startup `--token` pairs remain the offline path, and edge validation
   with offline grace bounded by token TTL (§7) is still target state
 
+**Where the checks live** (batch 21.4). Authentication runs in a layer
+*before* routing, so an unauthenticated request never reaches a body
+parser. Handlers authenticate again — they need the subject, and a
+check living only in a layer is one route registration away from being
+skipped. Authorization has exactly one entry point, `authorize_scoped`,
+which checks token scope and then the grant; no handler calls
+`authorize` directly. That last rule is the load-bearing one: when
+scope was added in 21.2 it only covered handlers that already used the
+shared helper, and the twenty that did not included member management —
+so a read-scoped token could grant itself admin. A shared check is only
+as good as the paths that go through it.
+
 ## 5. Bundle coalescing at scale
 
 g01 stubbed the core operation (bundle = input list, no computed manifest).

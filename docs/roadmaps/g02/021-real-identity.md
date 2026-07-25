@@ -1,6 +1,6 @@
 # 021 Real Identity
 
-Status: in progress (21.1-21.3 complete)
+Status: complete
 Owner: repo maintainers
 Updated: 2026-07-25
 
@@ -49,9 +49,14 @@ password that happens to be long.
   found three real defects: no crypto provider selected (every exchange
   would have panicked), a blocking JWKS fetch on the async worker, and
   60 seconds of inherited clock-skew leeway
-- **21.4 Adversarial**: an expired token is refused everywhere, a
-  revoked one immediately, a scoped one cannot exceed its scope, and no
-  path reintroduces a long-lived unscoped credential
+- **21.4 Adversarial** (complete, card 081): a table-driven suite over
+  all 41 authenticated routes. Found that scope was a property of the
+  *route* rather than the token — twenty handlers called `authorize`
+  directly and skipped it, so a read-scoped token could add a member
+  with any capabilities, including admin. All handlers now go through
+  one `authorize_scoped` entry point. Also found authentication running
+  after body parsing, and moved it into a layer that runs before
+  routing
 
 ## Exit Criteria
 
@@ -62,6 +67,19 @@ password that happens to be long.
   a password
 - doc 14 §4's "deferred" identity note is replaced by what is built
 
+## Outcome
+
+All four exit criteria are met. Tokens expire and are revoked with an
+audit trail; a token can be narrower than its subject; an organisation
+can bring its own accounts without Convergence storing a password; and
+doc 14 §4b now describes what is built in place of the deferral.
+
+The two batches that *tested* rather than built found the most: 21.3
+found three defects that would have made every exchange fail at runtime,
+and 21.4 found a privilege escalation that 21.2 had shipped — scope
+enforced on the routes that batch happened to touch, and bypassed on the
+rest.
+
 ## Next Task
 
-Open batch card 21.4 (adversarial).
+Open roadmap `g02.023` (TUI completion) with batch card 23.1.
