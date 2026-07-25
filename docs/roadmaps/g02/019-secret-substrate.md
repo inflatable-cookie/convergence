@@ -1,6 +1,6 @@
 # 019 Secret Substrate
 
-Status: in progress (19.1-19.2 complete)
+Status: in progress (19.1-19.3 complete)
 Owner: repo maintainers
 Updated: 2026-07-25
 
@@ -41,8 +41,11 @@ secrets follow in `g02.020`, which depends on this.
   separate recipient check (admin subsumes capabilities, so the grant
   alone would let an admin pull every envelope), version-guarded writes
   through `apply_batch`, and ciphertext the server never parses
-- **19.3 Secret verbs**: `converge secret set|get|list|rm`, reading and
-  writing through the argv contract like every other surface
+- **19.3 Secret verbs** (complete, card 071): `converge secret
+  set|get|list|rm`; values enter only through stdin (no `--value` flag,
+  pinned by test, because argv lands in shell history and `ps`); each
+  secret is sealed to every key the caller holds so a rotation strands
+  nothing
 - **19.4 Token migration and adversarial tests**: the workspace's own
   remote token becomes a locally-encrypted secret; wrong-key refusal,
   tamper detection, and a test proving the server cannot decrypt what it
@@ -68,4 +71,4 @@ secrets follow in `g02.020`, which depends on this.
 
 ## Next Task
 
-Batch card 19.3 (secret verbs).
+Batch card 19.4 (token migration and adversarial tests).

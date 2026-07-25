@@ -35,7 +35,7 @@ records the closed state.
   secrets, `g02.020` shared secrets. Threat model and object model in
   `docs/architecture/19-secrets-and-key-management.md`.
 - Active roadmap: `g02.019` secret substrate.
-- next: batch card 19.3 (secret verbs)
+- next: batch card 19.4 (token migration and adversarial tests)
 
 ## Rollover guardrail
 

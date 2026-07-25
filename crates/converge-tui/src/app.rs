@@ -166,9 +166,11 @@ pub const COMMANDS: &[&str] = &[
     "history",
     "inbox",
     "init",
+    "key",
     "lane",
     "login",
     "member",
+    "profile",
     "promote",
     "publish",
     "releases",
@@ -179,6 +181,7 @@ pub const COMMANDS: &[&str] = &[
     "restore",
     "retention",
     "scope",
+    "secret",
     "show",
     "snap",
     "status",
@@ -216,6 +219,8 @@ pub fn is_remote_command(argv: &[String]) -> bool {
                 | "retention"
                 | "verify"
                 | "gc"
+                | "key"
+                | "secret"
         )
     )
 }
@@ -242,6 +247,12 @@ pub fn confirmation_prompt(argv: &[String]) -> Option<String> {
             Some("delete unreachable objects".to_string())
         }
         "unsnap" => Some("undo the last snap".to_string()),
+        // Deleting a secret is not undoable and the ciphertext is the
+        // only copy Convergence has.
+        "secret" if argv.get(1).map(String::as_str) == Some("rm") => Some(format!(
+            "delete secret {}",
+            argv.get(2).cloned().unwrap_or_default()
+        )),
         _ => None,
     }
 }

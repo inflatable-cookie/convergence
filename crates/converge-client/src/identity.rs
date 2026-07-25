@@ -207,3 +207,59 @@ fn write_private(path: &Path, bytes: &[u8]) -> Result<()> {
     }
     Ok(())
 }
+
+/// Seal `plaintext` to every recipient (batch 19.3).
+///
+/// Armored so the ciphertext is ASCII: a database row and a JSON field
+/// both carry it without escaping, and anyone looking at storage can
+/// see at a glance that it is an age file rather than a value.
+pub fn seal(recipients: &[age::x25519::Recipient], plaintext: &[u8]) -> Result<String> {
+    if recipients.is_empty() {
+        anyhow::bail!("no recipients: the result could never be decrypted");
+    }
+    let refs: Vec<&dyn age::Recipient> = recipients
+        .iter()
+        .map(|r| r as &dyn age::Recipient)
+        .collect();
+    let encryptor = age::Encryptor::with_recipients(refs.into_iter())
+        .map_err(|err| anyhow!("prepare encryption: {err}"))?;
+
+    let mut armored = Vec::new();
+    {
+        use std::io::Write;
+        let writer =
+            age::armor::ArmoredWriter::wrap_output(&mut armored, age::armor::Format::AsciiArmor)?;
+        let mut stream = encryptor
+            .wrap_output(writer)
+            .map_err(|err| anyhow!("start encryption: {err}"))?;
+        stream.write_all(plaintext).context("write plaintext")?;
+        stream
+            .finish()
+            .and_then(|armor| armor.finish())
+            .map_err(|err| anyhow!("finish encryption: {err}"))?;
+    }
+    String::from_utf8(armored).context("armored output is not utf-8")
+}
+
+/// Open `ciphertext` with the first key that fits.
+///
+/// Trying every local key is what makes rotation survivable: a secret
+/// sealed before a rotation is still readable afterwards, because the
+/// old key is still on the machine (batch 19.1 keeps it deliberately).
+pub fn open(keys: &[KeyPair], ciphertext: &str) -> Result<Vec<u8>> {
+    if keys.is_empty() {
+        anyhow::bail!("no personal key on this machine; run `converge key init`");
+    }
+    let reader = age::armor::ArmoredReader::new(ciphertext.as_bytes());
+    let decryptor = age::Decryptor::new(reader).map_err(|err| anyhow!("read age file: {err}"))?;
+    let identities: Vec<&dyn age::Identity> = keys
+        .iter()
+        .map(|k| k.identity() as &dyn age::Identity)
+        .collect();
+    let mut stream = decryptor
+        .decrypt(identities.into_iter())
+        .map_err(|_| anyhow!("none of this machine\'s keys can open that secret"))?;
+    let mut plaintext = Vec::new();
+    std::io::Read::read_to_end(&mut stream, &mut plaintext).context("read plaintext")?;
+    Ok(plaintext)
+}

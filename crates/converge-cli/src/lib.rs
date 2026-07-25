@@ -344,6 +344,11 @@ enum Command {
         #[command(subcommand)]
         command: KeyCommand,
     },
+    /// Encrypted secrets: yours, readable only by you.
+    Secret {
+        #[command(subcommand)]
+        command: SecretCommand,
+    },
     /// Show the configured remote for this workspace.
     Remote,
     /// Show or set the workflow profile (shapes guidance, not behavior).
@@ -443,6 +448,20 @@ enum ScopeCommand {
     Create { scope_id: String },
     /// List the repo's registered scopes.
     List,
+}
+
+#[derive(Subcommand)]
+enum SecretCommand {
+    /// Store a secret. The value is read from stdin, never from argv:
+    /// a command-line argument lands in shell history and in every
+    /// process listing on the machine.
+    Set { name: String },
+    /// Print a secret's value.
+    Get { name: String },
+    /// List secrets in this repo: names and versions, never values.
+    List,
+    /// Delete one of your secrets.
+    Rm { name: String },
 }
 
 #[derive(Subcommand)]
@@ -1421,6 +1440,83 @@ fn run(cli: &Cli, mode: OutputMode, session: &Session) -> Result<serde_json::Val
                 }
             }
         }
+        Command::Secret { command } => {
+            let ws = session.workspace()?;
+            let (client, remote) = remote_client(session, &ws, mode)?;
+            match command {
+                SecretCommand::Set { name } => {
+                    let value = read_secret_value()?;
+                    let recipients = my_recipients(&client, &remote.repo_id)?;
+                    let ciphertext =
+                        converge_client::identity::seal(&recipients.keys, value.as_bytes())?;
+
+                    // Read-modify-write against the version guard from
+                    // 19.2: if someone else rotated while we were
+                    // typing, this is refused rather than erasing them.
+                    let current = client
+                        .get_secret(&remote.repo_id, name)
+                        .map(|record| record.version)
+                        .unwrap_or(0);
+                    let summary = client.set_secret(
+                        &remote.repo_id,
+                        name,
+                        &ciphertext,
+                        &recipients.key_ids,
+                        current,
+                    )?;
+                    emit(mode, summary, |s| {
+                        println!("{} stored (version {})", s.name, s.version);
+                        println!("  readable by {} key(s) you hold", s.recipients.len());
+                    })
+                }
+                SecretCommand::Get { name } => {
+                    let record = client.get_secret(&remote.repo_id, name)?;
+                    let keys = unlock_local_keys()?;
+                    let plaintext = converge_client::identity::open(&keys, &record.ciphertext)?;
+                    let value = String::from_utf8(plaintext)
+                        .context("secret is not utf-8; it was stored by something else")?;
+
+                    match mode {
+                        // Human mode writes the bare value so `$(...)`
+                        // captures it without a stray label.
+                        OutputMode::Human => {
+                            println!("{value}");
+                            Ok(serde_json::Value::String(value))
+                        }
+                        _ => emit(
+                            mode,
+                            serde_json::json!({
+                                "name": record.name,
+                                "version": record.version,
+                                "value": value,
+                            }),
+                            |_| {},
+                        ),
+                    }
+                }
+                SecretCommand::List => {
+                    let secrets = client.list_secrets(&remote.repo_id)?;
+                    emit(mode, secrets, |secrets| {
+                        if secrets.is_empty() {
+                            println!("no secrets in this repo");
+                        }
+                        for secret in secrets {
+                            println!(
+                                "{}  {}  v{}  {}",
+                                secret.name, secret.owner, secret.version, secret.updated_at
+                            );
+                        }
+                    })
+                }
+                SecretCommand::Rm { name } => {
+                    client.delete_secret(&remote.repo_id, name)?;
+                    emit(mode, name.clone(), |name| {
+                        println!("{name} deleted");
+                        println!("  the credential itself is unchanged — rotate it at the source");
+                    })
+                }
+            }
+        }
         Command::Key { command } => {
             match command {
                 KeyCommand::Init { label, yes } => {
@@ -1888,6 +1984,96 @@ fn report_progress(progress: converge_client::remote::Progress) {
         progress.objects_total,
         mib(progress.bytes_done)
     );
+}
+
+/// The caller's own registered keys in this repo.
+///
+/// Every one of them, not just the newest: sealing only to the latest
+/// key would make a rotation strand every secret written before it.
+struct MyKeys {
+    keys: Vec<age::x25519::Recipient>,
+    key_ids: Vec<String>,
+}
+
+fn my_recipients(client: &converge_client::remote::RemoteClient, repo_id: &str) -> Result<MyKeys> {
+    let local = converge_client::identity::local_keys()?;
+    if local.is_empty() {
+        anyhow::bail!("no personal key on this machine; run `converge key init`");
+    }
+    let registered = client.list_keys(repo_id)?;
+    let mine: Vec<&converge_client::model::PublicKeyRecord> = registered
+        .iter()
+        .filter(|record| local.iter().any(|k| k.key_id == record.key_id))
+        .collect();
+    if mine.is_empty() {
+        anyhow::bail!(
+            "none of this machine's keys are registered with this repo; \
+             run `converge key rotate` to register one"
+        );
+    }
+    let mut keys = Vec::new();
+    let mut key_ids = Vec::new();
+    for record in mine {
+        keys.push(
+            record
+                .public_key
+                .parse::<age::x25519::Recipient>()
+                .map_err(|err| {
+                    anyhow::anyhow!("registered key {} is unusable: {err}", record.key_id)
+                })?,
+        );
+        key_ids.push(record.key_id.clone());
+    }
+    Ok(MyKeys { keys, key_ids })
+}
+
+/// Unlock every local key with one passphrase.
+///
+/// Keys made at different times may have different passphrases; the
+/// ones that do not open are skipped rather than failing the command,
+/// because only one of them has to fit the secret being read.
+fn unlock_local_keys() -> Result<Vec<converge_client::identity::KeyPair>> {
+    let passphrase = read_passphrase(false)?;
+    let mut opened = Vec::new();
+    for key in converge_client::identity::local_keys()? {
+        if let Ok(pair) = converge_client::identity::KeyPair::load(Some(&key.key_id), &passphrase) {
+            opened.push(pair);
+        }
+    }
+    if opened.is_empty() {
+        anyhow::bail!("that passphrase did not open any key on this machine");
+    }
+    Ok(opened)
+}
+
+/// Read a secret value from stdin: hidden prompt on a terminal, piped
+/// input otherwise. Never from argv, which shell history and `ps` both
+/// capture.
+fn read_secret_value() -> Result<String> {
+    use std::io::{IsTerminal, Read};
+    if std::io::stdin().is_terminal() {
+        let value = rpassword::prompt_password("value: ").context("read value")?;
+        if value.is_empty() {
+            anyhow::bail!("value must not be empty");
+        }
+        return Ok(value);
+    }
+    let mut value = String::new();
+    std::io::stdin()
+        .read_to_string(&mut value)
+        .context("read value from stdin")?;
+    // One trailing newline is the shell's, not the secret's: `echo x |`
+    // is the common case and would otherwise store "x\n".
+    if value.ends_with('\n') {
+        value.pop();
+        if value.ends_with('\r') {
+            value.pop();
+        }
+    }
+    if value.is_empty() {
+        anyhow::bail!("value must not be empty");
+    }
+    Ok(value)
 }
 
 /// Prompt for a passphrase, or take it from `CONVERGE_PASSPHRASE`.
