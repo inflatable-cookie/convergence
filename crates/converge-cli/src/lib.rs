@@ -202,8 +202,9 @@ enum Command {
         /// Lane for provenance; defaults to your personal lane.
         #[arg(long)]
         lane: Option<String>,
-        #[arg(long)]
-        notes: Option<String>,
+        /// Message recorded on the publication.
+        #[arg(short, long, alias = "notes")]
+        message: Option<String>,
     },
     /// Fetch a bundle's tree into the local store.
     Fetch {
@@ -225,7 +226,13 @@ enum Command {
         force: bool,
     },
     /// Show a bundle's record.
-    Bundle { bundle_id: String },
+    Bundle {
+        /// Bundle id, or omit with --release to name a channel head.
+        bundle_id: Option<String>,
+        /// Use the latest release on this channel.
+        #[arg(long)]
+        release: Option<String>,
+    },
     /// Browse a snap or bundle read-only: record plus tree listing.
     Show {
         /// Local snap id, or a bundle id (fetched if not local yet).
@@ -246,7 +253,12 @@ enum Command {
     /// Show workspace status: changes, head, snaps, remote.
     Status,
     /// Set or replace a snap's message (identity is unaffected).
-    Annotate { snap_id: String, message: String },
+    Annotate {
+        snap_id: String,
+        /// New message for the snap.
+        #[arg(short, long)]
+        message: String,
+    },
     /// Poll the repo's event feed (hints; reconcile via inbox).
     Events {
         #[arg(long, default_value_t = 0)]
@@ -271,13 +283,20 @@ enum Command {
         bundle_id: String,
         #[arg(long)]
         channel: String,
-        #[arg(long)]
-        notes: Option<String>,
+        /// Message recorded on the release.
+        #[arg(short, long, alias = "notes")]
+        message: Option<String>,
     },
     /// List the repo's releases.
     Releases,
     /// Replay a bundle from provenance and prove its identity.
-    Verify { bundle_id: String },
+    Verify {
+        /// Bundle id, or omit with --release to name a channel head.
+        bundle_id: Option<String>,
+        /// Use the latest release on this channel.
+        #[arg(long)]
+        release: Option<String>,
+    },
     /// Git interop.
     Git {
         #[command(subcommand)]
@@ -661,10 +680,10 @@ fn run(cli: &Cli, mode: OutputMode, session: &Session) -> Result<serde_json::Val
             snap,
             gate,
             lane,
-            notes,
+            message,
         } => {
             let ws = session.workspace()?;
-            let (client, remote) = remote_client(session, &ws)?;
+            let (client, remote) = remote_client(session, &ws, mode)?;
             let snap = match snap {
                 Some(id) => ws.store.get_snap(id)?,
                 None => latest_snap(&ws)?,
@@ -681,7 +700,7 @@ fn run(cli: &Cli, mode: OutputMode, session: &Session) -> Result<serde_json::Val
                 &snap,
                 base,
                 lane.clone(),
-                notes.clone(),
+                message.clone(),
             )?;
             ws.store
                 .set_last_published(&remote, &remote.scope, &gate, &snap.id)?;
@@ -700,8 +719,10 @@ fn run(cli: &Cli, mode: OutputMode, session: &Session) -> Result<serde_json::Val
                 },
                 |s| {
                     println!(
-                        "published to {gate}: bundle {} ({:?}, {} objects uploaded)",
-                        s.bundle.bundle_id, s.bundle.status, s.uploaded_objects
+                        "published to {gate}: bundle {} ({}, {} objects uploaded)",
+                        s.bundle.bundle_id,
+                        describe_status(&s.bundle.status),
+                        s.uploaded_objects
                     );
                 },
             )
@@ -709,16 +730,16 @@ fn run(cli: &Cli, mode: OutputMode, session: &Session) -> Result<serde_json::Val
         Command::Release {
             bundle_id,
             channel,
-            notes,
+            message,
         } => {
             let ws = session.workspace()?;
-            let (client, remote) = remote_client(session, &ws)?;
+            let (client, remote) = remote_client(session, &ws, mode)?;
             let release = client.release(
                 bundle_id,
                 &remote.repo_id,
                 &remote.scope,
                 channel,
-                notes.clone(),
+                message.clone(),
             )?;
             emit(mode, release, |r| {
                 println!("released {} to channel {}", r.bundle_id, r.channel);
@@ -726,7 +747,7 @@ fn run(cli: &Cli, mode: OutputMode, session: &Session) -> Result<serde_json::Val
         }
         Command::Releases => {
             let ws = session.workspace()?;
-            let (client, remote) = remote_client(session, &ws)?;
+            let (client, remote) = remote_client(session, &ws, mode)?;
             let releases = client.list_releases(&remote.repo_id)?;
             emit(mode, releases, |releases| {
                 for r in releases {
@@ -777,10 +798,11 @@ fn run(cli: &Cli, mode: OutputMode, session: &Session) -> Result<serde_json::Val
                 }
             }
         }
-        Command::Verify { bundle_id } => {
+        Command::Verify { bundle_id, release } => {
             let ws = session.workspace()?;
-            let (client, _) = remote_client(session, &ws)?;
-            let report = client.verify(bundle_id)?;
+            let (client, remote) = remote_client(session, &ws, mode)?;
+            let bundle_id = bundle_ref(&client, &remote, bundle_id.as_deref(), release.as_deref())?;
+            let report = client.verify(&bundle_id)?;
             let verified = report.verified;
             emit(mode, report, |r| {
                 if r.verified {
@@ -797,7 +819,7 @@ fn run(cli: &Cli, mode: OutputMode, session: &Session) -> Result<serde_json::Val
         }
         Command::Gc { execute } => {
             let ws = session.workspace()?;
-            let (client, remote) = remote_client(session, &ws)?;
+            let (client, remote) = remote_client(session, &ws, mode)?;
             let report = client.gc(&remote.repo_id, !execute)?;
             emit(mode, report, |r| {
                 println!(
@@ -819,17 +841,17 @@ fn run(cli: &Cli, mode: OutputMode, session: &Session) -> Result<serde_json::Val
         }
         Command::Retention { command } => {
             let ws = session.workspace()?;
-            let (client, remote) = remote_client(session, &ws)?;
+            let (client, remote) = remote_client(session, &ws, mode)?;
             match command {
                 RetentionCommand::Show => {
                     let policy = client.get_retention(&remote.repo_id)?;
                     emit(mode, policy, |p| {
                         println!(
-                            "releases/channel: {:?}  bundles/gate: {:?}  publication days: {:?}  events: {:?}",
-                            p.keep_releases_per_channel,
-                            p.keep_bundles_per_gate,
-                            p.keep_publication_days,
-                            p.keep_events
+                            "releases/channel: {}  bundles/gate: {}  publication days: {}  events: {}",
+                            describe_limit(p.keep_releases_per_channel),
+                            describe_limit(p.keep_bundles_per_gate),
+                            describe_limit(p.keep_publication_days),
+                            describe_limit(p.keep_events)
                         );
                     })
                 }
@@ -860,14 +882,8 @@ fn run(cli: &Cli, mode: OutputMode, session: &Session) -> Result<serde_json::Val
             force,
         } => {
             let ws = session.workspace()?;
-            let (client, remote) = remote_client(session, &ws)?;
-            let bundle_id = match (bundle_id, release) {
-                (Some(id), _) => id.clone(),
-                (None, Some(channel)) => {
-                    client.get_channel_head(&remote.repo_id, channel)?.bundle_id
-                }
-                (None, None) => anyhow::bail!("provide a bundle id or --release <channel>"),
-            };
+            let (client, remote) = remote_client(session, &ws, mode)?;
+            let bundle_id = bundle_ref(&client, &remote, bundle_id.as_deref(), release.as_deref())?;
             if *checkout && into.is_some() {
                 anyhow::bail!("--checkout works on this workspace; --into writes a copy elsewhere");
             }
@@ -949,7 +965,10 @@ fn run(cli: &Cli, mode: OutputMode, session: &Session) -> Result<serde_json::Val
                     let thinned = ws
                         .thin_automatic_snaps(time::OffsetDateTime::now_utc())?
                         .len();
-                    if !cli.json {
+                    // Capture mode drives the TUI, which owns the
+                    // terminal: progress chatter there corrupts the
+                    // screen and breaks the envelope contract (audit P3).
+                    if mode == OutputMode::Human {
                         println!("auto-snap {} ({} thinned)", snap.id, thinned);
                     }
                     captured.push(serde_json::json!({
@@ -1111,17 +1130,22 @@ fn run(cli: &Cli, mode: OutputMode, session: &Session) -> Result<serde_json::Val
                 },
             )
         }
-        Command::Bundle { bundle_id } => {
+        Command::Bundle { bundle_id, release } => {
             let ws = session.workspace()?;
-            let (client, _) = remote_client(session, &ws)?;
-            let provenance = client.get_provenance(bundle_id)?;
+            let (client, remote) = remote_client(session, &ws, mode)?;
+            let bundle_id = bundle_ref(&client, &remote, bundle_id.as_deref(), release.as_deref())?;
+            let provenance = client.get_provenance(&bundle_id)?;
             emit(mode, provenance, |p| {
-                println!("bundle {}: {:?}", p.bundle.bundle_id, p.bundle.status);
                 println!(
-                    "  gate {}  strategy {}  window {:?}  base {}",
+                    "bundle {}: {}",
+                    p.bundle.bundle_id,
+                    describe_status(&p.bundle.status)
+                );
+                println!(
+                    "  gate {}  strategy {}  {}  base {}",
                     p.bundle.produced_by_gate_id,
                     p.bundle.strategy,
-                    p.bundle.window,
+                    describe_window(&p.bundle.window),
                     p.bundle.base_bundle_id.as_deref().unwrap_or("none")
                 );
                 for input in &p.inputs {
@@ -1138,7 +1162,7 @@ fn run(cli: &Cli, mode: OutputMode, session: &Session) -> Result<serde_json::Val
         }
         Command::Events { since } => {
             let ws = session.workspace()?;
-            let (client, remote) = remote_client(session, &ws)?;
+            let (client, remote) = remote_client(session, &ws, mode)?;
             let events = client.events(&remote.repo_id, *since)?;
             emit(mode, events, |events| {
                 for event in events {
@@ -1154,7 +1178,7 @@ fn run(cli: &Cli, mode: OutputMode, session: &Session) -> Result<serde_json::Val
         }
         Command::Inbox { since } => {
             let ws = session.workspace()?;
-            let (client, remote) = remote_client(session, &ws)?;
+            let (client, remote) = remote_client(session, &ws, mode)?;
             let report = client.inbox(&remote.repo_id, &remote.scope, since.as_deref())?;
             emit(mode, report, |r| {
                 // Human output shows the command, not just the noun: every
@@ -1175,7 +1199,7 @@ fn run(cli: &Cli, mode: OutputMode, session: &Session) -> Result<serde_json::Val
         }
         Command::Approve { bundle_id } => {
             let ws = session.workspace()?;
-            let (client, remote) = remote_client(session, &ws)?;
+            let (client, remote) = remote_client(session, &ws, mode)?;
             client.approve(bundle_id, &remote.repo_id, &remote.scope)?;
             emit(mode, bundle_id.clone(), |id| {
                 println!("approved {id}");
@@ -1183,7 +1207,7 @@ fn run(cli: &Cli, mode: OutputMode, session: &Session) -> Result<serde_json::Val
         }
         Command::Promote { bundle_id, to } => {
             let ws = session.workspace()?;
-            let (client, remote) = remote_client(session, &ws)?;
+            let (client, remote) = remote_client(session, &ws, mode)?;
             client.promote(bundle_id, &remote.repo_id, &remote.scope, to)?;
             emit(mode, format!("{bundle_id} -> {to}"), |m| {
                 println!("promoted {m}");
@@ -1191,7 +1215,7 @@ fn run(cli: &Cli, mode: OutputMode, session: &Session) -> Result<serde_json::Val
         }
         Command::Sync { command } => {
             let ws = session.workspace()?;
-            let (client, remote) = remote_client(session, &ws)?;
+            let (client, remote) = remote_client(session, &ws, mode)?;
             match command {
                 SyncCommand::Push { lane, force } => {
                     let head = ws
@@ -1250,7 +1274,7 @@ fn run(cli: &Cli, mode: OutputMode, session: &Session) -> Result<serde_json::Val
         }
         Command::Lane { command } => {
             let ws = session.workspace()?;
-            let (client, remote) = remote_client(session, &ws)?;
+            let (client, remote) = remote_client(session, &ws, mode)?;
             match command {
                 LaneCommand::Create {
                     lane_id,
@@ -1285,7 +1309,7 @@ fn run(cli: &Cli, mode: OutputMode, session: &Session) -> Result<serde_json::Val
         }
         Command::Scope { command } => {
             let ws = session.workspace()?;
-            let (client, remote) = remote_client(session, &ws)?;
+            let (client, remote) = remote_client(session, &ws, mode)?;
             match command {
                 ScopeCommand::Create { scope_id } => {
                     client.create_scope(&remote.repo_id, scope_id)?;
@@ -1305,7 +1329,7 @@ fn run(cli: &Cli, mode: OutputMode, session: &Session) -> Result<serde_json::Val
         }
         Command::Repo { command } => {
             let ws = session.workspace()?;
-            let (client, remote) = remote_client(session, &ws)?;
+            let (client, remote) = remote_client(session, &ws, mode)?;
             match command {
                 RepoCommand::Create { repo_id } => {
                     // Defaulting to the configured repo means the flow is
@@ -1327,7 +1351,7 @@ fn run(cli: &Cli, mode: OutputMode, session: &Session) -> Result<serde_json::Val
         }
         Command::Member { command } => {
             let ws = session.workspace()?;
-            let (client, remote) = remote_client(session, &ws)?;
+            let (client, remote) = remote_client(session, &ws, mode)?;
             match command {
                 MemberCommand::Add {
                     subject,
@@ -1507,6 +1531,7 @@ fn run(cli: &Cli, mode: OutputMode, session: &Session) -> Result<serde_json::Val
 fn remote_client(
     session: &Session,
     ws: &Workspace,
+    mode: OutputMode,
 ) -> Result<(
     converge_client::remote::RemoteClient,
     converge_client::model::RemoteConfig,
@@ -1519,7 +1544,15 @@ fn remote_client(
         .store
         .get_remote_token(&remote)?
         .context("no token stored for this remote; run `converge login` again")?;
-    Ok((session.remote_client(&remote.base_url, &token), remote))
+    let client = session.remote_client(&remote.base_url, &token);
+    // Progress goes to stderr and only in human mode: `--json` owns
+    // stdout, and Capture mode drives the TUI (batch 16.4, audit P4.20).
+    let client = if mode == OutputMode::Human {
+        client.with_progress(std::sync::Arc::new(report_progress))
+    } else {
+        client
+    };
+    Ok((client, remote))
 }
 
 fn latest_snap(ws: &Workspace) -> Result<converge_client::model::SnapRecord> {
@@ -1633,6 +1666,72 @@ fn run_resolve(
                 },
             )
         }
+    }
+}
+
+/// One progress line per transferred batch, on stderr.
+///
+/// Batch granularity is the honest unit: the client negotiates, then
+/// moves 8 MiB at a time, so a byte-level bar would be inventing detail
+/// the wire does not have. The beachhead's pain is a multi-hundred-MiB
+/// binary looking hung — this shows it is not.
+fn report_progress(progress: converge_client::remote::Progress) {
+    let mib = |bytes: u64| bytes as f64 / (1024.0 * 1024.0);
+    eprintln!(
+        "  {} {}/{} objects ({:.1} MiB)",
+        progress.phase,
+        progress.objects_done,
+        progress.objects_total,
+        mib(progress.bytes_done)
+    );
+}
+
+/// Address a bundle by id or by channel head (batch 16.4, audit P3).
+///
+/// `fetch` accepted `--release` while `bundle` and `verify` demanded an
+/// id, so inspecting what you had just fetched meant copying a hash by
+/// hand. One helper, one shape, three verbs.
+fn bundle_ref(
+    client: &converge_client::remote::RemoteClient,
+    remote: &converge_client::model::RemoteConfig,
+    bundle_id: Option<&str>,
+    release: Option<&str>,
+) -> Result<String> {
+    match (bundle_id, release) {
+        (Some(id), _) => Ok(id.to_string()),
+        (None, Some(channel)) => Ok(client.get_channel_head(&remote.repo_id, channel)?.bundle_id),
+        (None, None) => anyhow::bail!("provide a bundle id or --release <channel>"),
+    }
+}
+
+/// Human phrasing for a bundle's state (batch 16.4, audit P3).
+///
+/// `{:?}` leaked Rust enum syntax into the one output a person reads —
+/// `Ready { promotable: false }` says nothing about what to do next.
+fn describe_status(status: &converge_client::model::BundleStatus) -> String {
+    use converge_client::model::BundleStatus as S;
+    match status {
+        S::Building => "building".into(),
+        S::Ready { promotable: true } => "ready to promote".into(),
+        S::Ready { promotable: false } => "ready, blocked by superpositions".into(),
+        S::Failed { reason } => format!("failed: {reason}"),
+    }
+}
+
+/// `(first_seq, last_seq)` as a range a person reads.
+fn describe_window(window: &(u64, u64)) -> String {
+    if window.0 == window.1 {
+        format!("publication {}", window.0)
+    } else {
+        format!("publications {}-{}", window.0, window.1)
+    }
+}
+
+/// Retention limits: a number or "keep all", never `Some(3)`.
+fn describe_limit(limit: Option<u32>) -> String {
+    match limit {
+        Some(n) => n.to_string(),
+        None => "keep all".into(),
     }
 }
 
@@ -1789,7 +1888,7 @@ fn resolve_target(
 /// re-superposes the very paths the user just decided (batch 16.1). Both
 /// `fetch` and `resolve` go through here so neither can forget.
 fn fetch_bundle_tree(session: &Session, ws: &Workspace, bundle_id: &str) -> Result<ObjectId> {
-    let (client, remote) = remote_client(session, ws)?;
+    let (client, remote) = remote_client(session, ws, OutputMode::Capture)?;
     let bundle = client.get_bundle(bundle_id)?;
     let root = client.fetch_bundle(&ws.store, &remote.repo_id, bundle_id)?;
     if bundle.scope_id == remote.scope {

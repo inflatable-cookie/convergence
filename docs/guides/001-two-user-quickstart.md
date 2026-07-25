@@ -98,7 +98,16 @@ converge publish --snap <the resolution snap>
 
 Details of that loop: `docs/architecture/17-lineage-and-merge-semantics.md`.
 
+## Notes on output
+
+`-m/--message` is the message flag on every verb that takes one (`snap`,
+`annotate`, `publish`, `release`, `resolve apply`); `--notes` still works
+on `publish` and `release` as an alias. Any verb that names a bundle
+(`fetch`, `bundle`, `verify`) accepts an id or `--release <channel>`.
+
+Human mode prints transfer progress to stderr, so `--json` output stays
+one envelope on stdout and pipelines are safe.
+
 ## Next Task
 
-Batch 16.4 (output polish) is the remaining gap in this flow: `{:?}`
-Debug leaks in human output and inconsistent message flags.
+Roadmap `g02.016` is complete. Next: `g02.017` TUI spec parity.

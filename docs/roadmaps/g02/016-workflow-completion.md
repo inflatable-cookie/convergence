@@ -1,6 +1,6 @@
 # 016 Workflow Completion
 
-Status: in progress (16.1-16.3 complete)
+Status: complete
 Owner: repo maintainers
 Updated: 2026-07-25
 
@@ -57,11 +57,15 @@ conflicts-as-data flow must complete without reading source code.
   site admin as a `*`-repo grant, `converge repo create` /
   `member add|list`, and `docs/guides/001-two-user-quickstart.md` kept
   honest by `onboarding_e2e.rs`
-- **16.4 Output polish**: Debug-format leaks removed; unified
-  `-m/--message` across verbs; `watch --json` envelope compliance;
-  transfer progress reporting on push/pull/fetch for chunked blobs
+- **16.4 Output polish** (complete, card 060): `{:?}` replaced with
+  phrasing that names the next move; `watch`'s stray prints gated on
+  `OutputMode::Human` (they were gated on `!cli.json`, so the TUI's own
+  capture mode printed onto its screen); `-m/--message` everywhere with
+  `--notes` kept as an alias; one `bundle_ref` shape for `fetch`,
+  `bundle`, `verify`; per-batch transfer progress on stderr through an
+  optional client sink
 
-## Exit Criteria
+## Exit Criteria (all met)
 
 - scripted two-user walkthrough (init → snap → publish → conflict →
   inbox → resolve → promote → release → fetch) completes with no
@@ -71,4 +75,4 @@ conflicts-as-data flow must complete without reading source code.
 
 ## Next Task
 
-Open batch card 16.4 (output polish).
+Roadmap complete. Open `g02.017` (TUI spec parity).

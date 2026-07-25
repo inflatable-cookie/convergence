@@ -330,7 +330,7 @@ fn annotate_edits_message_without_changing_identity() -> anyhow::Result<()> {
     let id = snap["id"].as_str().unwrap();
 
     assert!(
-        converge(root, &["annotate", id, "added later"])
+        converge(root, &["annotate", id, "-m", "added later"])
             .status
             .success()
     );
@@ -426,5 +426,83 @@ fn show_lists_a_snap_tree_without_touching_the_workspace() -> anyhow::Result<()>
     // Browsing changed nothing.
     let status = json_data(&converge(root, &["--json", "status"]));
     assert_eq!(status["pending"]["count"], 0);
+    Ok(())
+}
+
+/// Batch 16.4 (audit P3): human output is written for people. A `{:?}`
+/// leak is not a cosmetic issue — `Ready { promotable: false }` is the
+/// moment a user most needs to be told what to do.
+#[test]
+fn human_output_carries_no_debug_formatting() -> anyhow::Result<()> {
+    let tmp = tempfile::tempdir()?;
+    let root = tmp.path();
+    assert!(converge(root, &["init"]).status.success());
+    std::fs::write(root.join("a.txt"), "one")?;
+
+    // Every local verb that renders a record, in human mode.
+    for args in [
+        vec!["snap", "-m", "first"],
+        vec!["status"],
+        vec!["history"],
+        vec!["changes"],
+        vec!["remote"],
+    ] {
+        let out = converge(root, &args);
+        let text = format!("{}{}", stdout(&out), String::from_utf8_lossy(&out.stderr));
+        for marker in ["Some(", "None", "{ ", " }"] {
+            assert!(
+                !text.contains(marker),
+                "`converge {}` leaked Rust syntax {marker:?}:\n{text}",
+                args.join(" ")
+            );
+        }
+    }
+    Ok(())
+}
+
+/// Batch 16.4: `--json` owns stdout. `watch` used to print capture lines
+/// alongside the envelope whenever the caller was not the `--json` flag —
+/// including the TUI, which drives the same code path in capture mode.
+#[test]
+fn watch_json_emits_one_envelope_and_nothing_else() -> anyhow::Result<()> {
+    let tmp = tempfile::tempdir()?;
+    let root = tmp.path();
+    assert!(converge(root, &["init"]).status.success());
+    std::fs::write(root.join("w.txt"), "v1")?;
+
+    let out = converge(root, &["--json", "watch", "--once"]);
+    let text = stdout(&out);
+    assert_eq!(
+        text.trim().lines().count(),
+        1,
+        "exactly one envelope line:\n{text}"
+    );
+    let envelope: serde_json::Value = serde_json::from_str(text.trim()).expect("parse envelope");
+    assert_eq!(envelope["ok"], true);
+    assert_eq!(envelope["data"].as_array().unwrap().len(), 1);
+    Ok(())
+}
+
+/// Batch 16.4: one message flag across the verbs that carry a message.
+#[test]
+fn message_flag_is_the_same_everywhere() -> anyhow::Result<()> {
+    let tmp = tempfile::tempdir()?;
+    let root = tmp.path();
+    assert!(converge(root, &["init"]).status.success());
+    std::fs::write(root.join("a.txt"), "one")?;
+
+    let snap = json_data(&converge(
+        root,
+        &["--json", "snap", "--message", "long form"],
+    ));
+    let id = snap["id"].as_str().unwrap();
+    assert!(
+        converge(root, &["annotate", id, "-m", "short form"])
+            .status
+            .success(),
+        "annotate takes -m like snap does"
+    );
+    let history = json_data(&converge(root, &["--json", "history"]));
+    assert_eq!(history[0]["message"], "short form");
     Ok(())
 }

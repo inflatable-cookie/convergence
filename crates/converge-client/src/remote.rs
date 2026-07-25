@@ -20,6 +20,21 @@ pub struct RemoteClient {
     http: reqwest::blocking::Client,
     /// Max bytes per transfer batch (doc 16 §1c); clients split above it.
     batch_cap: usize,
+    /// Optional transfer reporter (batch 16.4, audit P4.20).
+    progress: Option<std::sync::Arc<dyn Fn(Progress) + Send + Sync>>,
+}
+
+/// Transfer progress, reported once per batch — the granularity the
+/// wire actually moves in, and the one that matters for the beachhead's
+/// large binaries (audit P4.20).
+#[derive(Clone, Copy, Debug)]
+pub struct Progress {
+    /// "upload" or "download".
+    pub phase: &'static str,
+    pub objects_done: usize,
+    pub objects_total: usize,
+    pub bytes_done: u64,
+    pub bytes_total: u64,
 }
 
 impl RemoteClient {
@@ -29,6 +44,20 @@ impl RemoteClient {
             token: token.to_string(),
             http: reqwest::blocking::Client::new(),
             batch_cap: 8 * 1024 * 1024,
+            progress: None,
+        }
+    }
+
+    /// Report transfer progress to `sink`. Off by default: a library
+    /// that printed would be unusable from the TUI.
+    pub fn with_progress(mut self, sink: std::sync::Arc<dyn Fn(Progress) + Send + Sync>) -> Self {
+        self.progress = Some(sink);
+        self
+    }
+
+    fn report(&self, progress: Progress) {
+        if let Some(sink) = &self.progress {
+            sink(progress);
         }
     }
 
@@ -40,9 +69,17 @@ impl RemoteClient {
 
     /// Upload frames in cap-split batches (doc 16 §1c).
     fn put_frames(&self, repo_id: &str, frames: Vec<ObjectFrame>) -> Result<()> {
+        let objects_total = frames.len();
+        let bytes_total: u64 = frames.iter().map(|f| f.bytes.len() as u64).sum();
+        let mut objects_done = 0usize;
+        let mut bytes_done = 0u64;
+
         let mut batch: Vec<ObjectFrame> = Vec::new();
         let mut batch_bytes = 0usize;
-        let flush = |batch: &mut Vec<ObjectFrame>| -> Result<()> {
+        let flush = |batch: &mut Vec<ObjectFrame>,
+                     objects_done: &mut usize,
+                     bytes_done: &mut u64|
+         -> Result<()> {
             if batch.is_empty() {
                 return Ok(());
             }
@@ -56,6 +93,15 @@ impl RemoteClient {
                     .send()
                     .context("upload batch")?,
             )?;
+            *objects_done += batch.len();
+            *bytes_done += batch.iter().map(|f| f.bytes.len() as u64).sum::<u64>();
+            self.report(Progress {
+                phase: "upload",
+                objects_done: *objects_done,
+                objects_total,
+                bytes_done: *bytes_done,
+                bytes_total,
+            });
             batch.clear();
             Ok(())
         };
@@ -63,18 +109,22 @@ impl RemoteClient {
             if (batch_bytes + frame.bytes.len() > self.batch_cap || batch.len() >= MAX_BATCH_FRAMES)
                 && !batch.is_empty()
             {
-                flush(&mut batch)?;
+                flush(&mut batch, &mut objects_done, &mut bytes_done)?;
                 batch_bytes = 0;
             }
             batch_bytes += frame.bytes.len();
             batch.push(frame);
         }
-        flush(&mut batch)
+        flush(&mut batch, &mut objects_done, &mut bytes_done)
     }
 
     /// Download a set of objects as CBOR frames, splitting requests above
     /// the server's id cap (doc 16 §1c).
     fn get_frames(&self, repo_id: &str, request: &ObjectSet) -> Result<Vec<ObjectFrame>> {
+        // Total is object count, not bytes: on the way down the sizes are
+        // exactly what has not arrived yet.
+        let objects_total = request.blobs.len() + request.recipes.len() + request.manifests.len();
+        let mut bytes_done = 0u64;
         let mut frames = Vec::new();
         for chunk in split_object_set(request, MAX_BATCH_FRAMES) {
             let response = Self::check(
@@ -88,7 +138,15 @@ impl RemoteClient {
             let bytes = response.bytes().context("read batch body")?;
             let mut decoded: Vec<ObjectFrame> =
                 ciborium::from_reader(bytes.as_ref()).context("decode batch")?;
+            bytes_done += decoded.iter().map(|f| f.bytes.len() as u64).sum::<u64>();
             frames.append(&mut decoded);
+            self.report(Progress {
+                phase: "download",
+                objects_done: frames.len(),
+                objects_total,
+                bytes_done,
+                bytes_total: bytes_done,
+            });
         }
         Ok(frames)
     }

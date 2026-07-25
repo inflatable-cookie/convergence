@@ -323,3 +323,77 @@ fn arrival_paths_land_work_in_the_workspace() -> Result<()> {
     assert_eq!(out.status.code(), Some(1));
     Ok(())
 }
+
+/// Batch 16.4 (audit P3, P4.20): the verbs that render *server* records
+/// are where `{:?}` actually leaked, and the transfer they drive is what
+/// looked hung on a large binary.
+#[test]
+fn remote_human_output_reads_like_prose_and_reports_transfer() -> Result<()> {
+    let server_dir = tempfile::tempdir()?;
+    let base_url = start_server(server_dir.path())?;
+
+    let a_dir = tempfile::tempdir()?;
+    let a = a_dir.path();
+    assert!(converge(a, &["init"]).status.success());
+    login(a, &base_url, "token-a", "alice");
+    // Big enough to cross a transfer batch, so progress has something to
+    // report rather than finishing in one flush.
+    std::fs::write(a.join("big.bin"), vec![7u8; 12 * 1024 * 1024])?;
+    std::fs::write(a.join("readme.md"), "hello")?;
+    converge(a, &["snap", "-m", "alice"]);
+
+    let publish = converge(a, &["publish", "--lane", "lane-a"]);
+    assert!(publish.status.success());
+    let out = String::from_utf8_lossy(&publish.stdout).into_owned();
+    let err = String::from_utf8_lossy(&publish.stderr).into_owned();
+
+    assert!(
+        out.contains("ready to promote"),
+        "status is phrased, not Debug-printed:\n{out}"
+    );
+    for marker in ["Ready {", "Some(", "{:?}"] {
+        assert!(!out.contains(marker), "leaked {marker:?}:\n{out}");
+    }
+    assert!(
+        err.contains("upload") && err.contains("objects"),
+        "transfer progress goes to stderr:\n{err}"
+    );
+    assert!(
+        !out.contains("upload "),
+        "progress must not pollute stdout:\n{out}"
+    );
+
+    // `--json` gets the envelope on stdout and no progress chatter at all.
+    std::fs::write(a.join("readme.md"), "hello again")?;
+    converge(a, &["snap", "-m", "second"]);
+    let published = converge(a, &["--json", "publish", "--lane", "lane-a"]);
+    let out = String::from_utf8_lossy(&published.stdout).into_owned();
+    assert_eq!(out.trim().lines().count(), 1, "one envelope line:\n{out}");
+    assert!(
+        String::from_utf8_lossy(&published.stderr).is_empty(),
+        "no progress in machine mode"
+    );
+
+    let bundle_id =
+        serde_json::from_str::<serde_json::Value>(out.trim())?["data"]["bundle"]["bundle_id"]
+            .as_str()
+            .expect("bundle id")
+            .to_string();
+
+    // Bundle inspection: prose, and addressable the same way fetch is.
+    let shown = converge(a, &["bundle", &bundle_id]);
+    let text = String::from_utf8_lossy(&shown.stdout).into_owned();
+    assert!(
+        text.contains("publication") && !text.contains("("),
+        "window renders as a range, not a tuple:\n{text}"
+    );
+
+    // Retention limits read as numbers or "keep all", never Some/None.
+    let retention = converge(a, &["retention", "show"]);
+    let text = String::from_utf8_lossy(&retention.stdout).into_owned();
+    assert!(
+        text.contains("keep all") && !text.contains("None"),
+        "retention limits are phrased:\n{text}"
+    );
+    Ok(())
+}

@@ -69,5 +69,4 @@ issuing one meant a restart. Repo creation existed only inside
 
 ## Next Task
 
-Batch card 16.4 (output polish: Debug leaks, message-flag consistency,
-`watch --json` envelope, transfer progress).
+Batch card 16.4 (output polish) — done, card 060.
