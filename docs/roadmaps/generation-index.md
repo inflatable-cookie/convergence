@@ -2,7 +2,7 @@
 
 - `g02`
   - Status: active
-  - Range: `001` to `018`
+  - Range: `001` to `020`
   - Notes: |
     Post-research planning gate (001), archive-and-rebuild boundary
     (002), rebuild vertical slice (003), TUI rebuild (004), semantics
@@ -13,8 +13,11 @@
     four-part audit): server trust boundaries (011), data safety (012),
     transactional and merge correctness (013), architecture honesty
     (014), scale walls (015), workflow completion (016), TUI spec
-    parity (017), adversarial test hardening (018) — planned; 011
-    active.
+    parity (017), adversarial test hardening (018) — all complete
+    (closed 2026-07-25).
+    Secret substrate program (019-020, opened 2026-07-25): individual
+    client-encrypted secrets (019), shared multi-recipient secrets
+    (020). 019 active.
 
 - `g01`
   - Status: complete

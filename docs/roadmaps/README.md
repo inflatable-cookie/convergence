@@ -16,7 +16,7 @@ Convergence roadmaps hold executable milestone work.
 ## Current generation
 
 - Active generation: `g02`
-- Next roadmap ID: `g02.019`
+- Next roadmap ID: `g02.021`
 
 ## Index
 
@@ -29,11 +29,13 @@ records the closed state.
 
 ## Active strict lane
 
-- The audit hardening program `g02.011`-`g02.018` is open (from the
-  2026-07-24 four-part audit), sequenced security-first.
-- `g02.011` server trust boundaries **complete** (cards 038-041).
-- Active roadmap: `g02.012` data safety; batches 12.1-12.2 complete.
-- next: batch card 12.3 (honest sync failure)
+- The audit hardening program `g02.011`-`g02.018` is **complete**
+  (opened from the 2026-07-24 four-part audit, closed 2026-07-25).
+- Secret substrate program opened 2026-07-25: `g02.019` individual
+  secrets, `g02.020` shared secrets. Threat model and object model in
+  `docs/architecture/19-secrets-and-key-management.md`.
+- Active roadmap: `g02.019` secret substrate.
+- next: batch card 19.1 (key identity, card 069)
 
 ## Rollover guardrail
 

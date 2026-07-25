@@ -1,0 +1,48 @@
+# 020 Shared Secrets
+
+Status: planned
+Owner: repo maintainers
+Updated: 2026-07-25
+
+## Context
+
+`g02.019` gives each person secrets only they can read. The case teams
+actually hit is the shared one: a deploy key, a registry token, a CI
+credential that several people need. Multi-recipient encryption makes
+that possible; membership change makes it hard.
+
+Sequenced after 019 because sharing is the same record with more
+recipients — the substrate has to exist first.
+
+## Findings Addressed
+
+- individual secrets do not cover the credential a team shares
+- membership is dynamic: people join and leave, and the recipient list
+  has to track that without pretending removal is revocation
+  (doc 19 §6)
+
+## Execution Plan (batch details in cards)
+
+- **20.1 Multi-recipient secrets**: recipient lists beyond the owner;
+  `converge secret share|unshare`; encryption to every current key of
+  every recipient
+- **20.2 Membership change**: adding a member re-encrypts the secrets
+  they are entitled to; removing one drops them from future versions and
+  says plainly that the credential itself must be rotated
+- **20.3 Rotation workflow**: `converge secret rotate` as a first-class
+  verb — new value, new version, re-encrypted to the current list — plus
+  an audit view of when each secret last actually changed
+- **20.4 Adversarial**: a removed member cannot read the next version;
+  a stale recipient list cannot silently persist; concurrent share and
+  rotate do not lose a recipient
+
+## Exit Criteria
+
+- a team credential is readable by exactly its current recipients
+- no interface describes recipient removal as revoking access
+- membership changes leave no secret encrypted to a key that should no
+  longer receive new versions
+
+## Next Task
+
+Blocked behind `g02.019` completion.

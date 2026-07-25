@@ -32,6 +32,9 @@ Rebuild architecture (g02.002 Batch 2.4, 2026-07-23):
   strategies (g02.005; authoritative over 14/16 where they overlap)
 - `18-git-interop.md` — export/import mapping contract, mirror-branch
   rules, coexistence boundaries (g02.009)
+- `19-secrets-and-key-management.md` — client-side encrypted secrets:
+  threat model, why secrets are not files, key lifecycle, and why
+  recipient removal is not revocation (g02.019/020)
 
 The g01-era architecture set (repo/gates/lanes/scopes detail, operations,
 policy, storage, client/server, security, CLI/TUI, interop, gate-graph schema)
