@@ -25,11 +25,13 @@ three are schedulable; the last two are parked on triggers that have not
 fired, and are written down so their absence reads as a decision rather
 than an oversight.
 
-Nothing is currently in progress. `g02.021` is the recommended next
-lane: doc 14 §4 names identity as the prerequisite for any deployment
-beyond a trusted team, and batches 16.3 and 19.1 have already built half
-of it. `g02.022` is the alternative if a real user should come before
-another subsystem — that is a product call.
+Scheduled by the operator (2026-07-25): `g02.021` then `g02.023`.
+`g02.022` stays planned and unscheduled.
+
+`g02.023` opens with a simplification sweep rather than a feature: the
+TUI has been built, refactored across four batches, and covered by forty
+reducer tests without a human ever driving it, so the first batch uses
+it and removes things before anything new is added.
 
 ## Lanes
 
@@ -53,14 +55,12 @@ another subsystem — that is a product call.
 - [`018-adversarial-test-hardening.md`](./018-adversarial-test-hardening.md) — complete
 - [`019-secret-substrate.md`](./019-secret-substrate.md) — complete
 - [`020-shared-secrets.md`](./020-shared-secrets.md) — complete
-- [`021-real-identity.md`](./021-real-identity.md) — ready (recommended next)
-- [`022-ship-readiness.md`](./022-ship-readiness.md) — planned
-- [`023-tui-completion.md`](./023-tui-completion.md) — planned
+- [`021-real-identity.md`](./021-real-identity.md) — in progress (21.1 complete)
+- [`022-ship-readiness.md`](./022-ship-readiness.md) — planned (unscheduled)
+- [`023-tui-completion.md`](./023-tui-completion.md) — scheduled after `g02.021`
 - [`024-workflow-profiles.md`](./024-workflow-profiles.md) — parked (needs a design partner)
 - [`025-edge-and-scale.md`](./025-edge-and-scale.md) — parked (needs a measured ceiling)
 
 ## Next Task
 
-Open batch card 21.1 (token lifecycle) under `g02.021`, unless the
-operator promotes `g02.022` to put Convergence in front of a real user
-first.
+Open batch card 21.2 (capability-scoped tokens) under `g02.021`.

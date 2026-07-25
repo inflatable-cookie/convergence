@@ -63,6 +63,11 @@ pub fn router(state: AppState) -> Router {
         )
         .route("/api/repos/:repo/members/:subject", delete(remove_member))
         .route("/api/repos/:repo/keys", post(register_key).get(list_keys))
+        .route("/api/repos/:repo/tokens", get(list_tokens))
+        .route(
+            "/api/repos/:repo/tokens/:token_id/revoke",
+            post(revoke_token),
+        )
         .route("/api/repos/:repo/secrets", get(list_secrets))
         .route(
             "/api/repos/:repo/secrets/:name",
@@ -130,11 +135,45 @@ fn subject(state: &AppState, headers: &HeaderMap) -> Result<String, ApiError> {
     if let Some(subject) = state.tokens.get(token) {
         return Ok(subject.clone());
     }
-    state
+
+    let hash = token_hash(token);
+    let record = state
         .meta
-        .subject_for_token_hash(&token_hash(token))
+        .token_by_hash(&hash)
         .map_err(internal_error)?
-        .ok_or_else(|| ApiError(StatusCode::UNAUTHORIZED, "unknown token".into()))
+        .ok_or_else(|| ApiError(StatusCode::UNAUTHORIZED, "unknown token".into()))?;
+
+    // Revoked and expired are different problems for whoever is holding
+    // it, so they get different answers (batch 21.1).
+    if !record.revoked_at.is_empty() {
+        return Err(ApiError(
+            StatusCode::UNAUTHORIZED,
+            format!(
+                "token revoked {}{}",
+                record.revoked_at,
+                if record.revoked_reason.is_empty() {
+                    String::new()
+                } else {
+                    format!(": {}", record.revoked_reason)
+                }
+            ),
+        ));
+    }
+    let now = now_rfc3339()?;
+    if !record.expires_at.is_empty() && record.expires_at.as_str() <= now.as_str() {
+        return Err(ApiError(
+            StatusCode::UNAUTHORIZED,
+            format!("token expired {}; ask for a new one", record.expires_at),
+        ));
+    }
+
+    // Coarse last-used tracking: to the day, because the value of this
+    // field is "is anyone still using this token", and a write per
+    // request to answer that would be a poor trade.
+    if record.last_used_at.get(..10) != now.get(..10) {
+        let _ = state.meta.touch_token(&hash, &now);
+    }
+    Ok(record.subject)
 }
 
 /// Tokens are recognised by hash, never stored raw.
@@ -590,12 +629,44 @@ async fn add_member(
             .map_err(internal_error)?;
     }
 
+    let mut expires_at = String::new();
     let token = if request.issue_token {
         let token = mint_token()?;
+        // A finite lifetime by default (batch 21.1): a credential that
+        // never expires is only ever revoked by someone noticing.
+        let days = request.expires_in_days.unwrap_or(DEFAULT_TOKEN_DAYS);
+        let now = time::OffsetDateTime::now_utc();
+        expires_at = if days == 0 {
+            String::new()
+        } else {
+            (now + time::Duration::days(days as i64))
+                .format(&time::format_description::well_known::Rfc3339)
+                .map_err(|err| internal_error(anyhow::anyhow!("format expiry: {err}")))?
+        };
+        let hash = token_hash(&token);
+        let record = converge_model::TokenRecord {
+            token_id: hash.chars().take(12).collect(),
+            subject: request.subject.clone(),
+            label: format!("issued by {subject}"),
+            issued_at: now_rfc3339()?,
+            issued_by: subject.clone(),
+            repo_id: repo.clone(),
+            expires_at: expires_at.clone(),
+            last_used_at: String::new(),
+            revoked_at: String::new(),
+            revoked_by: String::new(),
+            revoked_reason: String::new(),
+        };
         state
             .meta
-            .create_token(&token_hash(&token), &request.subject)
+            .create_token_record(&hash, &record)
             .map_err(internal_error)?;
+        let _ = state.meta.add_event(
+            &repo,
+            "token.issued",
+            &format!("{}/{}", record.subject, record.token_id),
+            &record.issued_at,
+        );
         Some(token)
     } else {
         None
@@ -605,6 +676,7 @@ async fn add_member(
         subject: request.subject,
         granted: request.capabilities,
         token,
+        token_expires_at: expires_at,
     }))
 }
 
@@ -865,6 +937,49 @@ fn validate_secret_name(name: &str) -> Result<(), ApiError> {
         ));
     }
     Ok(())
+}
+
+/// Default lifetime for an issued token (batch 21.1).
+const DEFAULT_TOKEN_DAYS: u32 = 90;
+
+/// Tokens issued in this repo, as facts rather than credentials.
+async fn list_tokens(
+    State(state): State<SharedState>,
+    Path(repo): Path<String>,
+    headers: HeaderMap,
+) -> Result<Json<Vec<converge_model::TokenRecord>>, ApiError> {
+    authorize_repo(&state, &headers, &repo, Capability::Admin)?;
+    Ok(Json(state.meta.list_tokens(&repo).map_err(internal_error)?))
+}
+
+/// Revoke by short id, with a reason. The record is kept: "revoked
+/// when, by whom, and why" is what an incident asks, and a deleted row
+/// answers none of it.
+async fn revoke_token(
+    State(state): State<SharedState>,
+    Path((repo, token_id)): Path<(String, String)>,
+    headers: HeaderMap,
+    Json(request): Json<converge_model::RevokeTokenRequest>,
+) -> Result<Json<converge_model::TokenRecord>, ApiError> {
+    let authz = authorize_repo(&state, &headers, &repo, Capability::Admin)?;
+    let at = now_rfc3339()?;
+    let record = state
+        .meta
+        .revoke_token(&token_id, &at, authz.subject(), &request.reason)
+        .map_err(internal_error)?
+        .ok_or_else(|| {
+            ApiError(
+                StatusCode::NOT_FOUND,
+                format!("no live token {token_id} in this repo"),
+            )
+        })?;
+    let _ = state.meta.add_event(
+        &repo,
+        "token.revoked",
+        &format!("{}/{}", record.subject, record.token_id),
+        &at,
+    );
+    Ok(Json(record))
 }
 
 /// Register a public key for the *calling* subject (batch 19.1).

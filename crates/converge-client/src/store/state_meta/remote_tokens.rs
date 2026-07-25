@@ -20,8 +20,22 @@ use super::LocalStore;
 /// tolerate; people would keep a plaintext copy elsewhere instead, which
 /// is worse than this.
 impl LocalStore {
+    /// Identifies the stored token for this workspace's login.
+    ///
+    /// The workspace root is part of the key (batch 21.1). Batch 19.4
+    /// moved tokens to a shared home keyed by `(url, repo)` alone,
+    /// which quietly made two workspaces on one machine share one
+    /// credential: logging in as a second person replaced the first
+    /// person's token in *their* workspace. Before 19.4 the token lived
+    /// in the workspace, so this restores that scoping while keeping the
+    /// credential out of the repository.
     pub fn remote_token_key(&self, remote: &RemoteConfig) -> String {
-        format!("{}#{}", remote.base_url, remote.repo_id)
+        format!(
+            "{}#{}#{}",
+            remote.base_url,
+            remote.repo_id,
+            self.root_dir().display()
+        )
     }
 
     pub fn get_remote_token(&self, remote: &RemoteConfig) -> Result<Option<String>> {
@@ -34,13 +48,20 @@ impl LocalStore {
         if state.version != 1 {
             anyhow::bail!("unsupported workspace state version {}", state.version);
         }
-        if let Some(legacy) = state.remote_tokens.get(&key).cloned() {
-            self.write_token_file(&key, &legacy)?;
-            self.mutate_state(|st| {
-                st.remote_tokens.remove(&key);
-                Ok(())
-            })?;
-            return Ok(Some(legacy));
+        // Pre-19.4 workspaces keyed by `url#repo`; the key gained the
+        // workspace root in 21.1. Both shapes are looked for, because a
+        // migration that only understood the newer one would silently
+        // leave the plaintext where it was.
+        let legacy_key = format!("{}#{}", remote.base_url, remote.repo_id);
+        for candidate in [key.clone(), legacy_key] {
+            if let Some(legacy) = state.remote_tokens.get(&candidate).cloned() {
+                self.write_token_file(&key, &legacy)?;
+                self.mutate_state(|st| {
+                    st.remote_tokens.remove(&candidate);
+                    Ok(())
+                })?;
+                return Ok(Some(legacy));
+            }
         }
 
         self.read_token_file(&key)
@@ -50,9 +71,11 @@ impl LocalStore {
         let key = self.remote_token_key(remote);
         self.write_token_file(&key, token)?;
         // Belt and braces: a workspace that had a plaintext copy loses
-        // it here too, not only on the read path.
+        // it here too, not only on the read path, in either key shape.
+        let legacy_key = format!("{}#{}", remote.base_url, remote.repo_id);
         self.mutate_state(|st| {
             st.remote_tokens.remove(&key);
+            st.remote_tokens.remove(&legacy_key);
             Ok(())
         })
     }

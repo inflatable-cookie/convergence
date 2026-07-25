@@ -170,3 +170,189 @@ fn two_person_team_from_bootstrap_to_published_work() -> Result<()> {
     assert_eq!(out.status.code(), Some(1));
     Ok(())
 }
+
+/// Batch 21.1: a token has a beginning and an end.
+#[test]
+fn tokens_expire_are_revocable_and_are_listed_without_being_exposed() -> Result<()> {
+    let server_dir = tempfile::tempdir()?;
+    let (base_url, admin_token) = start_bare_server(server_dir.path())?;
+    let admin_dir = tempfile::tempdir()?;
+    let admin = admin_dir.path();
+    assert!(converge(admin, &["init"]).status.success());
+    assert!(
+        login(admin, &base_url, &admin_token, "acme")
+            .status
+            .success()
+    );
+    json_data(&converge(admin, &["--json", "repo", "create"]));
+
+    let added = json_data(&converge(
+        admin,
+        &["--json", "member", "add", "dana", "--issue-token"],
+    ));
+    let dana_token = added["token"].as_str().expect("token").to_string();
+    assert!(
+        !added["token_expires_at"].as_str().unwrap_or("").is_empty(),
+        "an issued token should expire by default: {added}"
+    );
+
+    // Listing shows the facts and never the credential.
+    let tokens = json_data(&converge(admin, &["--json", "token", "list"]));
+    let listed = tokens.as_array().expect("tokens");
+    assert!(!listed.is_empty());
+    assert!(
+        !tokens.to_string().contains(&dana_token),
+        "a listing exposed a live token"
+    );
+    let dana_entry = listed
+        .iter()
+        .find(|t| t["subject"] == "dana")
+        .expect("dana's token listed");
+    let token_id = dana_entry["token_id"].as_str().unwrap().to_string();
+
+    // It works until it is revoked.
+    let dana_dir = tempfile::tempdir()?;
+    let dana = dana_dir.path();
+    assert!(converge(dana, &["init"]).status.success());
+    assert!(login(dana, &base_url, &dana_token, "acme").status.success());
+    assert!(
+        converge(dana, &["--json", "member", "list"])
+            .status
+            .success(),
+        "the issued token did not work"
+    );
+
+    let revoked = json_data(&converge(
+        admin,
+        &[
+            "--json",
+            "token",
+            "revoke",
+            &token_id,
+            "--reason",
+            "laptop lost",
+        ],
+    ));
+    assert_eq!(revoked["revoked_reason"], "laptop lost");
+
+    // Refused, and the refusal says which problem it is.
+    let denied = converge(dana, &["--json", "member", "list"]);
+    assert!(!denied.status.success(), "a revoked token still worked");
+    let message = String::from_utf8_lossy(&denied.stdout).to_lowercase()
+        + &String::from_utf8_lossy(&denied.stderr).to_lowercase();
+    assert!(
+        message.contains("revoked") && message.contains("laptop lost"),
+        "the refusal should name the revocation and its reason: {message}"
+    );
+
+    // The record survives revocation: an incident asks who and why.
+    let tokens = json_data(&converge(admin, &["--json", "token", "list"]));
+    let entry = tokens
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|t| t["token_id"] == token_id.as_str())
+        .expect("revoked token still listed");
+    assert_eq!(entry["revoked_by"], "root");
+    assert!(!entry["last_used_at"].as_str().unwrap().is_empty());
+    Ok(())
+}
+
+/// An expired token is refused, and told apart from a revoked one.
+#[test]
+fn an_expired_token_is_refused_with_its_own_message() -> Result<()> {
+    let server_dir = tempfile::tempdir()?;
+    let (base_url, admin_token) = start_bare_server(server_dir.path())?;
+    let admin_dir = tempfile::tempdir()?;
+    let admin = admin_dir.path();
+    assert!(converge(admin, &["init"]).status.success());
+    assert!(
+        login(admin, &base_url, &admin_token, "acme")
+            .status
+            .success()
+    );
+    json_data(&converge(admin, &["--json", "repo", "create"]));
+
+    let added = json_data(&converge(
+        admin,
+        &["--json", "member", "add", "eve", "--issue-token"],
+    ));
+    let token = added["token"].as_str().expect("token").to_string();
+
+    // Age it by hand: the alternative is a test that waits 90 days.
+    let meta = SqliteMetadataStore::open(&server_dir.path().join("meta.sqlite"))?;
+    let hash = converge_server::token_hash(&token);
+    let stale = meta.token_by_hash(&hash)?.expect("token record");
+    meta.create_token_record(
+        &hash,
+        &converge_model::TokenRecord {
+            expires_at: "2020-01-01T00:00:00Z".into(),
+            ..stale
+        },
+    )?;
+
+    let eve_dir = tempfile::tempdir()?;
+    let eve = eve_dir.path();
+    assert!(converge(eve, &["init"]).status.success());
+    assert!(login(eve, &base_url, &token, "acme").status.success());
+    let denied = converge(eve, &["--json", "member", "list"]);
+    assert!(!denied.status.success(), "an expired token still worked");
+    let message = String::from_utf8_lossy(&denied.stdout).to_lowercase()
+        + &String::from_utf8_lossy(&denied.stderr).to_lowercase();
+    assert!(
+        message.contains("expired"),
+        "expiry should read differently from revocation: {message}"
+    );
+    Ok(())
+}
+
+/// Batch 21.1 regression: two workspaces on one machine, two people.
+///
+/// Batch 19.4 moved tokens to a shared home keyed by `(url, repo)`, so
+/// logging in as a second person replaced the first person's credential
+/// in *their* workspace — silently, and only visible later as a
+/// mysterious permission error.
+#[test]
+fn two_workspaces_on_one_machine_keep_separate_logins() -> Result<()> {
+    let server_dir = tempfile::tempdir()?;
+    let (base_url, admin_token) = start_bare_server(server_dir.path())?;
+
+    let admin_dir = tempfile::tempdir()?;
+    let admin = admin_dir.path();
+    assert!(converge(admin, &["init"]).status.success());
+    assert!(
+        login(admin, &base_url, &admin_token, "acme")
+            .status
+            .success()
+    );
+    json_data(&converge(admin, &["--json", "repo", "create"]));
+
+    let added = json_data(&converge(
+        admin,
+        &["--json", "member", "add", "dana", "--issue-token"],
+    ));
+    let dana_token = added["token"].as_str().expect("token").to_string();
+
+    // Same machine, same repo, different person.
+    let dana_dir = tempfile::tempdir()?;
+    let dana = dana_dir.path();
+    assert!(converge(dana, &["init"]).status.success());
+    assert!(login(dana, &base_url, &dana_token, "acme").status.success());
+
+    // The admin's workspace still holds the admin's identity: `token
+    // list` needs admin, which dana does not have.
+    let still_admin = converge(admin, &["--json", "token", "list"]);
+    assert!(
+        still_admin.status.success(),
+        "the second login replaced the first workspace's token: {}",
+        String::from_utf8_lossy(&still_admin.stdout)
+    );
+
+    // And dana's workspace is still dana: an admin-only verb is refused.
+    let denied = converge(dana, &["--json", "token", "list"]);
+    assert!(
+        !denied.status.success(),
+        "dana's workspace is authenticating as somebody else"
+    );
+    Ok(())
+}

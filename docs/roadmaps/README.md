@@ -36,11 +36,10 @@ records the closed state.
   `docs/architecture/19-secrets-and-key-management.md`.
 - Secret substrate program `g02.019`-`g02.020` **complete**
   (2026-07-25).
-- Next suite laid out 2026-07-25: `g02.021` real identity (ready),
-  `g02.022` ship readiness, `g02.023` TUI completion; `g02.024`
-  workflow profiles and `g02.025` edge/scale parked on triggers.
-- next: batch card 21.1 (token lifecycle), or promote `g02.022` if a
-  real user should come before another subsystem
+- Scheduled 2026-07-25: `g02.021` real identity, then `g02.023` TUI
+  completion (opening with a simplification sweep). `g02.022` ship
+  readiness planned but unscheduled; `g02.024` and `g02.025` parked.
+- next: batch card 21.2 (capability-scoped tokens)
 
 ## Rollover guardrail
 

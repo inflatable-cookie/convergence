@@ -418,6 +418,7 @@ impl RemoteClient {
         capabilities: &[String],
         scope_pattern: &str,
         issue_token: bool,
+        expires_in_days: Option<u32>,
     ) -> Result<crate::model::MemberAdded> {
         let response = Self::check(
             self.http
@@ -428,6 +429,7 @@ impl RemoteClient {
                     capabilities: capabilities.to_vec(),
                     scope_pattern: scope_pattern.into(),
                     issue_token,
+                    expires_in_days,
                 })
                 .send()
                 .context("add member")?,
@@ -557,6 +559,36 @@ impl RemoteClient {
                 .context("delete secret")?,
         )?;
         Ok(())
+    }
+
+    pub fn list_tokens(&self, repo_id: &str) -> Result<Vec<crate::model::TokenRecord>> {
+        let response = Self::check(
+            self.http
+                .get(self.url(&format!("/api/repos/{repo_id}/tokens")))
+                .bearer_auth(&self.token)
+                .send()
+                .context("list tokens")?,
+        )?;
+        response.json().context("parse tokens")
+    }
+
+    pub fn revoke_token(
+        &self,
+        repo_id: &str,
+        token_id: &str,
+        reason: &str,
+    ) -> Result<crate::model::TokenRecord> {
+        let response = Self::check(
+            self.http
+                .post(self.url(&format!("/api/repos/{repo_id}/tokens/{token_id}/revoke")))
+                .bearer_auth(&self.token)
+                .json(&crate::model::RevokeTokenRequest {
+                    reason: reason.into(),
+                })
+                .send()
+                .context("revoke token")?,
+        )?;
+        response.json().context("parse token")
     }
 
     pub fn remove_member(

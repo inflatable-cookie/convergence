@@ -339,6 +339,11 @@ enum Command {
         #[command(subcommand)]
         command: MemberCommand,
     },
+    /// Issued access tokens: what exists, and revoking one.
+    Token {
+        #[command(subcommand)]
+        command: TokenCommand,
+    },
     /// Personal key material for encrypted secrets.
     Key {
         #[command(subcommand)]
@@ -460,6 +465,18 @@ enum ScopeCommand {
 }
 
 #[derive(Subcommand)]
+enum TokenCommand {
+    /// Tokens issued in this repo. Never shows a token.
+    List,
+    /// Revoke a token by its short id.
+    Revoke {
+        token_id: String,
+        #[arg(short, long)]
+        reason: String,
+    },
+}
+
+#[derive(Subcommand)]
 enum SecretCommand {
     /// Store a secret. The value is read from stdin, never from argv:
     /// a command-line argument lands in shell history and in every
@@ -556,6 +573,10 @@ enum MemberCommand {
         /// Mint a login token and print it once.
         #[arg(long)]
         issue_token: bool,
+        /// Days until the token expires; 0 means never, and has to be
+        /// asked for.
+        #[arg(long)]
+        expires_in_days: Option<u32>,
     },
     /// List repo members and their capabilities.
     List,
@@ -1774,6 +1795,48 @@ fn run(cli: &Cli, mode: OutputMode, session: &Session) -> Result<serde_json::Val
                 }
             }
         }
+        Command::Token { command } => {
+            let ws = session.workspace()?;
+            let (client, remote) = remote_client(session, &ws, mode)?;
+            match command {
+                TokenCommand::List => {
+                    let tokens = client.list_tokens(&remote.repo_id)?;
+                    emit(mode, tokens, |tokens| {
+                        if tokens.is_empty() {
+                            println!("no tokens issued in this repo");
+                        }
+                        for token in tokens {
+                            let state = if !token.revoked_at.is_empty() {
+                                format!("revoked {} ({})", token.revoked_at, token.revoked_reason)
+                            } else if token.expires_at.is_empty() {
+                                "never expires".to_string()
+                            } else {
+                                format!("expires {}", token.expires_at)
+                            };
+                            println!(
+                                "{}  {}  {}  last used {}",
+                                token.token_id,
+                                token.subject,
+                                state,
+                                if token.last_used_at.is_empty() {
+                                    "never"
+                                } else {
+                                    &token.last_used_at
+                                }
+                            );
+                        }
+                    })
+                }
+                TokenCommand::Revoke { token_id, reason } => {
+                    let record = client.revoke_token(&remote.repo_id, token_id, reason)?;
+                    emit(mode, record, |r| {
+                        println!("token {} for {} revoked", r.token_id, r.subject);
+                        println!("  reason: {}", r.revoked_reason);
+                        println!("  they will need a new one to reach this server");
+                    })
+                }
+            }
+        }
         Command::Key { command } => {
             match command {
                 KeyCommand::Init { label, yes } => {
@@ -1908,6 +1971,7 @@ fn run(cli: &Cli, mode: OutputMode, session: &Session) -> Result<serde_json::Val
                     capabilities,
                     scope_pattern,
                     issue_token,
+                    expires_in_days,
                 } => {
                     let added = client.add_member(
                         &remote.repo_id,
@@ -1915,12 +1979,18 @@ fn run(cli: &Cli, mode: OutputMode, session: &Session) -> Result<serde_json::Val
                         capabilities,
                         scope_pattern,
                         *issue_token,
+                        *expires_in_days,
                     )?;
                     emit(mode, added, |m| {
                         println!("{} granted {}", m.subject, m.granted.join(", "));
                         if let Some(token) = &m.token {
                             // Only chance to see it: the server keeps a hash.
                             println!("token (shown once): {token}");
+                            if m.token_expires_at.is_empty() {
+                                println!("  it never expires — revoke it by hand when done");
+                            } else {
+                                println!("  expires {}", m.token_expires_at);
+                            }
                             println!(
                                 "they run: converge login --url {} --token {token} --repo {} --scope {} --gate {}",
                                 remote.base_url, remote.repo_id, remote.scope, remote.gate

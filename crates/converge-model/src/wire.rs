@@ -171,6 +171,32 @@ pub struct AddMemberRequest {
     pub scope_pattern: String,
     /// Mint a token for this subject and return it once.
     pub issue_token: bool,
+    /// Days until the issued token expires. `None` takes the default;
+    /// `Some(0)` means no expiry and has to be asked for.
+    #[serde(default)]
+    pub expires_in_days: Option<u32>,
+}
+
+/// A token's administrable facts (g02.021 batch 21.1). Never the token.
+///
+/// `token_id` is the head of the hash: enough to name one in a command,
+/// useless as a credential. Managing tokens must not require handling
+/// live ones.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+pub struct TokenRecord {
+    pub token_id: String,
+    pub subject: String,
+    pub label: String,
+    pub issued_at: String,
+    pub issued_by: String,
+    pub repo_id: String,
+    /// Empty means no expiry — the bootstrap path, and deliberately
+    /// visible in a listing rather than silent.
+    pub expires_at: String,
+    pub last_used_at: String,
+    pub revoked_at: String,
+    pub revoked_by: String,
+    pub revoked_reason: String,
 }
 
 /// Register a public key for the calling subject (g02.019 batch 19.1).
@@ -279,6 +305,14 @@ pub struct MemberAdded {
     pub subject: String,
     pub granted: Vec<String>,
     pub token: Option<String>,
+    /// When the issued token stops working; empty when it never does.
+    #[serde(default)]
+    pub token_expires_at: String,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct RevokeTokenRequest {
+    pub reason: String,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

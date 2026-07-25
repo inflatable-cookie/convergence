@@ -33,7 +33,17 @@ impl PostgresMetadataStore {
             CREATE TABLE IF NOT EXISTS repos (repo_id TEXT PRIMARY KEY);
             CREATE TABLE IF NOT EXISTS tokens (
                 token_hash TEXT PRIMARY KEY,
-                subject TEXT NOT NULL
+                subject TEXT NOT NULL,
+                token_id TEXT NOT NULL DEFAULT '',
+                label TEXT NOT NULL DEFAULT '',
+                issued_at TEXT NOT NULL DEFAULT '',
+                issued_by TEXT NOT NULL DEFAULT '',
+                repo_id TEXT NOT NULL DEFAULT '',
+                expires_at TEXT NOT NULL DEFAULT '',
+                last_used_at TEXT NOT NULL DEFAULT '',
+                revoked_at TEXT NOT NULL DEFAULT '',
+                revoked_by TEXT NOT NULL DEFAULT '',
+                revoked_reason TEXT NOT NULL DEFAULT ''
             );
             CREATE TABLE IF NOT EXISTS secrets (
                 repo_id TEXT NOT NULL,
@@ -218,6 +228,95 @@ impl MetadataStore for PostgresMetadataStore {
             "INSERT INTO tokens (token_hash, subject) VALUES ($1, $2)
              ON CONFLICT (token_hash) DO UPDATE SET subject = EXCLUDED.subject",
             &[&token_hash, &subject],
+        )?;
+        Ok(())
+    }
+
+    fn create_token_record(
+        &self,
+        token_hash: &str,
+        record: &converge_model::TokenRecord,
+    ) -> Result<()> {
+        let mut c = self.client.lock().expect("pg lock");
+        c.execute(
+            "INSERT INTO tokens
+             (token_hash, subject, token_id, label, issued_at, issued_by, repo_id,
+              expires_at, last_used_at, revoked_at, revoked_by, revoked_reason)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, '', '', '', '')
+             ON CONFLICT (token_hash) DO UPDATE SET
+               subject = EXCLUDED.subject,
+               token_id = EXCLUDED.token_id,
+               label = EXCLUDED.label,
+               issued_at = EXCLUDED.issued_at,
+               issued_by = EXCLUDED.issued_by,
+               repo_id = EXCLUDED.repo_id,
+               expires_at = EXCLUDED.expires_at",
+            &[
+                &token_hash,
+                &record.subject,
+                &record.token_id,
+                &record.label,
+                &record.issued_at,
+                &record.issued_by,
+                &record.repo_id,
+                &record.expires_at,
+            ],
+        )?;
+        Ok(())
+    }
+
+    fn token_by_hash(&self, token_hash: &str) -> Result<Option<converge_model::TokenRecord>> {
+        let mut c = self.client.lock().expect("pg lock");
+        let rows = c.query(
+            "SELECT token_id, subject, label, issued_at, issued_by, repo_id, expires_at,
+                    last_used_at, revoked_at, revoked_by, revoked_reason
+             FROM tokens WHERE token_hash = $1",
+            &[&token_hash],
+        )?;
+        Ok(rows.first().map(token_from_pg_row))
+    }
+
+    fn list_tokens(&self, repo_id: &str) -> Result<Vec<converge_model::TokenRecord>> {
+        let mut c = self.client.lock().expect("pg lock");
+        let rows = c.query(
+            "SELECT token_id, subject, label, issued_at, issued_by, repo_id, expires_at,
+                    last_used_at, revoked_at, revoked_by, revoked_reason
+             FROM tokens WHERE repo_id = $1 ORDER BY subject, issued_at",
+            &[&repo_id],
+        )?;
+        Ok(rows.iter().map(token_from_pg_row).collect())
+    }
+
+    fn revoke_token(
+        &self,
+        token_id: &str,
+        at: &str,
+        by: &str,
+        reason: &str,
+    ) -> Result<Option<converge_model::TokenRecord>> {
+        let mut c = self.client.lock().expect("pg lock");
+        let changed = c.execute(
+            "UPDATE tokens SET revoked_at = $2, revoked_by = $3, revoked_reason = $4
+             WHERE token_id = $1 AND revoked_at = ''",
+            &[&token_id, &at, &by, &reason],
+        )?;
+        if changed == 0 {
+            return Ok(None);
+        }
+        let rows = c.query(
+            "SELECT token_id, subject, label, issued_at, issued_by, repo_id, expires_at,
+                    last_used_at, revoked_at, revoked_by, revoked_reason
+             FROM tokens WHERE token_id = $1",
+            &[&token_id],
+        )?;
+        Ok(rows.first().map(token_from_pg_row))
+    }
+
+    fn touch_token(&self, token_hash: &str, at: &str) -> Result<()> {
+        let mut c = self.client.lock().expect("pg lock");
+        c.execute(
+            "UPDATE tokens SET last_used_at = $2 WHERE token_hash = $1",
+            &[&token_hash, &at],
         )?;
         Ok(())
     }
@@ -1217,6 +1316,22 @@ fn record_promotion_pg(
         &[&bundle_id, &from_gate, &to_gate, &at],
     )?;
     Ok(())
+}
+
+fn token_from_pg_row(r: &postgres::Row) -> converge_model::TokenRecord {
+    converge_model::TokenRecord {
+        token_id: r.get(0),
+        subject: r.get(1),
+        label: r.get(2),
+        issued_at: r.get(3),
+        issued_by: r.get(4),
+        repo_id: r.get(5),
+        expires_at: r.get(6),
+        last_used_at: r.get(7),
+        revoked_at: r.get(8),
+        revoked_by: r.get(9),
+        revoked_reason: r.get(10),
+    }
 }
 
 fn secret_from_row(r: &postgres::Row) -> converge_model::SecretRecord {

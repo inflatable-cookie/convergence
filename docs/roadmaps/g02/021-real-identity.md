@@ -1,6 +1,6 @@
 # 021 Real Identity
 
-Status: ready (21.1 next)
+Status: in progress (21.1 complete)
 Owner: repo maintainers
 Updated: 2026-07-25
 
@@ -32,9 +32,11 @@ password that happens to be long.
 
 ## Execution Plan (batch details in cards)
 
-- **21.1 Token lifecycle**: issued-at, expires-at, last-used; expiry
-  enforced at authentication; `converge token list|revoke` with a reason
-  recorded; the revocation surfaced on the events feed
+- **21.1 Token lifecycle** (complete, card 078): issued-at, expires-at,
+  last-used, and a revocation triple; expiry and revocation enforced at
+  authentication with distinct messages; `converge token list|revoke`;
+  90-day default lifetime. Found and fixed a 19.4 regression where two
+  workspaces on one machine shared one credential
 - **21.2 Capability-scoped tokens**: a token carries a subset of its
   subject's grants, so a CI token can publish and never read secrets.
   This is the batch that makes doc 19 §10a's agent identity a one-line
@@ -57,4 +59,4 @@ password that happens to be long.
 
 ## Next Task
 
-Open batch card 21.1 (token lifecycle).
+Open batch card 21.2 (capability-scoped tokens).

@@ -29,5 +29,6 @@ pub use self::wire::{
     LaneRecord, MemberAdded, MemberRecord, MemberRemoved, NegotiateRequest, NegotiateResponse,
     ObjectFrame, ObjectSet, Page, PromoteRequest, PublicKeyRecord, PublicationRecord,
     PublishRequest, RegisterKeyRequest, ReleaseRecord, ReleaseRequest, RetentionPolicy,
-    SecretRecord, SecretSummary, SetLaneHeadRequest, SetSecretRequest, VerifyReport, WIRE_VERSION,
+    RevokeTokenRequest, SecretRecord, SecretSummary, SetLaneHeadRequest, SetSecretRequest,
+    TokenRecord, VerifyReport, WIRE_VERSION,
 };

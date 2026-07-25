@@ -49,7 +49,17 @@ impl SqliteMetadataStore {
             CREATE TABLE IF NOT EXISTS repos (repo_id TEXT PRIMARY KEY);
             CREATE TABLE IF NOT EXISTS tokens (
                 token_hash TEXT PRIMARY KEY,
-                subject TEXT NOT NULL
+                subject TEXT NOT NULL,
+                token_id TEXT NOT NULL DEFAULT '',
+                label TEXT NOT NULL DEFAULT '',
+                issued_at TEXT NOT NULL DEFAULT '',
+                issued_by TEXT NOT NULL DEFAULT '',
+                repo_id TEXT NOT NULL DEFAULT '',
+                expires_at TEXT NOT NULL DEFAULT '',
+                last_used_at TEXT NOT NULL DEFAULT '',
+                revoked_at TEXT NOT NULL DEFAULT '',
+                revoked_by TEXT NOT NULL DEFAULT '',
+                revoked_reason TEXT NOT NULL DEFAULT ''
             );
             CREATE TABLE IF NOT EXISTS secrets (
                 repo_id TEXT NOT NULL,
@@ -284,6 +294,96 @@ impl MetadataStore for SqliteMetadataStore {
         conn.execute(
             "INSERT OR REPLACE INTO tokens (token_hash, subject) VALUES (?1, ?2)",
             params![token_hash, subject],
+        )?;
+        Ok(())
+    }
+
+    fn create_token_record(
+        &self,
+        token_hash: &str,
+        record: &converge_model::TokenRecord,
+    ) -> Result<()> {
+        let conn = self.conn.lock().expect("meta lock");
+        conn.execute(
+            "INSERT OR REPLACE INTO tokens
+             (token_hash, subject, token_id, label, issued_at, issued_by, repo_id,
+              expires_at, last_used_at, revoked_at, revoked_by, revoked_reason)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, '', '', '', '')",
+            params![
+                token_hash,
+                record.subject,
+                record.token_id,
+                record.label,
+                record.issued_at,
+                record.issued_by,
+                record.repo_id,
+                record.expires_at
+            ],
+        )?;
+        Ok(())
+    }
+
+    fn token_by_hash(&self, token_hash: &str) -> Result<Option<converge_model::TokenRecord>> {
+        let conn = self.conn.lock().expect("meta lock");
+        let mut stmt = conn.prepare(
+            "SELECT token_id, subject, label, issued_at, issued_by, repo_id, expires_at,
+                    last_used_at, revoked_at, revoked_by, revoked_reason
+             FROM tokens WHERE token_hash = ?1",
+        )?;
+        let mut rows = stmt.query(params![token_hash])?;
+        Ok(match rows.next()? {
+            Some(row) => Some(token_from_row(row)?),
+            None => None,
+        })
+    }
+
+    fn list_tokens(&self, repo_id: &str) -> Result<Vec<converge_model::TokenRecord>> {
+        let conn = self.conn.lock().expect("meta lock");
+        let mut stmt = conn.prepare(
+            "SELECT token_id, subject, label, issued_at, issued_by, repo_id, expires_at,
+                    last_used_at, revoked_at, revoked_by, revoked_reason
+             FROM tokens WHERE repo_id = ?1 ORDER BY subject, issued_at",
+        )?;
+        let rows = stmt.query_map(params![repo_id], |row| {
+            token_from_row(row).map_err(|_| rusqlite::Error::InvalidQuery)
+        })?;
+        rows.collect::<std::result::Result<_, _>>()
+            .context("list tokens")
+    }
+
+    fn revoke_token(
+        &self,
+        token_id: &str,
+        at: &str,
+        by: &str,
+        reason: &str,
+    ) -> Result<Option<converge_model::TokenRecord>> {
+        let conn = self.conn.lock().expect("meta lock");
+        let changed = conn.execute(
+            "UPDATE tokens SET revoked_at = ?2, revoked_by = ?3, revoked_reason = ?4
+             WHERE token_id = ?1 AND revoked_at = ''",
+            params![token_id, at, by, reason],
+        )?;
+        if changed == 0 {
+            return Ok(None);
+        }
+        let mut stmt = conn.prepare(
+            "SELECT token_id, subject, label, issued_at, issued_by, repo_id, expires_at,
+                    last_used_at, revoked_at, revoked_by, revoked_reason
+             FROM tokens WHERE token_id = ?1",
+        )?;
+        let mut rows = stmt.query(params![token_id])?;
+        Ok(match rows.next()? {
+            Some(row) => Some(token_from_row(row)?),
+            None => None,
+        })
+    }
+
+    fn touch_token(&self, token_hash: &str, at: &str) -> Result<()> {
+        let conn = self.conn.lock().expect("meta lock");
+        conn.execute(
+            "UPDATE tokens SET last_used_at = ?2 WHERE token_hash = ?1",
+            params![token_hash, at],
         )?;
         Ok(())
     }
@@ -1377,6 +1477,22 @@ fn record_promotion_conn(
         params![bundle_id, from_gate, to_gate, at],
     )?;
     Ok(())
+}
+
+fn token_from_row(row: &rusqlite::Row) -> anyhow::Result<converge_model::TokenRecord> {
+    Ok(converge_model::TokenRecord {
+        token_id: row.get(0)?,
+        subject: row.get(1)?,
+        label: row.get(2)?,
+        issued_at: row.get(3)?,
+        issued_by: row.get(4)?,
+        repo_id: row.get(5)?,
+        expires_at: row.get(6)?,
+        last_used_at: row.get(7)?,
+        revoked_at: row.get(8)?,
+        revoked_by: row.get(9)?,
+        revoked_reason: row.get(10)?,
+    })
 }
 
 fn get_secret_conn(

@@ -167,8 +167,28 @@ pub trait MetadataStore: Send + Sync {
     /// server only ever needs to recognise it, and a leaked database
     /// should not hand an attacker working credentials.
     fn create_token(&self, token_hash: &str, subject: &str) -> Result<()>;
+    /// Issue a token with its administrable facts (g02.021 batch 21.1).
+    fn create_token_record(
+        &self,
+        token_hash: &str,
+        record: &converge_model::TokenRecord,
+    ) -> Result<()>;
+    /// The token's record, whatever its state. Expiry and revocation are
+    /// judged by the caller so the two can be reported differently.
+    fn token_by_hash(&self, token_hash: &str) -> Result<Option<converge_model::TokenRecord>>;
     fn subject_for_token_hash(&self, token_hash: &str) -> Result<Option<String>>;
     fn token_count(&self, subject: &str) -> Result<usize>;
+    fn list_tokens(&self, repo_id: &str) -> Result<Vec<converge_model::TokenRecord>>;
+    /// Record a revocation. Kept rather than deleted: "this token was
+    /// revoked, when, by whom and why" is the question an incident asks.
+    fn revoke_token(
+        &self,
+        token_id: &str,
+        at: &str,
+        by: &str,
+        reason: &str,
+    ) -> Result<Option<converge_model::TokenRecord>>;
+    fn touch_token(&self, token_hash: &str, at: &str) -> Result<()>;
     /// (subject, capability, scope_pattern) rows for one repo, ordered.
     fn list_grants(&self, repo_id: &str) -> Result<Vec<(String, String, String)>>;
     /// Drop every grant a subject holds in one repo (g02.020 batch
