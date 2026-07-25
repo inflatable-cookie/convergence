@@ -1,6 +1,6 @@
 # 017 TUI Spec Parity
 
-Status: in progress (17.1-17.2 complete)
+Status: in progress (17.1-17.3 complete)
 Owner: repo maintainers
 Updated: 2026-07-25
 
@@ -51,10 +51,12 @@ simplified.
   probe is gone (the gate comes from status); idle refresh every 5s;
   per-view load timestamps and a reachability signal driven by the event
   poller's own outcome
-- **17.3 Safety and flow**: confirmations for approve/promote/
-  release/gc; live resolution validate with Alt+f/Alt+n; wizard lane
-  default fixed to personal-lane resolution; structured Last strip
-  rendering
+- **17.3 Safety and flow** (complete, card 063): one
+  `confirmation_prompt` rule covering typed commands and inbox rows
+  (approve, promote, release, restore, unsnap, `gc --execute`); pure
+  live validation with `Alt+n` next missing / `Alt+f` next invalid;
+  Last strip renders fields instead of truncated JSON; publish wizard's
+  lane field blank by default so the server resolves the personal lane
 - **17.4 Reducer test suite + spec reconciliation**: unit tests over
   `app.rs` state transitions; docs/rebuild/002 amended where the
   implementation intentionally diverges (workflow profiles decided:
@@ -69,4 +71,4 @@ simplified.
 
 ## Next Task
 
-Open batch card 17.3 (safety and flow).
+Open batch card 17.4 (reducer suite and spec reconciliation).

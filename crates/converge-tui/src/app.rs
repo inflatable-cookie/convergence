@@ -101,11 +101,52 @@ impl ResolutionState {
     }
 
     pub fn undecided(&self) -> usize {
-        self.paths
-            .iter()
-            .filter(|(p, _)| !self.decisions.contains_key(p))
-            .count()
+        self.validation().missing
     }
+
+    /// Live counts, computed purely (UX spec §5).
+    ///
+    /// No round trip: `missing` and `invalid` are answerable from the
+    /// variant lists already on screen, and the authoritative check
+    /// still runs inside `resolve apply`. A validation that needed the
+    /// store could not be live.
+    pub fn validation(&self) -> Validation {
+        let mut missing = 0;
+        let mut invalid = 0;
+        for (path, keys) in &self.paths {
+            match self.decisions.get(path) {
+                None => missing += 1,
+                // A decision can outlive its variant list when the same
+                // path is re-listed after a new publish.
+                Some(index) if *index as usize >= keys.len() => invalid += 1,
+                Some(_) => {}
+            }
+        }
+        Validation { missing, invalid }
+    }
+
+    /// Index of the next path after `from` matching a predicate, wrapping.
+    fn next_matching(
+        &self,
+        from: usize,
+        mut pred: impl FnMut(&str, &[serde_json::Value]) -> bool,
+    ) -> Option<usize> {
+        let len = self.paths.len();
+        (1..=len).find_map(|step| {
+            let idx = (from + step) % len;
+            let (path, keys) = &self.paths[idx];
+            pred(path, keys).then_some(idx)
+        })
+    }
+}
+
+/// What the resolution view can say without asking anyone.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Validation {
+    /// Paths with no decision yet.
+    pub missing: usize,
+    /// Decisions pointing at a variant that no longer exists.
+    pub invalid: usize,
 }
 
 /// Commands the console accepts. View-entering commands push a frame;
@@ -177,6 +218,32 @@ pub fn is_remote_command(argv: &[String]) -> bool {
                 | "gc"
         )
     )
+}
+
+/// Verbs that confirm once before running (UX spec §4.5, audit P2.10).
+///
+/// The test is not "destructive" but "hard to walk back for someone
+/// else": an approval or a promotion is visible to the whole team the
+/// moment it lands, and `gc` deletes objects for good. Local, reversible
+/// verbs (`snap`, `fetch`, `show`) stay one keystroke.
+pub fn confirmation_prompt(argv: &[String]) -> Option<String> {
+    let verb = argv.first().map(String::as_str)?;
+    let target = argv.get(1).map(|s| s.chars().take(12).collect::<String>());
+    let describe = |what: &str| match &target {
+        Some(id) => Some(format!("{what} {id}")),
+        None => Some(what.to_string()),
+    };
+    match verb {
+        "approve" => describe("approve"),
+        "promote" => describe("promote"),
+        "release" => describe("release"),
+        "restore" => describe("restore"),
+        "gc" if argv.iter().any(|a| a == "--execute") => {
+            Some("delete unreachable objects".to_string())
+        }
+        "unsnap" => Some("undo the last snap".to_string()),
+        _ => None,
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -386,6 +453,25 @@ impl App {
         format!("{} {view}>", self.context.label())
     }
 
+    /// Move the resolution cursor to the next missing (or invalid) path.
+    fn jump_resolution(&mut self, invalid: bool) {
+        let Some(resolution) = self.resolution.as_mut() else {
+            return;
+        };
+        if resolution.paths.is_empty() {
+            return;
+        }
+        let from = resolution.selected;
+        let decisions = resolution.decisions.clone();
+        let next = resolution.next_matching(from, |path, keys| match decisions.get(path) {
+            None => !invalid,
+            Some(index) => invalid && *index as usize >= keys.len(),
+        });
+        if let Some(idx) = next {
+            resolution.selected = idx;
+        }
+    }
+
     /// Enter a view unless it is already the active one.
     fn jump(&self, view: View) -> Option<Action> {
         if self.current_view() == view {
@@ -445,12 +531,13 @@ impl App {
             Some("login") if argv.len() == 1 => Some(Action::StartWizard(WizardKind::Login)),
             Some("publish") if argv.len() == 1 => Some(Action::StartWizard(WizardKind::Publish)),
             Some("resolve") if argv.len() == 2 => Some(Action::EnterResolution(argv[1].clone())),
-            // Undo confirms once, like restore and promote (UX spec §4.5).
-            Some("unsnap") => {
-                self.pending_confirm = Some(("undo the last snap".into(), Action::Run(argv)));
-                None
-            }
-            Some(_) => Some(Action::Run(argv)),
+            Some(_) => match confirmation_prompt(&argv) {
+                Some(prompt) => {
+                    self.pending_confirm = Some((prompt, Action::Run(argv)));
+                    None
+                }
+                None => Some(Action::Run(argv)),
+            },
             None => None,
         }
     }
@@ -523,6 +610,15 @@ impl App {
                     if self.current_view() != View::Inbox {
                         return Some(Action::LoadInbox);
                     }
+                    return None;
+                }
+                // Resolution jumps (UX spec §5): next missing, next invalid.
+                KeyCode::Char('n') if self.current_view() == View::Resolution => {
+                    self.jump_resolution(false);
+                    return None;
+                }
+                KeyCode::Char('f') if self.current_view() == View::Resolution => {
+                    self.jump_resolution(true);
                     return None;
                 }
                 KeyCode::Char('b') => return self.jump(View::Bundles),
@@ -713,6 +809,14 @@ impl App {
                             _ => Action::Run(argv),
                         }
                     });
+                // An inbox row is a one-key path to `approve`, so it needs
+                // the same confirmation a typed one gets.
+                if let Some(Action::Run(argv)) = &action
+                    && let Some(prompt) = confirmation_prompt(argv)
+                {
+                    self.pending_confirm = Some((prompt, Action::Run(argv.clone())));
+                    return Some(None);
+                }
                 Some(action)
             }
             _ => None,
@@ -805,18 +909,49 @@ impl App {
     }
 }
 
+/// One readable line for a command result (audit P3.13).
+///
+/// Objects used to be dumped as raw JSON and cut mid-token at 120 chars,
+/// which is the least useful place to stop. Verbs already return a small
+/// set of meaningful keys, so those are named; anything else becomes
+/// `key=value` pairs over scalar fields, in the order the verb chose.
 fn summarize(value: &serde_json::Value) -> String {
     match value {
         serde_json::Value::Array(items) => format!("{} item(s)", items.len()),
         serde_json::Value::String(s) => s.clone(),
-        other => {
-            let text = other.to_string();
-            if text.len() > 120 {
-                format!("{}…", &text[..119])
+        serde_json::Value::Object(map) => {
+            let mut parts: Vec<String> = Vec::new();
+            for (key, field) in map {
+                let rendered = match field {
+                    serde_json::Value::String(s) if s.is_empty() => continue,
+                    serde_json::Value::String(s) => shorten(s),
+                    serde_json::Value::Null => continue,
+                    serde_json::Value::Object(_) | serde_json::Value::Array(_) => continue,
+                    scalar => scalar.to_string(),
+                };
+                parts.push(format!("{key} {rendered}"));
+            }
+            // `next` is guidance, not data: it goes last and reads as one.
+            if let Some(next) = map.get("next").and_then(|n| n.as_str()) {
+                parts.retain(|p| !p.starts_with("next "));
+                parts.push(format!("→ converge {next}"));
+            }
+            if parts.is_empty() {
+                "ok".to_string()
             } else {
-                text
+                parts.join("  ")
             }
         }
+        other => other.to_string(),
+    }
+}
+
+/// Ids are long and only their head is recognisable.
+fn shorten(text: &str) -> String {
+    if text.len() > 40 && !text.contains(' ') {
+        text.chars().take(12).collect()
+    } else {
+        text.to_string()
     }
 }
 
@@ -1052,11 +1187,20 @@ mod tests {
             Some(vec!["resolve".into(), "list".into(), "b2".into()])
         );
 
-        // Enter on the approve entry runs it.
+        // Enter on the approve entry asks first: an approval is visible
+        // to the whole team the moment it lands (UX spec §4.5).
         app.frames.push(View::Inbox);
         app.inbox_selected = 2;
+        assert_eq!(app.handle_key(key(KeyCode::Enter)), None);
         assert_eq!(
-            app.handle_key(key(KeyCode::Enter)),
+            app.pending_confirm,
+            Some((
+                "approve b1".to_string(),
+                Action::Run(vec!["approve".into(), "b1".into()])
+            ))
+        );
+        assert_eq!(
+            app.handle_key(key(KeyCode::Char('y'))),
             Some(Action::Run(vec!["approve".into(), "b1".into()]))
         );
 
@@ -1195,6 +1339,146 @@ mod tests {
 
         app.status = Some(serde_json::json!({ "remote": { "configured": false } }));
         assert_eq!(app.remote_gate(), None);
+    }
+
+    #[test]
+    fn consequential_verbs_confirm_and_local_ones_do_not() {
+        for argv in [
+            vec!["approve", "b1"],
+            vec!["promote", "b1", "--to", "main"],
+            vec!["release", "b1", "--channel", "stable"],
+            vec!["restore", "s1"],
+            vec!["unsnap"],
+            vec!["gc", "--execute"],
+        ] {
+            let argv: Vec<String> = argv.into_iter().map(String::from).collect();
+            assert!(
+                confirmation_prompt(&argv).is_some(),
+                "{argv:?} should confirm"
+            );
+        }
+        for argv in [
+            vec!["snap"],
+            vec!["fetch", "b1"],
+            vec!["show", "s1"],
+            vec!["publish"],
+            // A dry-run gc deletes nothing, so it should not nag.
+            vec!["gc"],
+        ] {
+            let argv: Vec<String> = argv.into_iter().map(String::from).collect();
+            assert!(
+                confirmation_prompt(&argv).is_none(),
+                "{argv:?} should run straight away"
+            );
+        }
+    }
+
+    #[test]
+    fn typed_destructive_command_waits_for_confirmation() {
+        let mut app = App::default();
+        typed(&mut app, "promote b1 --to main");
+        assert_eq!(app.handle_key(key(KeyCode::Enter)), None);
+        assert_eq!(
+            app.pending_confirm
+                .as_ref()
+                .map(|(prompt, _)| prompt.clone()),
+            Some("promote b1".to_string())
+        );
+        // Any other key declines, and nothing runs.
+        assert_eq!(app.handle_key(key(KeyCode::Char('x'))), None);
+        assert!(app.pending_confirm.is_none());
+    }
+
+    #[test]
+    fn resolution_validation_counts_missing_and_invalid() {
+        let variants = vec![
+            serde_json::json!({"source": "a"}),
+            serde_json::json!({"source": "b"}),
+        ];
+        let mut state = ResolutionState {
+            snap_id: "s".into(),
+            paths: vec![
+                ("a.txt".into(), variants.clone()),
+                ("b.txt".into(), variants.clone()),
+                ("c.txt".into(), variants),
+            ],
+            decisions: Default::default(),
+            selected: 0,
+        };
+        assert_eq!(
+            state.validation(),
+            Validation {
+                missing: 3,
+                invalid: 0
+            }
+        );
+
+        state.decisions.insert("a.txt".into(), 1);
+        // A decision pointing past the variant list is invalid, not missing.
+        state.decisions.insert("b.txt".into(), 9);
+        assert_eq!(
+            state.validation(),
+            Validation {
+                missing: 1,
+                invalid: 1
+            }
+        );
+        assert_eq!(state.undecided(), 1);
+    }
+
+    #[test]
+    fn alt_jumps_move_to_next_missing_and_next_invalid() {
+        let variants = vec![serde_json::json!({"source": "a"})];
+        let mut app = App::default();
+        app.frames.push(View::Resolution);
+        app.resolution = Some(ResolutionState {
+            snap_id: "s".into(),
+            paths: vec![
+                ("a.txt".into(), variants.clone()),
+                ("b.txt".into(), variants.clone()),
+                ("c.txt".into(), variants),
+            ],
+            decisions: BTreeMap::from([("a.txt".to_string(), 0), ("b.txt".to_string(), 7)]),
+            selected: 0,
+        });
+        let alt = |c: char| KeyEvent::new(KeyCode::Char(c), KeyModifiers::ALT);
+
+        app.handle_key(alt('n'));
+        assert_eq!(
+            app.resolution.as_ref().unwrap().selected,
+            2,
+            "c.txt is missing"
+        );
+        app.handle_key(alt('f'));
+        assert_eq!(
+            app.resolution.as_ref().unwrap().selected,
+            1,
+            "b.txt's decision is out of range — wraps around to find it"
+        );
+    }
+
+    #[test]
+    fn results_render_as_fields_not_truncated_json() {
+        let mut app = App::default();
+        app.record_result(Ok(serde_json::json!({
+            "snap": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+            "paths_resolved": 2,
+            "checked_out": true,
+            "derived_from_bundle": null,
+            "next": "publish --snap 0123",
+        })));
+        let LastLine::Output(line) = app.last.last().expect("a line") else {
+            panic!("expected output");
+        };
+        assert!(line.contains("paths_resolved 2"), "{line}");
+        assert!(line.contains("checked_out true"), "{line}");
+        assert!(
+            line.contains("snap 0123456789ab"),
+            "long ids shorten: {line}"
+        );
+        assert!(!line.contains("derived_from_bundle"), "nulls drop: {line}");
+        assert!(line.ends_with("→ converge publish --snap 0123"), "{line}");
+        assert!(!line.contains('{'), "no raw JSON: {line}");
     }
 
     #[test]

@@ -132,12 +132,16 @@ impl Wizard {
             "Publish",
             vec![
                 gate_field,
+                // Blank means "omit --lane", which the server resolves
+                // to the caller's personal lane (batch 17.3, audit
+                // P3.15). Hardcoding `default` made the personal-lane
+                // default unreachable from the TUI.
                 Field {
                     name: "lane",
-                    prompt: "Lane",
+                    prompt: "Lane (blank = your personal lane)",
                     kind: FieldKind::Text {
-                        default: Some("default".into()),
-                        optional: false,
+                        default: None,
+                        optional: true,
                     },
                 },
                 Field {

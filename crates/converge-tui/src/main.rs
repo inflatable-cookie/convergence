@@ -673,9 +673,14 @@ fn render(frame: &mut Frame, app: &App) {
                 })
                 .collect();
             items.push(ListItem::new(""));
+            // Live counts (UX spec §5): computed from what is on screen,
+            // so they update on every keystroke without a round trip.
+            let validation = resolution.validation();
             items.push(ListItem::new(format!(
-                "{} undecided of {}   keys: 1-9 pick  0 clear  Enter next/apply",
-                resolution.undecided(),
+                "{} missing, {} invalid of {}   keys: 1-9 pick  0 clear  \
+                 Alt+n next missing  Alt+f next invalid  Enter next/apply",
+                validation.missing,
+                validation.invalid,
                 resolution.paths.len()
             )));
             frame.render_widget(List::new(items).block(view_block(app)), body);

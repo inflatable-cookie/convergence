@@ -68,6 +68,4 @@ wrong.
 
 ## Next Task
 
-Batch card 17.3 (safety and flow: confirmations for approve/promote/
-release/gc, live resolution validate, wizard lane default, structured
-Last strip).
+Batch card 17.3 (safety and flow) — done, card 063.
