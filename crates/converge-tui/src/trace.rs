@@ -102,6 +102,10 @@ impl Trace {
     /// something else, so this property is load-bearing rather than
     /// incidental; the test below pins it.
     pub fn command_result(&mut self, argv: &[String], result: &anyhow::Result<serde_json::Value>) {
+        // A credential can ride in argv itself (batch 23.3): recording
+        // argv rather than payloads is necessary for this property, not
+        // sufficient.
+        let argv = &crate::app::redact_argv(argv);
         let payload = match result {
             Ok(_) => json!({"argv": argv, "ok": true}),
             Err(err) => {
@@ -238,6 +242,36 @@ mod tests {
         assert!(
             !written.contains("hunter2"),
             "the trace captured a secret value: {written}"
+        );
+    }
+
+    /// The trace is a file that outlives the session and is usually read
+    /// by something else. Keeping payloads out of it is necessary and
+    /// not sufficient: a credential can ride in argv (batch 23.3).
+    #[test]
+    fn argv_credentials_are_redacted_in_the_trace() {
+        let (mut trace, mut file) = trace_with_tempfile();
+        trace.command_result(
+            &[
+                "login".to_string(),
+                "--url".to_string(),
+                "http://server".to_string(),
+                "--token".to_string(),
+                "s3cr3t-token".to_string(),
+            ],
+            &Ok(serde_json::json!({"ok": true})),
+        );
+        file.rewind().expect("rewind");
+        let mut written = String::new();
+        std::io::Read::read_to_string(&mut file, &mut written).expect("read");
+        assert!(
+            !written.contains("s3cr3t-token"),
+            "the trace file recorded a live token: {written}"
+        );
+        assert!(written.contains("<redacted>"), "{written}");
+        assert!(
+            written.contains("http://server"),
+            "only the credential goes"
         );
     }
 }

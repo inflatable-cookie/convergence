@@ -252,6 +252,44 @@ pub fn needs_private_key(argv: &[String]) -> bool {
     )
 }
 
+/// Flags whose *argument* is a live credential (batch 23.3).
+///
+/// Batch 19.3 refused to give `secret set` a `--value` flag on the
+/// grounds that argv lands in shell history and `ps`. The same argument
+/// applies inside this program, and `login --token` had exactly that
+/// shape: the Login wizard collected a token, `record_command` wrote the
+/// whole argv into the Last strip, and the agent trace wrote it to a
+/// file — a file whose own doc comment claims it keeps secrets out
+/// because it records argv rather than payloads. It records argv, and
+/// argv was carrying the credential.
+const CREDENTIAL_FLAGS: &[&str] = &["--token", "--passphrase"];
+
+/// Argv as it is safe to display or persist.
+///
+/// Applied where argv is *formatted*, like the output redaction in
+/// batch 19.5, so a new surface cannot forget it.
+pub fn redact_argv(argv: &[String]) -> Vec<String> {
+    let mut out: Vec<String> = Vec::with_capacity(argv.len());
+    let mut redact_next = false;
+    for arg in argv {
+        if std::mem::take(&mut redact_next) {
+            out.push("<redacted>".into());
+            continue;
+        }
+        // `--token=value` as well as `--token value`: clap accepts both,
+        // so redacting only one shape would be a hole with a workaround.
+        if let Some((flag, _)) = arg.split_once('=')
+            && CREDENTIAL_FLAGS.contains(&flag)
+        {
+            out.push(format!("{flag}=<redacted>"));
+            continue;
+        }
+        redact_next = CREDENTIAL_FLAGS.contains(&arg.as_str());
+        out.push(arg.clone());
+    }
+    out
+}
+
 /// Commands whose output carries a decrypted secret (doc 19 §10d).
 ///
 /// Redaction happens where results are *formatted*, not at each call
@@ -515,6 +553,34 @@ impl App {
             .map(str::to_string)
     }
 
+    /// Gate ids, if the Gates view has been loaded.
+    ///
+    /// Empty when it has not, and the wizards fall back to a free-text
+    /// field rather than a blocking round trip to populate a dropdown.
+    /// A wizard that stalls the event loop to offer a choice is worse
+    /// than one that asks you to type.
+    pub fn gate_names(&self) -> Vec<String> {
+        self.row_values(View::Gates, "gate_id")
+    }
+
+    /// Release channels, if the Releases view has been loaded.
+    pub fn channel_names(&self) -> Vec<String> {
+        let mut names = self.row_values(View::Releases, "channel");
+        names.dedup();
+        names
+    }
+
+    fn row_values(&self, view: View, field: &str) -> Vec<String> {
+        self.rows
+            .get(&view)
+            .map(|rows| {
+                rows.iter()
+                    .filter_map(|r| r[field].as_str().map(str::to_string))
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+
     /// Short reachability label for the header (audit P4.22).
     pub fn reachability(&self) -> &'static str {
         match self.reachable {
@@ -585,6 +651,21 @@ impl App {
             KeyCode::Char('r' | 'u') if view == View::Secrets => {
                 let row = self.rows.get(&view)?.get(*selected)?.clone();
                 Some(self.secret_row_action(&row, key.code))
+            }
+            // The two things done to a bundle, from the screen that
+            // lists them. Both open a wizard rather than running: each
+            // needs a target nobody should have to remember the flag
+            // name for.
+            KeyCode::Char('p' | 'e') if view == View::Bundles => {
+                let row = self.rows.get(&view)?.get(*selected)?.clone();
+                let id = row["bundle_id"].as_str()?.to_string();
+                Some(Some(Action::StartWizard(
+                    if key.code == KeyCode::Char('p') {
+                        WizardKind::Promote(id)
+                    } else {
+                        WizardKind::Release(id)
+                    },
+                )))
             }
             _ => None,
         }
@@ -666,6 +747,19 @@ impl App {
             Some("inbox") if argv.len() == 1 => Some(Action::LoadInbox),
             Some("login") if argv.len() == 1 => Some(Action::StartWizard(WizardKind::Login)),
             Some("publish") if argv.len() == 1 => Some(Action::StartWizard(WizardKind::Publish)),
+            // A bare flag-heavy verb opens its wizard; the same verb
+            // with arguments runs verbatim, so nothing the console could
+            // do before became unreachable (UX spec §4.1).
+            Some("member") if argv.len() == 2 && argv[1] == "add" => {
+                Some(Action::StartWizard(WizardKind::Member))
+            }
+            Some("fetch") if argv.len() == 1 => Some(Action::StartWizard(WizardKind::Fetch)),
+            Some("release") if argv.len() == 2 => {
+                Some(Action::StartWizard(WizardKind::Release(argv[1].clone())))
+            }
+            Some("promote") if argv.len() == 2 => {
+                Some(Action::StartWizard(WizardKind::Promote(argv[1].clone())))
+            }
             Some("resolve") if argv.len() == 2 => Some(Action::EnterResolution(argv[1].clone())),
             Some(_) if needs_private_key(&argv) && !self.passphrase_available => {
                 Some(Action::HandOver(format!("converge {}", argv.join(" "))))
@@ -928,6 +1022,15 @@ impl App {
             }
             WizardEvent::Execute(argv) => {
                 self.wizard = None;
+                // The review step *is* the confirmation, so a second
+                // prompt would be noise — but it only counts as one if
+                // it says what is about to happen, which is why the
+                // review legend names the consequence for verbs on the
+                // confirm list. Before batch 23.3 no wizard drove such a
+                // verb, so this path was untested rather than correct.
+                if needs_private_key(&argv) && !self.passphrase_available {
+                    return Some(Action::HandOver(format!("converge {}", argv.join(" "))));
+                }
                 Some(Action::Run(argv))
             }
         }
@@ -1086,8 +1189,10 @@ impl App {
     }
 
     pub fn record_command(&mut self, argv: &[String]) {
-        self.last
-            .push(LastLine::Command(format!("> {}", argv.join(" "))));
+        self.say(LastLine::Command(format!(
+            "> {}",
+            redact_argv(argv).join(" ")
+        )));
     }
 
     pub fn record_result(&mut self, result: anyhow::Result<serde_json::Value>) {
@@ -1141,7 +1246,7 @@ fn summarize(value: &serde_json::Value) -> String {
             for (key, field) in map {
                 let rendered = match field {
                     serde_json::Value::String(s) if s.is_empty() => continue,
-                    serde_json::Value::String(s) => shorten(s),
+                    serde_json::Value::String(s) => shorten_field(key, s),
                     serde_json::Value::Null => continue,
                     serde_json::Value::Object(_) | serde_json::Value::Array(_) => continue,
                     scalar => scalar.to_string(),
@@ -1164,6 +1269,23 @@ fn summarize(value: &serde_json::Value) -> String {
 }
 
 /// Ids are long and only their head is recognisable.
+/// Fields that are shown once and never again, so truncating them
+/// destroys the thing (batch 23.3).
+///
+/// `shorten` exists for object ids, and a freshly minted token has
+/// exactly an object id's shape: long, hex, no spaces. So `member add
+/// --issue-token` through the TUI printed twelve characters of a
+/// credential the server stores only as a hash — a token nobody could
+/// use and nobody could recover, short of revoking and reissuing.
+const NEVER_SHORTENED: &[&str] = &["token"];
+
+fn shorten_field(key: &str, text: &str) -> String {
+    if NEVER_SHORTENED.contains(&key) {
+        return text.to_string();
+    }
+    shorten(text)
+}
+
 fn shorten(text: &str) -> String {
     if text.len() > 40 && !text.contains(' ') {
         text.chars().take(12).collect()
@@ -1634,6 +1756,72 @@ mod tests {
                 "DATABASE_URL".into()
             ])),
             "reading a value is a command, not a screen"
+        );
+    }
+
+    /// A bare flag-heavy verb opens its wizard; the same verb with
+    /// arguments still runs verbatim, so the console lost nothing.
+    #[test]
+    fn flag_heavy_verbs_open_a_wizard_without_closing_the_console() {
+        for (line, kind) in [
+            ("member add", WizardKind::Member),
+            ("fetch", WizardKind::Fetch),
+        ] {
+            let mut app = App::default();
+            typed(&mut app, line);
+            assert_eq!(
+                app.handle_key(key(KeyCode::Enter)),
+                Some(Action::StartWizard(kind)),
+                "{line} should open a wizard"
+            );
+        }
+
+        let mut app = App::default();
+        typed(&mut app, "member add dana --capability read");
+        assert!(
+            matches!(app.handle_key(key(KeyCode::Enter)), Some(Action::Run(argv)) if argv.len() == 5),
+            "a fully specified command should still run verbatim"
+        );
+    }
+
+    /// The Bundles view lists the things promote and release act on, so
+    /// it is where those verbs should be reachable.
+    #[test]
+    fn bundle_rows_open_the_promote_and_release_wizards() {
+        let id = "f".repeat(64);
+        let mut app = App::default();
+        app.frames.push(View::Bundles);
+        app.rows
+            .insert(View::Bundles, vec![serde_json::json!({"bundle_id": id})]);
+        assert_eq!(
+            app.handle_key(key(KeyCode::Char('p'))),
+            Some(Action::StartWizard(WizardKind::Promote(id.clone())))
+        );
+        assert_eq!(
+            app.handle_key(key(KeyCode::Char('e'))),
+            Some(Action::StartWizard(WizardKind::Release(id)))
+        );
+    }
+
+    /// A token is shown once and stored hashed, so truncating it in the
+    /// output destroys it: `member add --issue-token` through the TUI
+    /// used to print twelve of sixty-four characters.
+    #[test]
+    fn a_minted_token_is_never_truncated_but_ids_still_are() {
+        let token = "f7ea9b3361a8".repeat(5);
+        let bundle = "0".repeat(64);
+        let line = summarize(&serde_json::json!({
+            "subject": "dana",
+            "token": token,
+            "bundle_id": bundle,
+        }));
+        assert!(
+            line.contains(&token),
+            "the whole token has to be there or it is not a token: {line}"
+        );
+        assert!(
+            !line.contains(&bundle),
+            "ids are still shortened; this is not a licence to print everything: {line}"
         );
     }
 

@@ -256,8 +256,12 @@ fn run(terminal: &mut ratatui::DefaultTerminal, trace: &mut trace::Trace) -> Res
                     // synchronous network call to learn something the
                     // TUI had just been told.
                     WizardKind::Publish => {
-                        Wizard::publish(app.remote_gate().as_deref(), Vec::new())
+                        Wizard::publish(app.remote_gate().as_deref(), app.gate_names())
                     }
+                    WizardKind::Member => Wizard::member(Vec::new()),
+                    WizardKind::Release(id) => Wizard::release(id, app.channel_names()),
+                    WizardKind::Promote(id) => Wizard::promote(id, app.gate_names()),
+                    WizardKind::Fetch => Wizard::fetch(app.channel_names()),
                 });
             }
             Some(Action::LoadInbox) => {
@@ -821,6 +825,12 @@ fn render(frame: &mut Frame, app: &App) {
                 Line::raw("  Enter: primary action   Esc: back   q: quit   Tab: complete"),
                 Line::raw("  Alt+h history   Alt+i inbox   Alt+b bundles   Alt+l lanes"),
                 Line::raw("  Alt+e releases  Alt+g gates   Alt+s secrets  Alt+? help   Alt+r root"),
+                Line::raw("  in-view: History m annotate d diff  ·  Bundles p promote e release"),
+                Line::raw("           Secrets r rotate u unshare"),
+                Line::styled(
+                    "  wizards: type a bare `member add`, `fetch`, `release <id>`, `promote <id>`",
+                    Style::default().fg(Color::DarkGray),
+                ),
                 Line::styled(
                     "  (macOS Terminal and iTerm send composed characters for Option;",
                     Style::default().fg(Color::DarkGray),
@@ -945,7 +955,11 @@ fn render(frame: &mut Frame, app: &App) {
         match wizard.step {
             WizardStep::Field(_) => {
                 let field = wizard.current_field().expect("field step");
-                lines.push(Line::raw(format!("{}: {}", field.prompt, wizard.input)));
+                lines.push(Line::raw(format!(
+                    "{}: {}",
+                    field.prompt,
+                    field.display(&wizard.input)
+                )));
                 if let wizard::FieldKind::Choice { options } = &field.kind {
                     lines.push(Line::raw(format!("options: {}", options.join(", "))));
                 }
@@ -956,17 +970,38 @@ fn render(frame: &mut Frame, app: &App) {
             }
             WizardStep::Review => {
                 for (field, value) in wizard.fields.iter().zip(&wizard.values) {
-                    lines.push(Line::raw(format!("{}: {}", field.name, value)));
+                    // Review shows what will run, and a credential
+                    // reviewed in the clear is a credential on screen.
+                    lines.push(Line::raw(format!(
+                        "{}: {}",
+                        field.name,
+                        field.display(value)
+                    )));
                 }
-                lines.push(Line::styled(
-                    "Enter: run  Esc: back",
-                    Style::default().fg(Color::DarkGray),
-                ));
+                // For a verb the console would confirm, the review step
+                // is that confirmation — so it has to name the
+                // consequence rather than say "run" (batch 23.3).
+                lines.push(match app::confirmation_prompt(&wizard.build_argv()) {
+                    Some(what) => Line::styled(
+                        format!("Enter: {what}   Esc: back"),
+                        Style::default().add_modifier(Modifier::BOLD),
+                    ),
+                    None => Line::styled(
+                        "Enter: run  Esc: back",
+                        Style::default().fg(Color::DarkGray),
+                    ),
+                });
             }
         }
         if let Some(error) = &wizard.error {
             lines.push(Line::styled(error.clone(), Style::default().fg(Color::Red)));
         }
+        // Clear first (batch 23.3). A wizard is an overlay, and without
+        // this it composited character-by-character over whatever view
+        // was behind it: "Add member" and a head id shared a line, and
+        // "subject: dana" ran into "pending changes: 0". Reducer tests
+        // could not see it because nothing they touch draws.
+        frame.render_widget(ratatui::widgets::Clear, body);
         frame.render_widget(
             Paragraph::new(lines).block(Block::default().borders(Borders::ALL).title("Wizard")),
             body,
@@ -1139,6 +1174,82 @@ mod screen_tests {
         assert!(
             !text.contains("e5c175cd97d6870a21047716"),
             "the full id is back, and it will eat the message again: {text}"
+        );
+    }
+
+    /// A credential must not be legible on the review screen, which is
+    /// the last thing shown before it is used.
+    #[test]
+    fn the_login_review_screen_does_not_echo_the_token() {
+        let mut wizard = wizard::Wizard::login();
+        for answer in ["http://server", "s3cr3t-token", "acme", "default", "intake"] {
+            wizard.input = answer.to_string();
+            wizard.submit();
+        }
+        let app = App {
+            wizard: Some(wizard),
+            ..App::default()
+        };
+        let text = screen(&app, 100, 24).join("\n");
+        assert!(
+            text.contains("http://server"),
+            "the url is not a secret: {text}"
+        );
+        assert!(
+            !text.contains("s3cr3t-token"),
+            "the access token was printed on the review screen: {text}"
+        );
+        assert!(text.contains("••••"), "masked, not omitted: {text}");
+    }
+
+    /// A wizard's review step is the confirmation for a verb the console
+    /// would confirm, so it has to say what is about to happen.
+    #[test]
+    fn a_review_step_names_the_consequence_it_is_confirming() {
+        let mut wizard = wizard::Wizard::promote("d".repeat(64), vec!["review".into()]);
+        wizard.input = "review".into();
+        wizard.submit();
+        let app = App {
+            wizard: Some(wizard),
+            ..App::default()
+        };
+        let text = screen(&app, 100, 24).join("\n");
+        assert!(
+            text.contains("Enter: promote dddddddddddd"),
+            "the review legend should name the act, not say 'run': {text}"
+        );
+
+        // A verb the console would not confirm keeps the plain legend.
+        let mut wizard = wizard::Wizard::annotate("e".repeat(64));
+        wizard.input = "a message".into();
+        wizard.submit();
+        let app = App {
+            wizard: Some(wizard),
+            ..App::default()
+        };
+        assert!(screen(&app, 100, 24).join("\n").contains("Enter: run"));
+    }
+
+    /// The Last strip is a visible record; argv carrying a token puts
+    /// the token in it.
+    #[test]
+    fn a_token_never_reaches_the_last_strip() {
+        let mut app = App::default();
+        app.record_command(&[
+            "login".into(),
+            "--url".into(),
+            "http://server".into(),
+            "--token".into(),
+            "s3cr3t-token".into(),
+        ]);
+        let text = screen(&app, 100, 24).join("\n");
+        assert!(
+            !text.contains("s3cr3t-token") && text.contains("<redacted>"),
+            "the token should be redacted where argv is shown: {text}"
+        );
+        assert!(
+            text.contains("http://server"),
+            "only the credential goes: {text}"
         );
     }
 }

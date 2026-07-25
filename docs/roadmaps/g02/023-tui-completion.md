@@ -1,6 +1,6 @@
 # 023 TUI Completion
 
-Status: in progress (23.1-23.2 complete)
+Status: in progress (23.1-23.3 complete)
 Owner: repo maintainers
 Updated: 2026-07-25
 
@@ -56,10 +56,13 @@ how a product accumulates surfaces that each made sense alone.
   those are handed over instead, which also closed the same hang for
   `secret get` typed into the console since 19.3. The pty harness is
   replaced by checked-in render tests
-- **23.3 Wizard set**: the flag-heavy verbs first — Member, Release and
-  Promote, Fetch — reusing the back-one-step and review pattern already
-  built. Scope depends on 23.1: a wizard for a screen 23.1 deletes is
-  work nobody needed
+- **23.3 Wizard set** (complete, card 084): Member, Release, Promote and
+  Fetch, plus `p`/`e` on Bundles rows. Found four defects, three older
+  than the batch: the Login wizard put an access token on screen and in
+  the agent trace file, `member add --issue-token` truncated a
+  shown-once token into uselessness, wizard execution skipped the
+  confirm-once rule, and the wizard overlay never cleared the view
+  behind it
 - **23.4 Dashboard recommendations**: ranked next actions with counts
   and owners, sourced from the same `inbox_actions` the console uses so
   the two cannot disagree
@@ -77,4 +80,4 @@ how a product accumulates surfaces that each made sense alone.
 
 ## Next Task
 
-Batch card 23.3 (wizard set).
+Batch card 23.4 (dashboard recommendations).

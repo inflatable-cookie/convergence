@@ -172,7 +172,14 @@ against the build is a wish list.
 - keys (§3): `q`, layered `Esc` with quit confirmation, `Tab` suggestion
   accept, `Enter` primary action, `↑/↓` list and history, `←/→`/Home/End
   caret movement, `Alt+1..9`/`Alt+0` variant picks, `Alt+f` next
-  invalid, `Alt+n` next missing, plus `Alt` jumps to each view
+  invalid, `Alt+n` next missing, plus `Alt` jumps to each view. In-view
+  keys: History `m`/`d`, Bundles `p`/`e` (batch 23.3), Secrets `r`/`u`
+  (batch 23.2)
+- wizards (§5): Login, Publish, Annotate, plus Member, Fetch, Release
+  and Promote (batch 23.3). A wizard's review step **is** the
+  confirmation for a verb the console would confirm, so its legend names
+  the consequence rather than saying "run" — before 23.3 no wizard drove
+  such a verb, so that path was untested rather than correct
 - principles (§4): argv contract (1), computed primary action (2), JSONL
   agent trace (3), console + fuzzy palette (4), confirm-once (5),
   ambient hints (7), idle auto-refresh (8, at 5s not 3s — the scan is
@@ -251,10 +258,24 @@ places at once. `secret rotate` is handed over unconditionally.
   to cover the CLI too, or the two front-ends would speak different
   languages. Trigger: a design partner in one of the non-software
   profiles asking for it by name
-- **Remaining wizards (§5)**: Bootstrap, Sync, Fetch, Release/Promote,
-  Member, Move/rename, Gate-graph edits. Each verb is reachable from the
-  console today. Trigger: observed use where the flag surface is the
-  obstacle, one wizard at a time
+- **Remaining wizards (§5)**: Bootstrap, Sync, Move/rename, Gate-graph
+  edits. Member, Fetch, Release and Promote were built in batch 23.3 —
+  the flag-heavy four, which is the trigger the deferral named. The rest
+  are reachable from the console and stay deferred on the same terms:
+  observed use where the flag surface is the obstacle, one at a time.
+
+  Two of the built four exist to stop a specific mistake rather than to
+  save typing. Fetch asks *where it lands* as one question with three
+  answers, because `--checkout` and `--into` are mutually exclusive and
+  mean different things (batch 16.2) — a flag list invites giving both.
+  Member turns a repeating `--capability` into one field, because the
+  alternative is four yes/no questions.
+
+  **No wizard may collect a secret.** Batch 23.2 established that a
+  value must never enter the input buffer, and batch 23.3 found that an
+  access token had been doing exactly that: the Login wizard echoed one
+  while typing and again at review. Credential fields are masked, and
+  argv is redacted where it is displayed or traced
 - **Ranked recommendations with owner labels on the remote dashboard
   (§4.7)**: the inbox already ranks and names runnable commands (batch
   16.1); duplicating that on the dashboard needs a ranking rule that is
