@@ -2,7 +2,7 @@
 
 - `g02`
   - Status: active
-  - Range: `001` to `020`
+  - Range: `001` to `025`
   - Notes: |
     Post-research planning gate (001), archive-and-rebuild boundary
     (002), rebuild vertical slice (003), TUI rebuild (004), semantics
@@ -18,6 +18,9 @@
     Secret substrate program (019-020, opened 2026-07-25): individual
     client-encrypted secrets (019), shared multi-recipient secrets
     (020) — both complete.
+    Next suite (021-025, laid out 2026-07-25): real identity (021,
+    ready), ship readiness (022), TUI completion (023); workflow
+    profiles (024) and edge/horizontal scale (025) parked on triggers.
 
 - `g01`
   - Status: complete

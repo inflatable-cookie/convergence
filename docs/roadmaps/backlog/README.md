@@ -1,16 +1,33 @@
 # Backlog
 
 Backlog items are real candidate milestones not yet scheduled into a
-roadmap. Current set (post `g02.005`-`g02.010` layout, 2026-07-24):
+roadmap.
 
-- **Edge nodes**: read-through caches + upload buffering per arch 14 §1;
-  waits on real multi-site demand
-- **Workflow profiles**: DAW / game-assets / software vocabulary and
-  recommendation reordering (UX spec §4.6); schedule alongside the
-  beachhead go-to-market push, likely after `g02.006`
-- **Manifest paging**: sub-manifest pages for >4096-entry directories
-  (doc 16 §1b deferral); touches every walker — implement against real
-  large trees when the beachhead demands it
-- **Real identity**: replace token->subject maps with short-lived
-  capability-scoped tokens and an identity provider story; prerequisite
-  for any deployment beyond trusted teams
+The 2026-07-24 set has now been laid out as roadmaps (2026-07-25), so
+this file no longer duplicates them:
+
+- **Real identity** → [`g02/021-real-identity.md`](../g02/021-real-identity.md),
+  ready
+- **Workflow profiles** → [`g02/024-workflow-profiles.md`](../g02/024-workflow-profiles.md),
+  parked on a design partner
+- **Edge nodes** → [`g02/025-edge-and-scale.md`](../g02/025-edge-and-scale.md),
+  parked on measured demand
+
+Still here, unscheduled:
+
+- **Manifest paging**: sub-manifest pages for directories over 4096
+  entries (doc 16 §1b). Worth stating precisely, because the backlog
+  previously read as a correctness risk and is not one: the 4096 cap is
+  on wire batch frames, which clients already split, so a large
+  directory works today and is merely a large manifest. This is an
+  efficiency deferral. Trigger: measured cost against real trees
+- **Encrypted secret names** (doc 19 §9): the server sees names today.
+  Trigger: a deployment where the existence of a credential is
+  sensitive. Cost: listing requires decrypting every entry
+- **Hardware-backed keys** (doc 19 §9): OS keychain, Secure Enclave,
+  YubiKey. Trigger: a user asking to keep the private key off disk
+
+## Next Task
+
+Nothing to schedule from here: the live candidates are roadmaps in
+`g02/`, and everything remaining is waiting on a stated trigger.

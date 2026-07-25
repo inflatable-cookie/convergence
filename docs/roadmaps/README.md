@@ -16,7 +16,7 @@ Convergence roadmaps hold executable milestone work.
 ## Current generation
 
 - Active generation: `g02`
-- Next roadmap ID: `g02.021`
+- Next roadmap ID: `g02.026`
 
 ## Index
 
@@ -36,7 +36,11 @@ records the closed state.
   `docs/architecture/19-secrets-and-key-management.md`.
 - Secret substrate program `g02.019`-`g02.020` **complete**
   (2026-07-25).
-- No active roadmap. Next planning move: review `backlog/`.
+- Next suite laid out 2026-07-25: `g02.021` real identity (ready),
+  `g02.022` ship readiness, `g02.023` TUI completion; `g02.024`
+  workflow profiles and `g02.025` edge/scale parked on triggers.
+- next: batch card 21.1 (token lifecycle), or promote `g02.022` if a
+  real user should come before another subsystem
 
 ## Rollover guardrail
 

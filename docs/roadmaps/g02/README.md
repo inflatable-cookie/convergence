@@ -10,15 +10,26 @@ runs the rebuild improvement program.
 
 ## Current State
 
-The g02.005-g02.010 improvement program is **complete**. The 2026-07-24
-four-part audit (server security, client/sync/git correctness, UX,
-architecture/docs/tests) produced the hardening program `g02.011`-
-`g02.018`, sequenced security → data safety → transactional/merge
-correctness → architecture honesty → scale walls → workflow completion
-→ TUI spec parity → adversarial test hardening.
+Three programs are complete:
 
-`g02.011` complete (cards 038-041). Active roadmap: `g02.012` data
-safety; batches 12.1-12.2 (cards 042-043) complete. Next: batch card 12.3.
+- rebuild and improvement (`g02.001`-`g02.010`)
+- audit hardening (`g02.011`-`g02.018`), from the 2026-07-24 four-part
+  audit, sequenced security → data safety → transactional/merge
+  correctness → architecture honesty → scale walls → workflow completion
+  → TUI spec parity → adversarial tests
+- secret substrate (`g02.019`-`g02.020`), client-encrypted individual
+  and shared secrets
+
+`g02.021`-`g02.025` are the next suite, laid out 2026-07-25. The first
+three are schedulable; the last two are parked on triggers that have not
+fired, and are written down so their absence reads as a decision rather
+than an oversight.
+
+Nothing is currently in progress. `g02.021` is the recommended next
+lane: doc 14 §4 names identity as the prerequisite for any deployment
+beyond a trusted team, and batches 16.3 and 19.1 have already built half
+of it. `g02.022` is the alternative if a real user should come before
+another subsystem — that is a product call.
 
 ## Lanes
 
@@ -33,14 +44,23 @@ safety; batches 12.1-12.2 (cards 042-043) complete. Next: batch card 12.3.
 - [`009-git-interop.md`](./009-git-interop.md) — complete
 - [`010-scale-and-transport.md`](./010-scale-and-transport.md) — complete
 - [`011-server-trust-boundaries.md`](./011-server-trust-boundaries.md) — complete
-- [`012-data-safety.md`](./012-data-safety.md) — in progress (12.1-12.2 complete)
-- [`013-transactional-and-merge-correctness.md`](./013-transactional-and-merge-correctness.md) — planned
-- [`014-architecture-honesty.md`](./014-architecture-honesty.md) — planned
-- [`015-scale-walls.md`](./015-scale-walls.md) — planned
-- [`016-workflow-completion.md`](./016-workflow-completion.md) — planned
-- [`017-tui-spec-parity.md`](./017-tui-spec-parity.md) — planned
-- [`018-adversarial-test-hardening.md`](./018-adversarial-test-hardening.md) — planned
+- [`012-data-safety.md`](./012-data-safety.md) — complete
+- [`013-transactional-and-merge-correctness.md`](./013-transactional-and-merge-correctness.md) — complete
+- [`014-architecture-honesty.md`](./014-architecture-honesty.md) — complete
+- [`015-scale-walls.md`](./015-scale-walls.md) — complete
+- [`016-workflow-completion.md`](./016-workflow-completion.md) — complete
+- [`017-tui-spec-parity.md`](./017-tui-spec-parity.md) — complete
+- [`018-adversarial-test-hardening.md`](./018-adversarial-test-hardening.md) — complete
+- [`019-secret-substrate.md`](./019-secret-substrate.md) — complete
+- [`020-shared-secrets.md`](./020-shared-secrets.md) — complete
+- [`021-real-identity.md`](./021-real-identity.md) — ready (recommended next)
+- [`022-ship-readiness.md`](./022-ship-readiness.md) — planned
+- [`023-tui-completion.md`](./023-tui-completion.md) — planned
+- [`024-workflow-profiles.md`](./024-workflow-profiles.md) — parked (needs a design partner)
+- [`025-edge-and-scale.md`](./025-edge-and-scale.md) — parked (needs a measured ceiling)
 
 ## Next Task
 
-Open batch card 12.3 (honest sync failure) under `g02.012`.
+Open batch card 21.1 (token lifecycle) under `g02.021`, unless the
+operator promotes `g02.022` to put Convergence in front of a real user
+first.
