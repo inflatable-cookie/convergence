@@ -1,6 +1,6 @@
 # 018 Adversarial Test Hardening
 
-Status: in progress (18.1 complete)
+Status: in progress (18.1-18.2 complete)
 Owner: repo maintainers
 Updated: 2026-07-25
 
@@ -36,9 +36,11 @@ is caught by CI, not by audit.
   promotion of one bundle, GC looping against in-flight chunked
   uploads. Found and fixed a duplicate-promotion record — promote is
   now idempotent for retries (doc 14 §3)
-- **18.2 Failure injection**: process-kill and connection-drop
-  helpers; mid-upload, mid-GC, mid-export, mid-restore interruption
-  tests; corrupt-object verify-on-read paths
+- **18.2 Failure injection** (complete, card 066): severed-socket proxy,
+  delete-poisoning object store, server-side corruption, and process
+  kills during restore and git export. Found two defects — corruption
+  reported as 404 while negotiate claimed the object existed, and a
+  killed restore leaving staging debris the next snap would capture
 - **18.3 Property and pathological input**: proptest coverage for
   merge determinism, variant-key order independence, lineage identity;
   filename fuzzing (unicode, newlines, quotes, near-collisions)
@@ -57,4 +59,4 @@ is caught by CI, not by audit.
 
 ## Next Task
 
-Open batch card 18.2 (failure injection).
+Open batch card 18.3 (property and pathological input).

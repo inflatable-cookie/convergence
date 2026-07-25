@@ -32,7 +32,17 @@ pub(super) fn materialize_via_temp(
 
     std::fs::create_dir_all(dest).with_context(|| format!("create dir {}", dest.display()))?;
     let temp_name = format!(".converge-materialize-{}", std::process::id());
-    let temp = dest.join(&temp_name);
+    // Stage inside `.converge` when there is one (batch 18.2): a process
+    // killed mid-materialize used to leave the staging tree sitting in
+    // the workspace, where the scan counts it as pending changes and the
+    // next `snap` captures it. `.converge` is excluded from the scan by
+    // construction, so a kill now leaves nothing a user has to notice.
+    let internal = dest.join(".converge");
+    let temp = if internal.is_dir() {
+        internal.join(&temp_name)
+    } else {
+        dest.join(&temp_name)
+    };
     if temp.exists() {
         std::fs::remove_dir_all(&temp)
             .with_context(|| format!("clear stale temp {}", temp.display()))?;

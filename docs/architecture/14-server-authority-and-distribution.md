@@ -148,6 +148,12 @@ caller's point of view.
   from gate A to gate B is an atomic write in B's partition referencing an
   immutable bundle from A's. No transaction spans partitions; immutability of
   inputs makes that safe.
+- **A corrupt stored object is a server fault, not a 404** (batch 18.2).
+  Reads verify the hash at both ends. When a stored object fails its
+  check the server answers 500 naming the corruption, because negotiate
+  answers from a cheap existence check: reporting 404 told the client
+  "upload it" while negotiate kept saying "I have it" — a loop with no
+  exit and no mention of the real problem.
 - **Object uploads: idempotent.** Content addressing means duplicate upload
   is a no-op (`write_if_absent` carried to the server side).
 

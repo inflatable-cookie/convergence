@@ -263,7 +263,30 @@ async fn get_object(
         .objects
         .get(kind, &id)
         .map(Bytes::from)
-        .map_err(|_| not_found_object(kind, &id))
+        .map_err(|err| read_failure(&state, kind, &id, err))
+}
+
+/// Distinguish "we do not have it" from "we have it and it is rotten"
+/// (batch 18.2).
+///
+/// Both used to be 404, which is a lie in the second case and a trap:
+/// negotiate answers from `has`, so the client is told the server holds
+/// the object and then told it does not exist when fetching — a loop
+/// with no exit and no mention of corruption. A stored object failing
+/// its hash is a server fault, and now says so.
+fn read_failure(state: &AppState, kind: ObjectKind, id: &ObjectId, err: anyhow::Error) -> ApiError {
+    if state.objects.has(kind, id) {
+        eprintln!("corrupt object {} {}: {err:#}", kind.dir(), id.as_str());
+        return ApiError(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!(
+                "stored {} {} failed its integrity check — the copy on this server                  is corrupt and must be restored or re-uploaded",
+                kind.dir(),
+                id.as_str()
+            ),
+        );
+    }
+    not_found_object(kind, id)
 }
 
 fn not_found_object(kind: ObjectKind, id: &ObjectId) -> ApiError {
@@ -328,7 +351,7 @@ async fn get_batch(
             let bytes = state
                 .objects
                 .get(kind, id)
-                .map_err(|_| not_found_object(kind, id))?;
+                .map_err(|err| read_failure(&state, kind, id, err))?;
             frames.push(ObjectFrame {
                 kind: name.to_string(),
                 id: id.clone(),

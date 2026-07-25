@@ -57,6 +57,4 @@ publishes are reading), and GC racing an upload (batch 12.2's pin).
 
 ## Next Task
 
-Batch card 18.2 (failure injection: process-kill and connection-drop
-helpers; mid-upload, mid-GC, mid-export, mid-restore interruption;
-corrupt-object verify-on-read).
+Batch card 18.2 (failure injection) — done, card 066.
