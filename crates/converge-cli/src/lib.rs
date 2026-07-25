@@ -13,7 +13,13 @@ use converge_client::workspace::Workspace;
 /// Convergence client. The CLI is the canonical semantic contract; every
 /// front-end (TUI, agents) drives these verbs (architecture doc 15).
 #[derive(Parser)]
-#[command(name = "converge", version, about)]
+#[command(
+    name = "converge",
+    // Crate version plus the commit it was built from: a bug report
+    // against "0.1.0" names a moving target (batch 22.1).
+    version = concat!(env!("CARGO_PKG_VERSION"), " (", env!("CONVERGE_COMMIT"), ")"),
+    about
+)]
 pub struct Cli {
     /// Emit a machine-readable JSON envelope instead of human output.
     #[arg(long, global = true)]
@@ -370,6 +376,8 @@ enum Command {
     },
     /// Show the configured remote for this workspace.
     Remote,
+    /// Report the state of this setup and what is wrong with it.
+    Doctor,
     /// Show or set the workflow profile (shapes guidance, not behavior).
     Profile {
         /// New profile: software, daw, or game-assets.
@@ -664,6 +672,25 @@ fn emit<T: Serialize>(
 }
 
 /// Binary entrypoint (kept in the library so the code path is shared).
+/// The command ran, printed its answer, and the answer is "no".
+///
+/// Without this, a `--json` command that reports failure in-band prints
+/// *two* envelopes — its report, then an error — and anything reading
+/// one line per command gets a parse failure instead of a result
+/// (g02.022 batch 22.1). `verify`, `resolve validate` and `doctor` all
+/// have that shape: the report **is** the answer, and the exit code is
+/// the summary.
+#[derive(Debug)]
+pub struct ReportedFailure(pub String);
+
+impl std::fmt::Display for ReportedFailure {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
+impl std::error::Error for ReportedFailure {}
+
 pub fn main_impl() -> std::process::ExitCode {
     let cli = Cli::parse();
     let mode = if cli.json {
@@ -673,6 +700,14 @@ pub fn main_impl() -> std::process::ExitCode {
     };
     match run(&cli, mode, &Session::new()) {
         Ok(_) => std::process::ExitCode::SUCCESS,
+        // Already printed, and printing again would corrupt the
+        // single-envelope contract.
+        Err(err) if err.downcast_ref::<ReportedFailure>().is_some() => {
+            if !cli.json {
+                eprintln!("error: {err}");
+            }
+            std::process::ExitCode::FAILURE
+        }
         Err(err) => {
             if cli.json {
                 let env: Envelope<()> = Envelope::Err {
@@ -985,7 +1020,9 @@ fn run(cli: &Cli, mode: OutputMode, session: &Session) -> Result<serde_json::Val
             if verified {
                 Ok(serde_json::Value::Null)
             } else {
-                anyhow::bail!("verification failed")
+                // The report was already emitted; this only sets the
+                // exit code (batch 22.1).
+                Err(ReportedFailure("verification failed".into()).into())
             }
         }
         Command::Gc { execute } => {
@@ -1195,6 +1232,7 @@ fn run(cli: &Cli, mode: OutputMode, session: &Session) -> Result<serde_json::Val
                 },
             )
         }
+        Command::Doctor => run_doctor(mode, session),
         Command::Remote => {
             let ws = session.workspace()?;
             let cfg = ws.store.read_config()?;
@@ -2273,6 +2311,245 @@ fn latest_snap(ws: &Workspace) -> Result<converge_client::model::SnapRecord> {
     snaps.into_iter().next().context("no snaps to publish")
 }
 
+/// One check `doctor` ran, and what to do when it failed.
+#[derive(Serialize)]
+struct Check {
+    name: &'static str,
+    ok: bool,
+    detail: String,
+    /// The command that fixes this, when there is one. A diagnostic that
+    /// reports a problem without naming its fix has moved the work
+    /// rather than done it.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    fix: Option<String>,
+}
+
+impl Check {
+    fn ok(name: &'static str, detail: impl Into<String>) -> Self {
+        Self {
+            name,
+            ok: true,
+            detail: detail.into(),
+            fix: None,
+        }
+    }
+
+    fn bad(name: &'static str, detail: impl Into<String>, fix: impl Into<String>) -> Self {
+        Self {
+            name,
+            ok: false,
+            detail: detail.into(),
+            fix: Some(fix.into()),
+        }
+    }
+}
+
+/// Clock skew past this reads as a real problem rather than jitter.
+///
+/// Matched to the identity exchange's leeway (batch 21.3): past this,
+/// a provider-issued token is refused and the refusal blames the token,
+/// which sends someone looking in the wrong place entirely.
+const CLOCK_SKEW_WARN_SECONDS: i64 = 60;
+
+/// Report the state of this setup and what is wrong with it.
+///
+/// Every verb already reports its own failure correctly. What nobody
+/// has is the *picture*: the failure you hit first is rarely the first
+/// thing that is wrong, and the fix for "publish said no remote" is a
+/// different command from the fix for "publish said your token
+/// expired". This runs every check even after one fails, because
+/// stopping at the first would reproduce exactly the problem it exists
+/// to solve.
+///
+/// It reports and recommends. It never changes state — a diagnostic you
+/// cannot safely run when you are unsure is not one.
+fn run_doctor(mode: OutputMode, session: &Session) -> Result<serde_json::Value> {
+    let mut checks: Vec<Check> = Vec::new();
+
+    let workspace = session.workspace();
+    match &workspace {
+        Ok(ws) => checks.push(Check::ok("workspace", format!("{}", ws.root.display()))),
+        Err(err) => checks.push(Check::bad(
+            "workspace",
+            format!("{err:#}"),
+            "converge init   (or cd into a workspace)",
+        )),
+    }
+
+    // Identity is per-machine, not per-workspace, so it is worth
+    // answering even when the workspace check failed.
+    match converge_client::identity::converge_home() {
+        Ok(home) => {
+            let keys = converge_client::identity::local_keys_in(&home).unwrap_or_default();
+            if keys.is_empty() {
+                checks.push(Check::bad(
+                    "personal key",
+                    format!("no key under {}", home.display()),
+                    "converge key init   (needed for any secret verb)",
+                ));
+            } else {
+                checks.push(Check::ok(
+                    "personal key",
+                    format!(
+                        "{} key(s): {}",
+                        keys.len(),
+                        keys.iter()
+                            .map(|k| k.key_id.as_str())
+                            .collect::<Vec<_>>()
+                            .join(", ")
+                    ),
+                ));
+            }
+        }
+        Err(err) => checks.push(Check::bad(
+            "personal key",
+            format!("{err:#}"),
+            "set CONVERGE_HOME, or make your home directory readable",
+        )),
+    }
+
+    if let Ok(ws) = &workspace {
+        let config = ws.store.read_config().ok();
+        match config.as_ref().and_then(|c| c.remote.clone()) {
+            None => checks.push(Check::bad(
+                "remote",
+                "not configured",
+                "converge login --url <server> --token <token> --repo <repo>",
+            )),
+            Some(remote) => {
+                checks.push(Check::ok(
+                    "remote",
+                    format!(
+                        "{}/{}/{} @ {}",
+                        remote.repo_id, remote.scope, remote.gate, remote.base_url
+                    ),
+                ));
+                match ws.store.get_remote_token(&remote) {
+                    Ok(Some(token)) => {
+                        let client =
+                            converge_client::remote::RemoteClient::new(&remote.base_url, &token);
+                        let probe = client.probe(&remote.repo_id);
+                        // The server answers in an envelope; showing the
+                        // raw JSON would make a diagnostic that needs
+                        // parsing.
+                        let said = serde_json::from_str::<serde_json::Value>(&probe.detail)
+                            .ok()
+                            .and_then(|v| v["error"].as_str().map(str::to_string))
+                            .unwrap_or_else(|| probe.detail.trim().to_string());
+                        if !probe.reachable {
+                            checks.push(Check::bad(
+                                "server",
+                                format!("unreachable: {said}"),
+                                format!("check the server is running at {}", remote.base_url),
+                            ));
+                        } else if !probe.authenticated {
+                            // 21.1 gave expiry and revocation distinct
+                            // messages; this is where someone finally
+                            // reads one without guessing which verb to
+                            // run.
+                            checks.push(Check::bad(
+                                "credential",
+                                said.clone(),
+                                "converge login --url <server> --token <new token>",
+                            ));
+                        } else if !probe.authorized {
+                            // A repo that does not exist and a repo you
+                            // cannot read are the same answer on
+                            // purpose: existence is privileged
+                            // (batch 19.2's reasoning, applied at the
+                            // repo level). So both fixes are named
+                            // rather than guessing — driving this found
+                            // a bootstrap admin sent to `member add`
+                            // when the real answer was `repo create`.
+                            checks.push(Check::bad(
+                                "access",
+                                format!(
+                                    "authenticated, but refused ({}): {said}",
+                                    probe.status.unwrap_or(0)
+                                ),
+                                format!(
+                                    "the repo may not exist yet (converge repo create), \
+                                     or you may not be a member of it \
+                                     (an admin runs: converge member add <you> --capability read, \
+                                     in repo {})",
+                                    remote.repo_id
+                                ),
+                            ));
+                        } else {
+                            checks.push(Check::ok("server", "reachable, credential accepted"));
+                        }
+
+                        // Only when there was a server to compare
+                        // against: "clock not compared" under an
+                        // unreachable server is a line that tells you
+                        // nothing you did not already know.
+                        match probe.skew_seconds.filter(|_| probe.reachable) {
+                            Some(skew) if skew.abs() > CLOCK_SKEW_WARN_SECONDS => {
+                                checks.push(Check::bad(
+                                    "clock",
+                                    format!("{skew}s from the server's clock"),
+                                    "sync this machine's clock (NTP); \
+                                     identity tokens are refused past 60s of skew",
+                                ));
+                            }
+                            Some(skew) => {
+                                checks.push(Check::ok("clock", format!("{skew}s from the server")))
+                            }
+                            None if probe.reachable => checks.push(Check::ok(
+                                "clock",
+                                "not compared (the server sent no usable Date)",
+                            )),
+                            None => {}
+                        }
+                    }
+                    Ok(None) => checks.push(Check::bad(
+                        "credential",
+                        "a remote is configured but no token is stored for it",
+                        "converge login --url <server> --token <token> --repo <repo>",
+                    )),
+                    Err(err) => checks.push(Check::bad(
+                        "credential",
+                        format!("{err:#}"),
+                        "converge login   (the stored token could not be read)",
+                    )),
+                }
+            }
+        }
+    }
+
+    let failing = checks.iter().filter(|c| !c.ok).count();
+    let value = emit(
+        mode,
+        serde_json::json!({ "ok": failing == 0, "checks": checks }),
+        |report| {
+            for check in report["checks"].as_array().into_iter().flatten() {
+                println!(
+                    "{} {:<14} {}",
+                    if check["ok"].as_bool().unwrap_or(false) {
+                        "ok  "
+                    } else {
+                        "FAIL"
+                    },
+                    check["name"].as_str().unwrap_or(""),
+                    check["detail"].as_str().unwrap_or("")
+                );
+                if let Some(fix) = check["fix"].as_str() {
+                    println!("     fix: {fix}");
+                }
+            }
+            if report["ok"].as_bool().unwrap_or(false) {
+                println!("\nnothing wrong here.");
+            }
+        },
+    )?;
+    if failing > 0 {
+        // Non-zero so it is usable in a script, and every problem is
+        // already printed: the exit code is the summary, not the report.
+        return Err(ReportedFailure(format!("{failing} check(s) failed")).into());
+    }
+    Ok(value)
+}
+
 fn run_resolve(
     mode: OutputMode,
     command: &ResolveCommand,
@@ -2363,7 +2640,7 @@ fn run_resolve(
             if ok {
                 value
             } else {
-                anyhow::bail!("resolution invalid")
+                Err(ReportedFailure("resolution invalid".into()).into())
             }
         }
         ResolveCommand::Apply {

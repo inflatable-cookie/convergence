@@ -1,6 +1,6 @@
 # 022 Ship Readiness
 
-Status: planned
+Status: in progress (22.1 complete)
 Owner: repo maintainers
 Updated: 2026-07-25
 
@@ -20,6 +20,25 @@ The gap here is exposure rather than defects. A first real workspace
 will find things no test does, and everything in this roadmap exists to
 make that meeting possible.
 
+## Ordering: Local Use Before Release
+
+**Nothing in this roadmap publishes anything.** The operator's stated
+position (2026-07-25) is that they want to use Convergence thoroughly on
+their own machine before it goes anywhere, so the batches are ordered to
+serve that and the release batch is explicitly gated.
+
+That ordering is also the better engineering. `g02.023` established the
+pattern the hard way: every batch found defects by driving the real
+thing that its own tests could not see. A release cut before a real
+workspace has been used is a release of untested exposure — the point of
+22.4 is to find those defects while the only person affected is the one
+who can fix them.
+
+So: diagnosis and install first (they make local use possible), then the
+format guarantees that matter *before* real history exists, then the
+operator story, then the shakedown, and only then the release — which
+does not run until the operator says so.
+
 ## Findings Addressed
 
 - no release binaries and no install path; the only way in is `cargo
@@ -30,35 +49,45 @@ make that meeting possible.
 - no first-run diagnostic: when something is misconfigured, the user
   gets a verb-level error rather than a picture
 - the nightly external-backend lane has never completed a run
+- no way to stand up a throwaway local deployment to exercise the thing
+  end to end without hand-assembling one each time
 
 ## Execution Plan (batch details in cards)
 
-- **22.1 Release and install**: tagged release workflow building
-  binaries for macOS and Linux, checksums, and an install path that is
-  one command; `converge --version` reporting something traceable to a
-  commit
-- **22.2 Upgrade and compatibility**: a store-format version with a
-  refusal that names the mismatch; a documented policy for what breaks
-  when, replacing "re-init" before anyone has history worth keeping
-- **22.3 Operator guide**: deploy, back up, restore, and verify a
-  restore — including the secrets case, where a lost object store is
-  unrecoverable by design and the backup is the only mitigation
-- **22.4 First-run diagnosis**: `converge doctor` reporting workspace,
-  remote, identity, key, and clock state in one answer, with each
-  failure naming its fix
-- **22.5 Real workspace**: run Convergence against a genuine project,
-  record what broke, and fix what that surfaces
+- **22.1 Local diagnosis and install** (complete, card 087): `converge doctor`
+  reporting workspace, remote, identity, key, server reachability and
+  clock skew in one answer, each failure naming its fix; a local install
+  path; `--version` traceable to a commit. No packaging, no publishing
+- **22.2 Store format and upgrade refusal** (card 088): a version stamp
+  on the workspace and server stores, with a refusal that names the
+  mismatch and what to do. This lands *before* 22.4, because the point
+  of 22.4 is to accumulate real history and "re-init" stops being an
+  acceptable answer the moment that history exists
+- **22.3 Operator guide** (card 089): deploy, back up, restore, and
+  **verify a restore** — including the secrets case, where a lost object
+  store is unrecoverable by design and the backup is the only
+  mitigation. Written against a real local deployment, not from memory
+- **22.4 Real workspace shakedown** (card 090): use Convergence for real
+  work on a real project, record everything that breaks, fix what that
+  surfaces. The operator drives; this batch's job is to make that
+  possible and to act on what comes back
+- **22.5 Release** (card 091, **gated**): tagged release workflow,
+  binaries for macOS and Linux, checksums, one-command install. Does not
+  start until the operator says the shakedown is done. Touches
+  `.github/workflows/`, which needs an explicit instruction anyway
 
 ## Exit Criteria
 
-- someone can install, deploy, use, back up, and restore without reading
-  the source
+- the operator can stand up, use, break, back up and restore a local
+  deployment without reading the source
 - an incompatible store is refused with an explanation rather than
   misread
+- `converge doctor` answers "why is this not working" without a verb by
+  verb hunt
+- the findings from 22.4 are recorded, and either fixed or scheduled
 - the backend lane has run green against live services
-- the findings from 22.5 are recorded, and either fixed or scheduled
+- 22.5 remains unstarted until explicitly released
 
 ## Next Task
 
-Blocked behind `g02.021` (or promoted ahead of it if the operator wants
-a real user before another subsystem).
+Batch card 22.2 (store format and upgrade refusal).

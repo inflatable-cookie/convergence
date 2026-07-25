@@ -37,6 +37,24 @@ pub struct Progress {
     pub bytes_total: u64,
 }
 
+/// What one probe of the server found (g02.022 batch 22.1).
+#[derive(Clone, Debug, Default)]
+pub struct Probe {
+    pub reachable: bool,
+    /// The credential was accepted. False on 401 — expired, revoked, or
+    /// unknown, which the server's own message distinguishes.
+    pub authenticated: bool,
+    /// The credential is also allowed to do the thing. False on 403,
+    /// which is a different problem from a bad token (batch 21.4).
+    pub authorized: bool,
+    pub status: Option<u16>,
+    /// Server clock minus local clock. `None` when the server sent no
+    /// usable `Date`.
+    pub skew_seconds: Option<i64>,
+    /// The server's own words, for the failing cases.
+    pub detail: String,
+}
+
 impl RemoteClient {
     pub fn new(base_url: &str, token: &str) -> Self {
         Self {
@@ -456,6 +474,62 @@ impl RemoteClient {
                 .context("register key")?,
         )?;
         response.json().context("parse key record")
+    }
+
+    /// One round trip that answers "is the server there, does my token
+    /// work, and do our clocks agree" (g02.022 batch 22.1).
+    ///
+    /// Deliberately not three calls: a diagnostic that reports
+    /// reachability, then authentication, then skew, from three separate
+    /// requests can describe a state that never existed at one moment.
+    pub fn probe(&self, repo_id: &str) -> Probe {
+        // An authenticated route, so the same response answers both
+        // "reachable" and "does this credential work". `lanes` needs
+        // only `read`, which is the narrowest thing any member holds.
+        let sent_at = time::OffsetDateTime::now_utc();
+        let response = self
+            .http
+            .get(self.url(&format!("/api/repos/{repo_id}/lanes")))
+            .bearer_auth(&self.token)
+            .send();
+        let round_trip: time::Duration = time::OffsetDateTime::now_utc() - sent_at;
+        let response = match response {
+            Ok(response) => response,
+            Err(err) => {
+                return Probe {
+                    reachable: false,
+                    detail: format!("{err}"),
+                    ..Probe::default()
+                };
+            }
+        };
+        // The `Date` header is the server's own clock, which is the only
+        // clock worth comparing against: batch 21.3's identity exchange
+        // refuses a token 60 seconds out, and blames the token.
+        let skew_seconds = response
+            .headers()
+            .get(reqwest::header::DATE)
+            .and_then(|value| value.to_str().ok())
+            .and_then(|value| {
+                time::OffsetDateTime::parse(value, &time::format_description::well_known::Rfc2822)
+                    .ok()
+            })
+            .map(|server_now: time::OffsetDateTime| {
+                // Charge the round trip to the server's favour: half of
+                // it elapsed before the header was written, so a slow
+                // link should not read as a wrong clock.
+                let local_now = sent_at + round_trip / 2i32;
+                (server_now - local_now).whole_seconds()
+            });
+        let status = response.status();
+        Probe {
+            reachable: true,
+            authenticated: status != reqwest::StatusCode::UNAUTHORIZED,
+            authorized: status.is_success(),
+            status: Some(status.as_u16()),
+            skew_seconds,
+            detail: response.text().unwrap_or_default(),
+        }
     }
 
     pub fn list_keys(&self, repo_id: &str) -> Result<Vec<crate::model::PublicKeyRecord>> {
