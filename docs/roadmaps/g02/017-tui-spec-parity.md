@@ -1,6 +1,6 @@
 # 017 TUI Spec Parity
 
-Status: in progress (17.1 complete)
+Status: in progress (17.1-17.2 complete)
 Owner: repo maintainers
 Updated: 2026-07-25
 
@@ -45,9 +45,12 @@ simplified.
   worker; `GET /api/repos/:repo/gates` + `converge gates` (the gate
   graph had no read path); init flow when uninitialized; full verb
   palette and Alt jump keys
-- **17.2 Async everywhere**: every load through the worker channel;
-  view timestamps; idle refresh; inbox in event-driven refresh;
-  reachability indicator
+- **17.2 Async everywhere** (complete, card 062): `Intent`-tagged
+  worker results replace argv sniffing; inbox, resolution apply, refresh
+  and every typed command run on the worker; the publish wizard's remote
+  probe is gone (the gate comes from status); idle refresh every 5s;
+  per-view load timestamps and a reachability signal driven by the event
+  poller's own outcome
 - **17.3 Safety and flow**: confirmations for approve/promote/
   release/gc; live resolution validate with Alt+f/Alt+n; wizard lane
   default fixed to personal-lane resolution; structured Last strip
@@ -66,4 +69,4 @@ simplified.
 
 ## Next Task
 
-Open batch card 17.2 (async everywhere).
+Open batch card 17.3 (safety and flow).

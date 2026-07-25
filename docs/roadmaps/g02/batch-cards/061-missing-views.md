@@ -66,5 +66,4 @@ verb missing from it was unreachable rather than merely unlisted.
 
 ## Next Task
 
-Batch card 17.2 (async everywhere: remaining synchronous loads, view
-timestamps, idle refresh, reachability indicator).
+Batch card 17.2 (async everywhere) — done, card 062.

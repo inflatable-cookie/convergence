@@ -15,8 +15,69 @@ use ratatui::widgets::{Block, Borders, List, ListItem, Paragraph};
 use app::{Action, App, LastLine, ResolutionState, View, is_remote_command};
 use wizard::{Wizard, WizardKind, WizardStep};
 
+/// What a finished worker result is *for* (batch 17.2).
+///
+/// Tagged at spawn time rather than sniffed from argv on arrival: two
+/// intents legitimately share a verb (the Bundles view and the inbox
+/// screen both load `inbox`), so argv alone cannot say what to do with
+/// the answer.
+#[derive(Clone, Debug, PartialEq, Eq)]
+enum Intent {
+    /// A user-typed command: record the result, refresh after.
+    Command,
+    /// Status + history for the root and history views.
+    Refresh,
+    /// Inbox report destined for the inbox screen.
+    Inbox,
+    /// Rows for a list view.
+    Rows(View),
+    /// `resolve list <ref>` destined for the resolution view.
+    Resolution(String),
+    /// Remote heartbeat from the event poller.
+    Events,
+}
+
 /// Result of a worker-thread command.
-type WorkerResult = (Vec<String>, anyhow::Result<serde_json::Value>);
+type WorkerResult = (Vec<String>, Intent, anyhow::Result<serde_json::Value>);
+
+/// Run one CLI verb on a worker thread and post the result back.
+fn spawn_verb(
+    app: &mut App,
+    tx: &std::sync::mpsc::Sender<WorkerResult>,
+    session: &std::sync::Arc<converge_cli::Session>,
+    argv: Vec<String>,
+    intent: Intent,
+) {
+    app.record_command(&argv);
+    app.record_in_flight(&argv);
+    let tx = tx.clone();
+    let session = std::sync::Arc::clone(session);
+    std::thread::spawn(move || {
+        let result = converge_cli::execute_in(&session, argv.iter().cloned());
+        let _ = tx.send((argv, intent, result));
+    });
+}
+
+/// Status + history in one worker round trip. Both are local, but a
+/// first scan of a large tree still costs real time, and the UI thread
+/// is not where that belongs (spec §7.1).
+fn spawn_refresh(
+    tx: &std::sync::mpsc::Sender<WorkerResult>,
+    session: &std::sync::Arc<converge_cli::Session>,
+) {
+    let tx = tx.clone();
+    let session = std::sync::Arc::clone(session);
+    std::thread::spawn(move || {
+        let status = converge_cli::execute_in(&session, ["status"]);
+        let history = converge_cli::execute_in(&session, ["history"]);
+        let combined = serde_json::json!({
+            "status": status.as_ref().ok(),
+            "status_failed": status.is_err(),
+            "history": history.unwrap_or(serde_json::Value::Null),
+        });
+        let _ = tx.send((vec!["status".into()], Intent::Refresh, Ok(combined)));
+    });
+}
 
 fn main() -> Result<()> {
     // `--agent-trace <path>` is the only flag (UX spec §4.3).
@@ -42,7 +103,7 @@ fn run(terminal: &mut ratatui::DefaultTerminal, trace: &mut trace::Trace) -> Res
     // rehashing it, and remote commands share one connection pool.
     let session = std::sync::Arc::new(converge_cli::Session::new());
     let (tx, rx) = std::sync::mpsc::channel::<WorkerResult>();
-    refresh(&mut app, &session);
+    spawn_refresh(&tx, &session);
     trace.session_start();
 
     // Event poller (doc 14 §5b): replaces blind remote refresh. Events are
@@ -55,53 +116,89 @@ fn run(terminal: &mut ratatui::DefaultTerminal, trace: &mut trace::Trace) -> Res
             let mut cursor: u64 = 0;
             loop {
                 std::thread::sleep(std::time::Duration::from_secs(3));
-                let Ok(events) =
-                    converge_cli::execute_in(&session, ["events", "--since", &cursor.to_string()])
-                else {
-                    continue; // no remote configured or unreachable
+                // The poll doubles as the reachability probe (audit
+                // P4.22): its outcome is exactly "can we talk to the
+                // server right now", so it is reported either way
+                // instead of being swallowed on failure.
+                let polled =
+                    converge_cli::execute_in(&session, ["events", "--since", &cursor.to_string()]);
+                let events = match polled {
+                    Ok(events) => events,
+                    Err(err) => {
+                        let _ = tx.send((vec!["events".into()], Intent::Events, Err(err)));
+                        continue;
+                    }
                 };
-                let Some(list) = events.as_array() else {
-                    continue;
-                };
-                if list.is_empty() {
-                    continue;
-                }
+                let list = events.as_array().cloned().unwrap_or_default();
                 cursor = list
                     .iter()
                     .filter_map(|e| e["seq"].as_u64())
                     .max()
                     .unwrap_or(cursor);
-                let note = serde_json::json!(format!(
-                    "{} remote event(s): {}",
-                    list.len(),
-                    list.iter()
+                let note = serde_json::json!({
+                    "count": list.len(),
+                    "kinds": list
+                        .iter()
                         .filter_map(|e| e["kind"].as_str())
                         .collect::<Vec<_>>()
-                        .join(", ")
-                ));
-                let _ = tx.send((vec!["events".into()], Ok(note)));
+                        .join(", "),
+                });
+                let _ = tx.send((vec!["events".into()], Intent::Events, Ok(note)));
             }
         });
     }
 
+    // Idle refresh (audit P2.9): a workspace changes under the TUI —
+    // `watch` in another terminal, a teammate's publish — and a screen
+    // that only updates on keystrokes quietly lies. Cheap because the
+    // scan is dirstamp-gated (batch 15.3).
+    const IDLE_REFRESH: Duration = Duration::from_secs(5);
+    let mut last_refresh_started = std::time::Instant::now();
+
     loop {
         trace_screen(trace, &app);
         // Deliver finished worker results without blocking.
-        while let Ok((argv, result)) = rx.try_recv() {
+        while let Ok((argv, intent, result)) = rx.try_recv() {
             trace.command_result(&argv, &result);
-            app.finish_in_flight();
-            let entered = enter_resolution(&mut app, &argv, &result)
-                || absorb_view_rows(&mut app, &argv, &result);
-            if !entered {
-                app.record_result(result);
+            if intent != Intent::Events {
+                app.finish_in_flight();
             }
-            refresh(&mut app, &session);
-            // Remote events change the inbox, not just local status
-            // (batch 15.3): refresh it too, but only when the inbox view
-            // is what the user is looking at or already loaded.
-            if argv.first().map(String::as_str) == Some("events") {
-                refresh_inbox(&mut app, &session);
+            // A remote result is also a reachability answer.
+            if is_remote_command(&argv) || intent == Intent::Events {
+                app.reachable = Some(result.is_ok());
             }
+            match intent {
+                Intent::Refresh => absorb_refresh(&mut app, &result),
+                Intent::Rows(view) => absorb_view_rows(&mut app, view, result),
+                Intent::Resolution(target) => enter_resolution(&mut app, target, result),
+                Intent::Inbox => {
+                    match result {
+                        Ok(report) => {
+                            app.load_inbox_entries(&report);
+                            app.record_result(Ok(serde_json::json!(format!(
+                                "{} inbox item(s)",
+                                app.inbox_entries.len()
+                            ))));
+                            if app.current_view() != View::Inbox {
+                                app.frames.push(View::Inbox);
+                            }
+                        }
+                        Err(err) => app.record_result(Err(err)),
+                    }
+                    app.mark_loaded(View::Inbox);
+                }
+                Intent::Events => absorb_events(&mut app, &tx, &session, result),
+                Intent::Command => {
+                    app.record_result(result);
+                    spawn_refresh(&tx, &session);
+                    last_refresh_started = std::time::Instant::now();
+                }
+            }
+        }
+
+        if last_refresh_started.elapsed() >= IDLE_REFRESH {
+            spawn_refresh(&tx, &session);
+            last_refresh_started = std::time::Instant::now();
         }
 
         terminal.draw(|frame| render(frame, &app))?;
@@ -131,60 +228,33 @@ fn run(terminal: &mut ratatui::DefaultTerminal, trace: &mut trace::Trace) -> Res
                 // (batch 17.1): entering a view must never block the
                 // event loop on the network (arch 15 §3).
                 if let Some(argv) = view.loader() {
-                    app.record_command(&argv);
-                    app.record_in_flight(&argv);
-                    let tx = tx.clone();
-                    let session = std::sync::Arc::clone(&session);
-                    std::thread::spawn(move || {
-                        let result = converge_cli::execute_in(&session, argv.iter().cloned());
-                        let _ = tx.send((argv, result));
-                    });
+                    spawn_verb(&mut app, &tx, &session, argv, Intent::Rows(view));
                 } else {
-                    refresh(&mut app, &session);
+                    spawn_refresh(&tx, &session);
                 }
             }
             Some(Action::StartWizard(kind)) => {
                 app.wizard = Some(match kind {
                     WizardKind::Annotate(snap_id) => Wizard::annotate(snap_id),
                     WizardKind::Login => Wizard::login(),
+                    // The gate comes from the status refresh already in
+                    // hand (batch 17.2): probing the remote here was a
+                    // synchronous network call to learn something the
+                    // TUI had just been told.
                     WizardKind::Publish => {
-                        let default_gate = converge_cli::execute_in(&session, ["remote"])
-                            .ok()
-                            .and_then(|r| r["gate"].as_str().map(str::to_string));
-                        Wizard::publish(default_gate.as_deref(), Vec::new())
+                        Wizard::publish(app.remote_gate().as_deref(), Vec::new())
                     }
                 });
             }
             Some(Action::LoadInbox) => {
-                app.record_command(&["inbox".into()]);
-                match converge_cli::execute_in(&session, ["inbox"]) {
-                    Ok(report) => {
-                        app.load_inbox_entries(&report);
-                        app.record_result(Ok(serde_json::json!(format!(
-                            "{} inbox item(s)",
-                            app.inbox_entries.len()
-                        ))));
-                        if app.current_view() != View::Inbox {
-                            app.frames.push(View::Inbox);
-                        }
-                    }
-                    Err(err) => app.record_result(Err(err)),
-                }
+                spawn_verb(&mut app, &tx, &session, vec!["inbox".into()], Intent::Inbox);
             }
             Some(Action::EnterResolution(target)) => {
                 // `resolve list` may fetch a bundle's tree (batch 16.1),
                 // so it runs on the worker like any other remote verb —
-                // the event loop never blocks (arch 15 §3). The result is
-                // turned into the resolution view when it lands.
-                let argv = vec!["resolve".into(), "list".into(), target];
-                app.record_command(&argv);
-                app.record_in_flight(&argv);
-                let tx = tx.clone();
-                let session = std::sync::Arc::clone(&session);
-                std::thread::spawn(move || {
-                    let result = converge_cli::execute_in(&session, argv.iter().cloned());
-                    let _ = tx.send((argv, result));
-                });
+                // the event loop never blocks (arch 15 §3).
+                let argv = vec!["resolve".into(), "list".into(), target.clone()];
+                spawn_verb(&mut app, &tx, &session, argv, Intent::Resolution(target));
             }
             Some(Action::ApplyResolution) => {
                 if let Some(resolution) = app.resolution.take() {
@@ -199,38 +269,39 @@ fn run(terminal: &mut ratatui::DefaultTerminal, trace: &mut trace::Trace) -> Res
                         resolution.snap_id.clone(),
                         path.display().to_string(),
                     ];
-                    app.record_command(&argv);
-                    let result = std::fs::write(
+                    // Applying can fetch, hash, and materialize a whole
+                    // tree, so it belongs on the worker like every other
+                    // load (spec §7.1). The decisions file is written
+                    // here and removed by the worker once consumed.
+                    match std::fs::write(
                         &path,
                         serde_json::to_vec(&decisions).expect("serialize decisions"),
-                    )
-                    .map_err(anyhow::Error::from)
-                    .and_then(|_| converge_cli::execute_in(&session, argv.iter().cloned()));
-                    let _ = std::fs::remove_file(&path);
-                    app.record_result(result);
+                    ) {
+                        Ok(()) => {
+                            app.record_command(&argv);
+                            app.record_in_flight(&argv);
+                            let tx = tx.clone();
+                            let session = std::sync::Arc::clone(&session);
+                            std::thread::spawn(move || {
+                                let result =
+                                    converge_cli::execute_in(&session, argv.iter().cloned());
+                                let _ = std::fs::remove_file(&path);
+                                let _ = tx.send((argv, Intent::Command, result));
+                            });
+                        }
+                        Err(err) => app.record_result(Err(anyhow::Error::from(err))),
+                    }
                     if app.current_view() == View::Resolution {
                         app.frames.pop();
                     }
-                    refresh(&mut app, &session);
                 }
             }
             Some(Action::Run(argv)) => {
-                app.record_command(&argv);
-                if is_remote_command(&argv) {
-                    // Never block the event loop on the network.
-                    app.record_in_flight(&argv);
-                    let tx = tx.clone();
-                    let session = std::sync::Arc::clone(&session);
-                    std::thread::spawn(move || {
-                        let result = converge_cli::execute_in(&session, argv.iter().cloned());
-                        let _ = tx.send((argv, result));
-                    });
-                } else {
-                    let result = converge_cli::execute_in(&session, argv.iter().cloned());
-                    trace.command_result(&argv, &result);
-                    app.record_result(result);
-                    refresh(&mut app, &session);
-                }
+                // Every command goes to the worker (batch 17.2), not
+                // only the remote ones: `snap` on a large tree and
+                // `restore` are just as capable of stalling a frame as a
+                // network call, and one path is one path to get right.
+                spawn_verb(&mut app, &tx, &session, argv, Intent::Command);
             }
             None => {}
         }
@@ -283,67 +354,6 @@ fn trace_screen(trace: &mut trace::Trace, app: &App) {
         View::Root | View::Help => Vec::new(),
     };
     trace.screen_view(&screen_id, &selectable, app.primary_action().0);
-}
-
-/// Pull view data through the CLI layer (arch 15: no bespoke semantics).
-/// Root views render from the `status` report alone; the snap list feeds
-/// the history view.
-fn refresh(app: &mut App, session: &converge_cli::Session) {
-    let status = converge_cli::execute_in(session, ["status"]);
-    // `status` is the probe: it is the one verb that fails exactly when
-    // there is no workspace to talk about.
-    app.workspace_missing = status.is_err();
-    app.status = status.ok();
-    app.pending_changes = app
-        .status
-        .as_ref()
-        .and_then(|s| s["pending"]["count"].as_u64())
-        .unwrap_or(0) as usize;
-    app.snaps = converge_cli::execute_in(session, ["history"])
-        .ok()
-        .and_then(|v| v.as_array().cloned())
-        .unwrap_or_default();
-}
-
-/// A finished `resolve list <ref>` becomes the resolution view. Returns
-/// false when this result was something else, so the caller records it
-/// normally.
-fn enter_resolution(
-    app: &mut App,
-    argv: &[String],
-    result: &anyhow::Result<serde_json::Value>,
-) -> bool {
-    let target = match argv {
-        [verb, sub, target] if verb == "resolve" && sub == "list" => target.clone(),
-        _ => return false,
-    };
-    let value = match result {
-        Ok(value) => value,
-        Err(_) => return false, // let the error render like any other
-    };
-    let mut paths: Vec<(String, Vec<serde_json::Value>)> = value
-        .as_object()
-        .map(|m| {
-            m.iter()
-                .map(|(k, v)| (k.clone(), v.as_array().cloned().unwrap_or_default()))
-                .collect()
-        })
-        .unwrap_or_default();
-    paths.sort_by(|a, b| a.0.cmp(&b.0));
-    app.record_result(Ok(serde_json::json!(format!(
-        "{} superposed path(s)",
-        paths.len()
-    ))));
-    app.resolution = Some(ResolutionState {
-        snap_id: target,
-        paths,
-        decisions: Default::default(),
-        selected: 0,
-    });
-    if app.current_view() != View::Resolution {
-        app.frames.push(View::Resolution);
-    }
-    true
 }
 
 /// One row of a list view, rendered from whatever the verb returned.
@@ -414,21 +424,42 @@ fn short_id(id: &str) -> String {
     id.chars().take(12).collect()
 }
 
-/// Store a finished list-view load. Returns false when the result was
-/// something else, so the caller records it normally.
-fn absorb_view_rows(
-    app: &mut App,
-    argv: &[String],
-    result: &anyhow::Result<serde_json::Value>,
-) -> bool {
-    let Some(view) = [View::Bundles, View::Releases, View::Lanes, View::Gates]
-        .into_iter()
-        .find(|view| view.loader().as_deref() == Some(argv))
-    else {
-        return false;
+/// A finished `resolve list <ref>` becomes the resolution view.
+fn enter_resolution(app: &mut App, target: String, result: anyhow::Result<serde_json::Value>) {
+    let value = match result {
+        Ok(value) => value,
+        Err(err) => return app.record_result(Err(err)),
     };
-    let Ok(value) = result else {
-        return false; // render the error like any other
+    let mut paths: Vec<(String, Vec<serde_json::Value>)> = value
+        .as_object()
+        .map(|m| {
+            m.iter()
+                .map(|(k, v)| (k.clone(), v.as_array().cloned().unwrap_or_default()))
+                .collect()
+        })
+        .unwrap_or_default();
+    paths.sort_by(|a, b| a.0.cmp(&b.0));
+    app.record_result(Ok(serde_json::json!(format!(
+        "{} superposed path(s)",
+        paths.len()
+    ))));
+    app.resolution = Some(ResolutionState {
+        snap_id: target,
+        paths,
+        decisions: Default::default(),
+        selected: 0,
+    });
+    if app.current_view() != View::Resolution {
+        app.frames.push(View::Resolution);
+    }
+    app.mark_loaded(View::Resolution);
+}
+
+/// Store a finished list-view load.
+fn absorb_view_rows(app: &mut App, view: View, result: anyhow::Result<serde_json::Value>) {
+    let value = match result {
+        Ok(value) => value,
+        Err(err) => return app.record_result(Err(err)),
     };
     // The inbox report is an object; its bundles section is the view.
     let rows = match view {
@@ -443,21 +474,51 @@ fn absorb_view_rows(
     ))));
     app.row_selected.insert(view, 0);
     app.rows.insert(view, rows);
-    true
+    app.mark_loaded(view);
 }
 
-/// Reload inbox entries in place, keeping the current selection sane.
-/// Silent on failure: an unreachable remote must not stomp the last line
-/// on a refresh the user did not ask for.
-fn refresh_inbox(app: &mut App, session: &converge_cli::Session) {
-    if app.inbox_entries.is_empty() && app.current_view() != View::Inbox {
+/// Status + history from one refresh round trip (batch 17.2).
+fn absorb_refresh(app: &mut App, result: &anyhow::Result<serde_json::Value>) {
+    let Ok(value) = result else {
+        return; // a failed refresh leaves the last good screen in place
+    };
+    app.workspace_missing = value["status_failed"].as_bool().unwrap_or(false);
+    app.status = (!app.workspace_missing).then(|| value["status"].clone());
+    app.pending_changes = app
+        .status
+        .as_ref()
+        .and_then(|s| s["pending"]["count"].as_u64())
+        .unwrap_or(0) as usize;
+    app.snaps = value["history"].as_array().cloned().unwrap_or_default();
+    app.mark_loaded(View::Root);
+    app.mark_loaded(View::History);
+}
+
+/// A heartbeat from the event poller: reachability, plus an inbox
+/// reload when something actually happened (batch 15.3).
+fn absorb_events(
+    app: &mut App,
+    tx: &std::sync::mpsc::Sender<WorkerResult>,
+    session: &std::sync::Arc<converge_cli::Session>,
+    result: anyhow::Result<serde_json::Value>,
+) {
+    let Ok(value) = result else {
+        return; // silence is the point: an unreachable server is shown
+        // in the header, not shouted into the Last strip
+    };
+    let count = value["count"].as_u64().unwrap_or(0);
+    if count == 0 {
         return;
     }
-    if let Ok(report) = converge_cli::execute_in(session, ["inbox"]) {
-        app.load_inbox_entries(&report);
-        app.inbox_selected = app
-            .inbox_selected
-            .min(app.inbox_entries.len().saturating_sub(1));
+    app.record_result(Ok(serde_json::json!(format!(
+        "{count} remote event(s): {}",
+        value["kinds"].as_str().unwrap_or("")
+    ))));
+    spawn_refresh(tx, session);
+    // Remote events change the inbox, not just status — but only reload
+    // it when it is on screen or already loaded.
+    if !app.inbox_entries.is_empty() || app.current_view() == View::Inbox {
+        spawn_verb(app, tx, session, vec!["inbox".into()], Intent::Inbox);
     }
 }
 
@@ -484,6 +545,25 @@ fn render(frame: &mut Frame, app: &App) {
                 app.snaps.len(),
                 app.pending_changes
             )),
+            // Freshness and reachability, so a stale or disconnected
+            // screen says so instead of looking authoritative
+            // (audit P2.9, P4.22).
+            Span::raw(
+                app.view_age()
+                    .map(|age| format!("  ·  {age}"))
+                    .unwrap_or_default(),
+            ),
+            Span::styled(
+                match app.reachability() {
+                    "" => String::new(),
+                    label => format!("  ·  {label}"),
+                },
+                Style::default().fg(if app.reachable == Some(false) {
+                    Color::Yellow
+                } else {
+                    Color::Gray
+                }),
+            ),
         ]))
         .style(Style::default().bg(match app.context {
             app::Context::Local => Color::DarkGray,
