@@ -65,10 +65,11 @@ at a size where an accidental quadratic would show.
   sentinel; `scale_bench` is the measurement
 - 155 default tests green; `effigy bench` runs 4 ignored ones (the three
   new scale benchmarks plus the existing CBOR encoding one)
-- **not done**: wiring the benchmarks into `.github/workflows/ci.yml`.
-  AGENTS.md forbids workflow edits without an explicit request, so the
-  job is proposed, not committed — see the card's follow-up note in the
-  handoff
+- **CI wiring landed later**, in batch 18.4: the benchmarks run in
+  `.github/workflows/nightly.yml` behind the same once-a-day,
+  only-if-commits guard as the live backend lane. They were left out
+  here because AGENTS.md forbids workflow edits without an explicit
+  request, and the operator gave one when 18.4 built the nightly lane
 
 ## Next Task
 

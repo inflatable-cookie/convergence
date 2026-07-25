@@ -51,8 +51,9 @@ is caught by CI, not by audit.
   identity
 - **18.4 Live backend lane** (complete, card 068): `effigy backends`
   over Effigy catalog services locally, a nightly CI job guarded to run
-  only after a day with commits, and `CONVERGE_REQUIRE_BACKENDS` so a
-  missing service fails instead of skipping. Watch cadence and
+  only after a day with commits (carrying the 15.4 scale benchmarks in
+  the same workflow), and `CONVERGE_REQUIRE_BACKENDS` so a missing
+  service fails instead of skipping. Watch cadence and
   `.convergeignore` tests included; found that restore deleted ignored
   paths
 

@@ -51,7 +51,9 @@ existing — had no test at all.
 - CI runs nightly with a guard job: `workflow_dispatch` always runs, the
   schedule runs only when the last day produced commits. A green run
   over unchanged code is noise, and noise is what makes people stop
-  reading a lane
+  reading a lane. The same guard carries the scale benchmarks from
+  batch 15.4, which had been written and never scheduled — one nightly
+  workflow, two lanes that are too heavy for every push
 - MinIO runs as a step, not a service: it needs a `server /data`
   argument that the `services:` block cannot express
 - watch tests pin the debounce (a settled tree captures once, an

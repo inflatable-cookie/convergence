@@ -5,7 +5,8 @@ Updated: 2026-07-25
 Roadmap: `g02.018` Batch 18.4
 
 Running the conformance suite against live Postgres and MinIO, on your
-machine. The same suite runs nightly in CI (`.github/workflows/backends.yml`).
+machine. The same suite runs nightly in CI, alongside the scale
+benchmarks (`.github/workflows/nightly.yml`).
 
 ## Two commands
 
