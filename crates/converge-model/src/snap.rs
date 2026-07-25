@@ -60,7 +60,7 @@ pub fn compute_snap_id(
     derived_from_bundle: Option<&str>,
 ) -> String {
     let mut hasher = blake3::Hasher::new();
-    hasher.update(b"converge-snap-v3\n");
+    hasher.update(b"converge-snap-v4\n");
     hasher.update(root_manifest.as_str().as_bytes());
     hasher.update(b"\n");
     // Length-prefixed parents: a separator-joined list lets differing
@@ -71,6 +71,12 @@ pub fn compute_snap_id(
         hasher.update(parent.as_bytes());
     }
     hasher.update(b"\n");
+    // Presence is part of identity (batch 18.3): `unwrap_or("")` made
+    // `None` and `Some("")` hash the same, so a record claiming an empty
+    // provenance edge shared an id with an honest record that claimed
+    // none. Records are write-once, so the malformed one would have
+    // squatted the id and locked the real snap out.
+    hasher.update(&[u8::from(derived_from_bundle.is_some())]);
     let derived = derived_from_bundle.unwrap_or("");
     hasher.update(&(derived.len() as u64).to_le_bytes());
     hasher.update(derived.as_bytes());

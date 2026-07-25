@@ -116,3 +116,63 @@ fn encoding_benchmark_10k_entries() {
     );
     assert!(cbor.len() < json.len(), "canonical form is smaller");
 }
+
+// ---- Batch 18.3: lineage identity properties ----
+
+use converge_model::{ObjectId, compute_snap_id};
+
+/// Snap identity is a function of (root, parents, derived) and nothing
+/// else, and distinct triples never collide.
+///
+/// The length-prefix in the hash input (doc 17 §1) exists because a
+/// separator-joined parent list lets different parent splits hash
+/// identically once ids are not fixed width — a lineage forgery
+/// primitive. These generate the splits that would collide without it.
+#[test]
+fn snap_identity_separates_every_distinct_lineage() {
+    let root = ObjectId("r".repeat(64));
+    let other_root = ObjectId("s".repeat(64));
+    let mut seen: std::collections::HashMap<String, (Vec<String>, Option<String>)> =
+        std::collections::HashMap::new();
+
+    // Parent lists whose concatenations coincide: ["ab","c"] vs ["a","bc"]
+    // and friends, plus the empty and single cases.
+    let alphabets = ["a", "b", "c", "ab", "bc", "abc", ""];
+    let mut lineages: Vec<Vec<String>> = vec![Vec::new()];
+    for one in alphabets {
+        lineages.push(vec![one.to_string()]);
+        for two in alphabets {
+            lineages.push(vec![one.to_string(), two.to_string()]);
+        }
+    }
+
+    for parents in &lineages {
+        for derived in [None, Some("bundle-1"), Some("bundle-2"), Some("")] {
+            let id = compute_snap_id(&root, parents, derived);
+            let key = (parents.clone(), derived.map(str::to_string));
+            if let Some(previous) = seen.insert(id.clone(), key.clone()) {
+                assert_eq!(
+                    previous, key,
+                    "two distinct lineages hashed to the same snap id: {id}"
+                );
+            }
+            // Stable: the same triple always hashes the same way.
+            assert_eq!(id, compute_snap_id(&root, parents, derived));
+            // Order is part of identity, not incidental to it.
+            if parents.len() == 2 && parents[0] != parents[1] {
+                let swapped = vec![parents[1].clone(), parents[0].clone()];
+                assert_ne!(
+                    id,
+                    compute_snap_id(&root, &swapped, derived),
+                    "parent order must change identity"
+                );
+            }
+            // The tree is part of identity too.
+            assert_ne!(
+                id,
+                compute_snap_id(&other_root, parents, derived),
+                "a different tree must be a different snap"
+            );
+        }
+    }
+}

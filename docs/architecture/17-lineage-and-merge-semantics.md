@@ -30,16 +30,21 @@ Record (v2):
 Identity:
 
 ```
-snap_id = blake3("converge-snap-v3\n"
+snap_id = blake3("converge-snap-v4\n"
                  + root_manifest + "\n"
                  + le64(parents.len())
                  + concat(le64(p.len()) + p for p in parents) + "\n"
+                 + u8(derived.is_some())
                  + le64(derived.len()) + derived)
 ```
 
 Every variable-length field is length-prefixed: a separator-joined parent
 list lets different parent splits hash identically once ids are not
-fixed-width, which would be a lineage forgery primitive.
+fixed-width, which would be a lineage forgery primitive. The `derived`
+field carries a presence byte before its length for the same reason
+(batch 18.3): without it `None` and `Some("")` hashed identically, and
+because records are write-once a snap claiming an empty provenance edge
+would squat the id of an honest snap claiming none.
 
 Consequences (all intended):
 

@@ -243,7 +243,9 @@ fn emit_tree(
                 emit_file(stream, &path, mode, &content);
             }
             ManifestEntryKind::Symlink { target } => {
-                stream.extend_from_slice(format!("M 120000 inline {path}\n").as_bytes());
+                stream.extend_from_slice(
+                    format!("M 120000 inline {}\n", quote_path(&path)).as_bytes(),
+                );
                 stream.extend_from_slice(format!("data {}\n{target}\n", target.len()).as_bytes());
             }
             ManifestEntryKind::Superposition { .. } => {
@@ -254,13 +256,52 @@ fn emit_tree(
     Ok(())
 }
 
+/// Encode a path for a fast-import command line (batch 18.3).
+///
+/// An unquoted path runs to the end of the line, so a filename holding a
+/// newline splits the command and git reads the remainder as the next
+/// instruction — the stream is not corrupted so much as *reinterpreted*,
+/// which is worse. git accepts a C-quoted path; quote whenever the name
+/// carries a character that could not survive unquoted.
+fn quote_path(path: &str) -> String {
+    let needs_quoting = path.starts_with('"')
+        || path
+            .chars()
+            .any(|c| c == '"' || c == '\\' || c.is_control());
+    if !needs_quoting {
+        return path.to_string();
+    }
+    let mut out = String::with_capacity(path.len() + 2);
+    out.push('"');
+    for c in path.chars() {
+        match c {
+            '"' => out.push_str("\\\""),
+            '\\' => out.push_str("\\\\"),
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            '\t' => out.push_str("\\t"),
+            c if c.is_control() => {
+                // Octal escape, the only form fast-import accepts for
+                // the rest of the control range.
+                let mut buf = [0u8; 4];
+                for byte in c.encode_utf8(&mut buf).as_bytes() {
+                    out.push_str(&format!("\\{byte:03o}"));
+                }
+            }
+            c => out.push(c),
+        }
+    }
+    out.push('"');
+    out
+}
+
 fn emit_file(stream: &mut Vec<u8>, path: &str, mode: u32, content: &[u8]) {
     let git_mode = if mode & 0o111 != 0 {
         "100755"
     } else {
         "100644"
     };
-    stream.extend_from_slice(format!("M {git_mode} inline {path}\n").as_bytes());
+    stream.extend_from_slice(format!("M {git_mode} inline {}\n", quote_path(path)).as_bytes());
     stream.extend_from_slice(format!("data {}\n", content.len()).as_bytes());
     stream.extend_from_slice(content);
     stream.extend_from_slice(b"\n");

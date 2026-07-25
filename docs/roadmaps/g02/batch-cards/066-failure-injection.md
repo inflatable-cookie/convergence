@@ -63,6 +63,4 @@ the fault you are testing the claim's *statement*, not its truth.
 
 ## Next Task
 
-Batch card 18.3 (property and pathological input: proptest for merge
-determinism, variant-key order independence, lineage identity; unicode
-and newline filename fuzzing through capture → merge → git export).
+Batch card 18.3 (property and pathological input) — done, card 067.

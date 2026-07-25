@@ -17,7 +17,14 @@ fn validate_entry_name(name: &str) -> Result<()> {
         (components.next(), components.next()),
         (Some(std::path::Component::Normal(_)), None)
     );
-    if !single_normal || name.contains('/') || name.contains('\\') || name.contains('\0') {
+    // `\` is a separator on Windows and an ordinary filename character
+    // everywhere else (batch 18.3). Banning it outright made a snap
+    // capturable but not restorable on the very platform that produced
+    // it; banning it on Windows only keeps the traversal defence exactly
+    // where the risk is. `components()` already rejects `..`, absolute
+    // paths, and anything that is not one plain component.
+    let windows_separator = cfg!(windows) && name.contains('\\');
+    if !single_normal || name.contains('/') || windows_separator || name.contains('\0') {
         return Err(anyhow!(
             "manifest entry name {name:?} is not a single path component"
         ));

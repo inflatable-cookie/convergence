@@ -1,6 +1,6 @@
 # 018 Adversarial Test Hardening
 
-Status: in progress (18.1-18.2 complete)
+Status: in progress (18.1-18.3 complete)
 Owner: repo maintainers
 Updated: 2026-07-25
 
@@ -41,10 +41,14 @@ is caught by CI, not by audit.
   kills during restore and git export. Found two defects — corruption
   reported as 404 while negotiate claimed the object existed, and a
   killed restore leaving staging debris the next snap would capture
-- **18.3 Property and pathological input**: proptest coverage for
-  merge determinism, variant-key order independence, lineage identity;
-  filename fuzzing (unicode, newlines, quotes, near-collisions)
-  through capture → merge → git export
+- **18.3 Property and pathological input** (complete, card 067):
+  seeded-generation properties (no proptest dep — a named seed
+  reproduces exactly) for merge determinism and idempotence, keyed
+  resolution under variant reordering, and lineage identity; hostile
+  filenames through capture, restore, and git export. Found three
+  defects: unquoted fast-import paths, a backslash name that captured
+  but would not restore, and `None`/`Some("")` colliding in snap
+  identity
 - **18.4 Live backend CI lane**: docker-compose Postgres + MinIO
   conformance job; documented local invocation; watch cadence and
   `.convergeignore` tests
@@ -59,4 +63,4 @@ is caught by CI, not by audit.
 
 ## Next Task
 
-Open batch card 18.3 (property and pathological input).
+Open batch card 18.4 (live backend CI lane).
