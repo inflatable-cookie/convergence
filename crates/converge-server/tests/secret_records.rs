@@ -37,6 +37,7 @@ fn start_server(data_dir: &std::path::Path) -> Result<String> {
             ("token-d".to_string(), "dana".to_string()),
         ]),
         gc_running: Default::default(),
+        oidc: None,
     };
     let listener = std::net::TcpListener::bind("127.0.0.1:0")?;
     let addr = listener.local_addr()?;

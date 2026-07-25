@@ -561,6 +561,27 @@ impl RemoteClient {
         Ok(())
     }
 
+    /// What this server accepts for sign-in (batch 21.3). No token
+    /// needed: a client has to ask this before it has one.
+    pub fn auth_config(base_url: &str) -> Result<serde_json::Value> {
+        let url = format!("{}/api/auth/config", base_url.trim_end_matches('/'));
+        let response = reqwest::blocking::get(&url).context("read auth config")?;
+        response.json().context("parse auth config")
+    }
+
+    /// Trade a provider-issued identity token for a Convergence one.
+    pub fn exchange_identity(base_url: &str, id_token: &str) -> Result<crate::model::TokenIssued> {
+        let url = format!("{}/api/auth/exchange", base_url.trim_end_matches('/'));
+        let response = reqwest::blocking::Client::new()
+            .post(&url)
+            .json(&crate::model::ExchangeIdentityRequest {
+                id_token: id_token.into(),
+            })
+            .send()
+            .context("exchange identity token")?;
+        Self::check(response)?.json().context("parse issued token")
+    }
+
     /// Issue a token for the calling subject, narrower than they are.
     pub fn issue_token(
         &self,

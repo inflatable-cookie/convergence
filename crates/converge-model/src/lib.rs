@@ -25,10 +25,10 @@ pub use self::snap::{FileRecipe, FileRecipeChunk, SnapRecord, SnapStats, compute
 pub use self::wire::{
     AddLaneMemberRequest, AddMemberRequest, ApproveRequest, BundleProvenance, BundleRecord,
     BundleStatus, CreateLaneRequest, CreateRepoRequest, CreateScopeRequest, EventPage, EventRecord,
-    GateGraph, GateNode, InboxBundle, InboxLane, InboxPublication, InboxReport, IssueTokenRequest,
-    LaneHead, LaneRecord, MemberAdded, MemberRecord, MemberRemoved, NegotiateRequest,
-    NegotiateResponse, ObjectFrame, ObjectSet, Page, PromoteRequest, PublicKeyRecord,
-    PublicationRecord, PublishRequest, RegisterKeyRequest, ReleaseRecord, ReleaseRequest,
-    RetentionPolicy, RevokeTokenRequest, SecretRecord, SecretSummary, SetLaneHeadRequest,
-    SetSecretRequest, TokenIssued, TokenRecord, VerifyReport, WIRE_VERSION,
+    ExchangeIdentityRequest, GateGraph, GateNode, InboxBundle, InboxLane, InboxPublication,
+    InboxReport, IssueTokenRequest, LaneHead, LaneRecord, MemberAdded, MemberRecord, MemberRemoved,
+    NegotiateRequest, NegotiateResponse, ObjectFrame, ObjectSet, Page, PromoteRequest,
+    PublicKeyRecord, PublicationRecord, PublishRequest, RegisterKeyRequest, ReleaseRecord,
+    ReleaseRequest, RetentionPolicy, RevokeTokenRequest, SecretRecord, SecretSummary,
+    SetLaneHeadRequest, SetSecretRequest, TokenIssued, TokenRecord, VerifyReport, WIRE_VERSION,
 };

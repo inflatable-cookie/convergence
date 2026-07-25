@@ -1,6 +1,6 @@
 # 021 Real Identity
 
-Status: in progress (21.1-21.2 complete)
+Status: in progress (21.1-21.3 complete)
 Owner: repo maintainers
 Updated: 2026-07-25
 
@@ -41,9 +41,14 @@ password that happens to be long.
   token issue --capability …`; scope checked before the grant and with
   the same implication rules `authorize` uses; issuing cannot widen. A
   token held by a full admin can publish and cannot read a secret
-- **21.3 Identity provider seam**: OIDC device-code login populating
-  subjects and group membership, with the static token map kept as the
-  offline path; `converge login` gains a browser flow
+- **21.3 Identity provider seam** (complete, card 080): `/api/auth/config`
+  and `/api/auth/exchange` verify one configured issuer's assertion and
+  mint a Convergence token; `converge login --oidc` runs the device-code
+  flow; static `--token` pairs stay as the offline path. Signing in
+  provisions a subject with **no grants**. Testing against a fake issuer
+  found three real defects: no crypto provider selected (every exchange
+  would have panicked), a blocking JWKS fetch on the async worker, and
+  60 seconds of inherited clock-skew leeway
 - **21.4 Adversarial**: an expired token is refused everywhere, a
   revoked one immediately, a scoped one cannot exceed its scope, and no
   path reintroduces a long-lived unscoped credential
@@ -59,4 +64,4 @@ password that happens to be long.
 
 ## Next Task
 
-Open batch card 21.3 (identity provider seam).
+Open batch card 21.4 (adversarial).

@@ -182,8 +182,13 @@ enum Command {
     Login {
         #[arg(long)]
         url: String,
+        /// Access token. Omit with --oidc to sign in through the
+        /// server's identity provider instead.
+        #[arg(long, required_unless_present = "oidc")]
+        token: Option<String>,
+        /// Sign in through the server's identity provider.
         #[arg(long)]
-        token: String,
+        oidc: bool,
         #[arg(long)]
         repo: String,
         #[arg(long)]
@@ -791,6 +796,7 @@ fn run(cli: &Cli, mode: OutputMode, session: &Session) -> Result<serde_json::Val
         Command::Login {
             url,
             token,
+            oidc: _,
             repo,
             scope,
             gate,
@@ -804,7 +810,11 @@ fn run(cli: &Cli, mode: OutputMode, session: &Session) -> Result<serde_json::Val
                 scope: scope.clone(),
                 gate: gate.clone(),
             };
-            ws.store.set_remote_token(&remote, token)?;
+            let token = match token {
+                Some(token) => token.clone(),
+                None => sign_in_with_provider(url, mode)?,
+            };
+            ws.store.set_remote_token(&remote, &token)?;
             cfg.remote = Some(remote);
             ws.store.write_config(&cfg)?;
             emit(mode, format!("{repo}/{scope}/{gate} @ {url}"), |target| {
@@ -2627,6 +2637,91 @@ fn reseal(
         add.to_vec()
     };
     Ok((summary, changed))
+}
+
+/// Device-code sign-in against the server's identity provider
+/// (batch 21.3).
+///
+/// The browser dance lives here rather than in the server: a server that
+/// owned refresh cycles and provider quirks would be a second identity
+/// system rather than a seam.
+fn sign_in_with_provider(base_url: &str, mode: OutputMode) -> Result<String> {
+    use converge_client::remote::RemoteClient;
+
+    let config = RemoteClient::auth_config(base_url)?;
+    if !config["oidc"].as_bool().unwrap_or(false) {
+        anyhow::bail!(
+            "{}",
+            config["detail"]
+                .as_str()
+                .unwrap_or("this server has no identity provider configured")
+        );
+    }
+    let issuer = config["issuer"].as_str().context("server gave no issuer")?;
+    let client_id = config["client_id"]
+        .as_str()
+        .context("server gave no client id")?;
+
+    let http = reqwest::blocking::Client::new();
+    let start: serde_json::Value = http
+        .post(format!("{}/device/code", issuer.trim_end_matches('/')))
+        .form(&[("client_id", client_id), ("scope", "openid profile email")])
+        .send()
+        .context("start device sign-in")?
+        .json()
+        .context("parse device response")?;
+
+    let device_code = start["device_code"]
+        .as_str()
+        .context("provider gave no device code")?;
+    if mode == OutputMode::Human {
+        println!(
+            "To sign in, visit {} and enter the code {}",
+            start["verification_uri"]
+                .as_str()
+                .unwrap_or("(the URL it gave)"),
+            start["user_code"].as_str().unwrap_or("(the code it gave)")
+        );
+    }
+
+    // Poll at the provider's pace. `authorization_pending` is the normal
+    // answer while the person is still in the browser, so it is a wait
+    // rather than a failure.
+    let interval = start["interval"].as_u64().unwrap_or(5).max(1);
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(300);
+    loop {
+        if std::time::Instant::now() > deadline {
+            anyhow::bail!("sign-in timed out; run `converge login --oidc` again");
+        }
+        std::thread::sleep(std::time::Duration::from_secs(interval));
+        let polled: serde_json::Value = http
+            .post(format!("{}/token", issuer.trim_end_matches('/')))
+            .form(&[
+                ("client_id", client_id),
+                ("device_code", device_code),
+                ("grant_type", "urn:ietf:params:oauth:grant-type:device_code"),
+            ])
+            .send()
+            .context("poll for sign-in")?
+            .json()
+            .context("parse sign-in response")?;
+
+        if let Some(id_token) = polled["id_token"].as_str() {
+            let issued =
+                converge_client::remote::RemoteClient::exchange_identity(base_url, id_token)?;
+            if mode == OutputMode::Human {
+                println!("signed in as {}", issued.record.subject);
+                if !issued.record.expires_at.is_empty() {
+                    println!("  this session expires {}", issued.record.expires_at);
+                }
+            }
+            return Ok(issued.token);
+        }
+        match polled["error"].as_str() {
+            Some("authorization_pending") | Some("slow_down") | None => continue,
+            Some(other) => anyhow::bail!("sign-in refused: {other}"),
+        }
+    }
 }
 
 /// The caller's own registered keys in this repo.

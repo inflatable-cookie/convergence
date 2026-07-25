@@ -47,6 +47,7 @@ fn start_server(data_dir: &Path) -> Result<String> {
             ("token-b".to_string(), "bob".to_string()),
         ]),
         gc_running: Default::default(),
+        oidc: None,
     };
     let listener = std::net::TcpListener::bind("127.0.0.1:0")?;
     let addr = listener.local_addr()?;

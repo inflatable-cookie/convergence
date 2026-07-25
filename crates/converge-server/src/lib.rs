@@ -9,6 +9,7 @@ pub mod meta_sqlite;
 pub mod object_fs;
 #[cfg(feature = "backend-s3")]
 pub mod object_s3;
+pub mod oidc;
 pub mod retention;
 pub mod storage;
 
@@ -24,6 +25,7 @@ pub use meta_sqlite::SqliteMetadataStore;
 pub use object_fs::FsObjectStore;
 #[cfg(feature = "backend-s3")]
 pub use object_s3::S3ObjectStore;
+pub use oidc::{OidcConfig, OidcVerifier};
 pub use storage::{
     BatchConflict, MetaOp, MetadataStore, ObjectKind, ObjectStore, PartitionState, StoredBundle,
 };

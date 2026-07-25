@@ -42,6 +42,7 @@ fn start_bare_server(data_dir: &Path) -> Result<(String, String)> {
         objects: Arc::new(FsObjectStore::new(data_dir)),
         tokens: HashMap::new(), // no startup tokens: everything is issued
         gc_running: Default::default(),
+        oidc: None,
     };
     let listener = std::net::TcpListener::bind("127.0.0.1:0")?;
     let addr = listener.local_addr()?;

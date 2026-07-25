@@ -50,6 +50,7 @@ fn serve(data_dir: &std::path::Path) -> Result<String> {
         objects: Arc::new(FsObjectStore::new(data_dir)),
         tokens: HashMap::from([("token-a".to_string(), "alice".to_string())]),
         gc_running: Default::default(),
+        oidc: None,
     };
     let listener = std::net::TcpListener::bind("127.0.0.1:0")?;
     let addr = listener.local_addr()?;
@@ -285,6 +286,7 @@ fn gc_interrupted_mid_sweep_keeps_live_objects_and_finishes_later() -> Result<()
             objects: Arc::new(FsObjectStore::new(dir.path())),
             tokens: HashMap::from([("token-a".to_string(), "alice".to_string())]),
             gc_running: Default::default(),
+            oidc: None,
         };
         let listener = std::net::TcpListener::bind("127.0.0.1:0")?;
         let addr = listener.local_addr()?;

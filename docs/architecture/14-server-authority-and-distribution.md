@@ -203,13 +203,41 @@ A team is set up over the API, not by editing server flags:
 - `converge login` writes local config and contacts no one, which is why
   an admin can name a repo that does not exist yet and then create it
 
-**Deferred** — identity: tokens still do not expire, carry no
-capabilities of their own, and are revoked only by deleting their row.
-Startup `--token` pairs remain for dev. Short-lived capability-scoped
-tokens, and edges validating them against the control plane with offline
-grace bounded by token TTL, are target state (§7). Authorization itself
-— the grant checks — is fully enforced; it is *authentication* that is
-slice-grade.
+### 4b. Token lifecycle, scope, and identity providers (g02.021)
+
+Authentication is no longer slice-grade. What replaced the deferral:
+
+- **tokens expire.** Every token carries issued-at, expires-at and
+  last-used; 90 days by default. Expiry and revocation are enforced at
+  authentication and reported as *different* refusals, because "your
+  credential aged out" and "somebody took it away" call for different
+  next actions
+- **revocation is a verb, not a `DELETE`.** `converge token list|revoke`
+  records who revoked what and when, so the audit survives the token
+- **a token can be narrower than its holder.** `converge token issue
+  --capability …` scopes a credential to a subset of what its subject
+  holds. Scope is checked *before* the grant and uses the same
+  implication rules `authorize` does, via a shared
+  `satisfying_capabilities` — otherwise a token scoped to `admin` would
+  be narrow in name and total in effect. Issuing cannot widen: the
+  caller must hold the capability both in their token and in the repo.
+  An empty scope means "whatever the subject has", which is the older
+  behaviour and stays the default
+- **an organisation can bring its own accounts.** With an issuer
+  configured, `GET /api/auth/config` advertises it and `POST
+  /api/auth/exchange` verifies an RS256 assertion against the issuer's
+  JWKS — signature, issuer, audience, expiry — and mints a Convergence
+  token. `converge login --oidc` runs the device-code flow. Convergence
+  is not an OIDC client: the browser dance belongs where a browser
+  already is, and a server owning refresh cycles and provider quirks
+  would be a second identity system rather than a seam
+- **signing in grants nothing.** A first login provisions a subject with
+  no grants; an admin still decides what a person may do. The opposite
+  default — everyone in the directory is a member — is one nobody can
+  afford. Mapping IdP groups to capabilities is deliberately unbuilt: it
+  deserves a decision, not a default
+- startup `--token` pairs remain the offline path, and edge validation
+  with offline grace bounded by token TTL (§7) is still target state
 
 ## 5. Bundle coalescing at scale
 
@@ -308,7 +336,7 @@ trigger building it, so the list stays a plan rather than a wish.
 | Async bundle builds, partition workers | not built; publish merges inline | backlog; trigger = measured publish-latency pain (see note below) |
 | Horizontal scaling across partitions | not built; one process, one metadata connection | backlog; trigger = measured write ceiling from the scale-walls roadmap |
 | Edge nodes (read-through cache, upload buffering) | not built | backlog; trigger = a real multi-site customer with locality pain |
-| Short-lived capability-scoped tokens, TTL, rotation | not built; tokens are issued and stored hashed (§4a) but never expire | backlog; trigger = any deployment outside a trusted network |
+| Mapping IdP groups to capabilities | not built; SSO establishes identity only (§4b) | backlog; trigger = an organisation that manages Convergence access in its directory |
 
 The pluggable-backend seam, the partition key, the scope registry,
 event retention, guarded transactional writes, and enforced authz are

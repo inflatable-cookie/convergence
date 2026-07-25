@@ -21,6 +21,9 @@ fn main() -> Result<()> {
     let mut tokens = HashMap::new();
     let mut seed_dev = false;
     let mut bootstrap_admin: Option<String> = None;
+    let mut oidc_issuer: Option<String> = None;
+    let mut oidc_audience: Option<String> = None;
+    let mut oidc_subject_claim = "preferred_username".to_string();
 
     let mut args = std::env::args().skip(1);
     while let Some(arg) = args.next() {
@@ -41,6 +44,15 @@ fn main() -> Result<()> {
             "--seed-dev" => seed_dev = true,
             "--bootstrap-admin" => {
                 bootstrap_admin = Some(args.next().context("--bootstrap-admin needs a handle")?)
+            }
+            "--oidc-issuer" => {
+                oidc_issuer = Some(args.next().context("--oidc-issuer needs a url")?)
+            }
+            "--oidc-audience" => {
+                oidc_audience = Some(args.next().context("--oidc-audience needs a client id")?)
+            }
+            "--oidc-subject-claim" => {
+                oidc_subject_claim = args.next().context("--oidc-subject-claim needs a claim")?
             }
             other => anyhow::bail!("unknown argument {other}"),
         }
@@ -103,11 +115,26 @@ fn main() -> Result<()> {
         bootstrap(meta.as_ref(), handle)?;
     }
 
+    // Both halves or neither: an issuer without an audience would
+    // accept tokens minted for someone else's application.
+    let oidc = match (oidc_issuer, oidc_audience) {
+        (Some(issuer), Some(audience)) => Some(Arc::new(converge_server::OidcVerifier::new(
+            converge_server::OidcConfig {
+                issuer,
+                audience,
+                subject_claim: oidc_subject_claim,
+            },
+        ))),
+        (None, None) => None,
+        _ => anyhow::bail!("--oidc-issuer and --oidc-audience must be given together"),
+    };
+
     let state = AppState {
         meta,
         objects,
         tokens,
         gc_running: Default::default(),
+        oidc,
     };
 
     let runtime = tokio::runtime::Runtime::new().context("start tokio runtime")?;

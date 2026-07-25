@@ -213,6 +213,12 @@ pub struct IssueTokenRequest {
     pub expires_in_days: Option<u32>,
 }
 
+/// Trade a provider-issued identity token for a Convergence one.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct ExchangeIdentityRequest {
+    pub id_token: String,
+}
+
 /// A freshly issued token. `token` is present exactly once.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct TokenIssued {

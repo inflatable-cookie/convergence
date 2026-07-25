@@ -29,6 +29,8 @@ pub struct AppState {
     /// Held for the duration of a GC run so a second one is refused
     /// rather than repeating the walk (batch 14.4).
     pub gc_running: Arc<tokio::sync::Mutex<()>>,
+    /// Trusted identity provider, when one is configured (batch 21.3).
+    pub oidc: Option<Arc<crate::oidc::OidcVerifier>>,
 }
 
 type SharedState = Arc<AppState>;
@@ -43,6 +45,8 @@ const MAX_PAGE_ITEMS: usize = 1000;
 pub fn router(state: AppState) -> Router {
     Router::new()
         .route("/api/healthz", get(healthz))
+        .route("/api/auth/config", get(auth_config))
+        .route("/api/auth/exchange", post(exchange_identity))
         .route("/api/repos/:repo/negotiate", post(negotiate))
         .route(
             "/api/repos/:repo/objects/:kind/:id",
@@ -999,6 +1003,77 @@ fn validate_secret_name(name: &str) -> Result<(), ApiError> {
         ));
     }
     Ok(())
+}
+
+/// What a client needs to start a login, or the absence of one.
+async fn auth_config(State(state): State<SharedState>) -> Json<serde_json::Value> {
+    match &state.oidc {
+        Some(verifier) => Json(serde_json::json!({
+            "oidc": true,
+            "issuer": verifier.issuer(),
+            "client_id": verifier.audience(),
+        })),
+        None => Json(serde_json::json!({
+            "oidc": false,
+            "detail": "this server has no identity provider configured; \
+                       use a token from `converge member add`",
+        })),
+    }
+}
+
+/// Exchange a verified identity token for a Convergence token.
+///
+/// Provisions the subject on first sight **with no grants**. Identity is
+/// not authorization: an admin still decides what a person may do, and
+/// the alternative — everyone in the directory becomes a member — is a
+/// default nobody can afford.
+async fn exchange_identity(
+    State(state): State<SharedState>,
+    Json(request): Json<converge_model::ExchangeIdentityRequest>,
+) -> Result<Json<converge_model::TokenIssued>, ApiError> {
+    let verifier = state
+        .oidc
+        .as_ref()
+        .ok_or_else(|| bad_request("this server has no identity provider configured"))?;
+
+    // Verification may fetch the issuer's keys, which blocks. Doing that
+    // on the async worker builds a runtime inside a runtime and aborts
+    // the connection mid-response, so it goes to a blocking thread.
+    let verifier = Arc::clone(verifier);
+    let id_token = request.id_token.clone();
+    let subject = tokio::task::spawn_blocking(move || verifier.subject_from(&id_token))
+        .await
+        .map_err(|err| internal_error(anyhow::anyhow!("verify identity token: {err}")))?
+        .map_err(|err| ApiError(StatusCode::UNAUTHORIZED, format!("{err:#}")))?;
+    let verifier = state.oidc.as_ref().expect("checked above");
+
+    state.meta.upsert_user(&subject).map_err(internal_error)?;
+
+    let token = mint_token()?;
+    let hash = token_hash(&token);
+    let now = time::OffsetDateTime::now_utc();
+    let expires_at = (now + time::Duration::days(DEFAULT_TOKEN_DAYS as i64))
+        .format(&time::format_description::well_known::Rfc3339)
+        .map_err(|err| internal_error(anyhow::anyhow!("format expiry: {err}")))?;
+    let record = converge_model::TokenRecord {
+        token_id: hash.chars().take(12).collect(),
+        subject: subject.clone(),
+        label: format!("sign-in via {}", verifier.issuer()),
+        issued_at: now_rfc3339()?,
+        issued_by: verifier.issuer().to_string(),
+        repo_id: String::new(),
+        expires_at,
+        last_used_at: String::new(),
+        revoked_at: String::new(),
+        revoked_by: String::new(),
+        revoked_reason: String::new(),
+        capabilities: Vec::new(),
+    };
+    state
+        .meta
+        .create_token_record(&hash, &record)
+        .map_err(internal_error)?;
+    Ok(Json(converge_model::TokenIssued { token, record }))
 }
 
 /// Default lifetime for an issued token (batch 21.1).

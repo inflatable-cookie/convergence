@@ -33,6 +33,10 @@ time = { version = "0.3", features = ["formatting", "parsing"] }
 tempfile = "3"
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 getrandom = "0.3"
+# `rust_crypto` is not optional decoration: jsonwebtoken 11 selects no
+# provider by default and panics at the first verification. Pure Rust
+# over `aws_lc_rs` so the build needs no C toolchain.
+jsonwebtoken = { version = "11", features = ["rust_crypto"] }
 # Client-side secrets (g02.019). age gives multi-recipient X25519
 # envelopes and scrypt passphrase encryption in one reviewed format.
 age = { version = "0.12", features = ["armor"] }

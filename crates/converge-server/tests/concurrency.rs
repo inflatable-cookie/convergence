@@ -72,6 +72,7 @@ impl Cluster {
             objects: Arc::new(FsObjectStore::new(dir.path())),
             tokens,
             gc_running: Default::default(),
+            oidc: None,
         };
         let listener = std::net::TcpListener::bind("127.0.0.1:0")?;
         let addr = listener.local_addr()?;
