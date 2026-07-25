@@ -236,6 +236,17 @@ pub struct SetSecretRequest {
     pub expected_version: u64,
 }
 
+/// What removing a member did, and what it deliberately did not do.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct MemberRemoved {
+    pub subject: String,
+    pub grants_removed: u64,
+    /// Secrets still sealed to them. They keep no access to the server,
+    /// but ciphertext they already hold stays readable to them, and any
+    /// future version must be re-sealed by its owner.
+    pub still_sealed: Vec<SecretSummary>,
+}
+
 /// One member's standing in a repo.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct MemberRecord {

@@ -321,6 +321,14 @@ impl MetadataStore for PostgresMetadataStore {
             .collect())
     }
 
+    fn remove_grants(&self, repo_id: &str, subject: &str) -> Result<u64> {
+        let mut c = self.client.lock().expect("pg lock");
+        Ok(c.execute(
+            "DELETE FROM grants WHERE repo_id = $1 AND subject = $2",
+            &[&repo_id, &subject],
+        )?)
+    }
+
     fn list_repos(&self) -> Result<Vec<String>> {
         let mut c = self.client.lock().expect("pg lock");
         let rows = c.query("SELECT repo_id FROM repos ORDER BY repo_id", &[])?;

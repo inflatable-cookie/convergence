@@ -171,6 +171,11 @@ pub trait MetadataStore: Send + Sync {
     fn token_count(&self, subject: &str) -> Result<usize>;
     /// (subject, capability, scope_pattern) rows for one repo, ordered.
     fn list_grants(&self, repo_id: &str) -> Result<Vec<(String, String, String)>>;
+    /// Drop every grant a subject holds in one repo (g02.020 batch
+    /// 20.2). The user record survives: they may still hold secrets
+    /// sealed to their keys, and erasing the subject would make those
+    /// unattributable.
+    fn remove_grants(&self, repo_id: &str, subject: &str) -> Result<u64>;
 
     // public keys (g02.019 batch 19.1): the recipients secrets are
     // sealed to. Public data — stored so members can encrypt to each

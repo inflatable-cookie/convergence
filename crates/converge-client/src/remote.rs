@@ -537,6 +537,21 @@ impl RemoteClient {
         Ok(())
     }
 
+    pub fn remove_member(
+        &self,
+        repo_id: &str,
+        subject: &str,
+    ) -> Result<crate::model::MemberRemoved> {
+        let response = Self::check(
+            self.http
+                .delete(self.url(&format!("/api/repos/{repo_id}/members/{subject}")))
+                .bearer_auth(&self.token)
+                .send()
+                .context("remove member")?,
+        )?;
+        response.json().context("parse removal report")
+    }
+
     pub fn list_members(&self, repo_id: &str) -> Result<Vec<crate::model::MemberRecord>> {
         let response = Self::check(
             self.http

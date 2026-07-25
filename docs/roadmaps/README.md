@@ -36,7 +36,7 @@ records the closed state.
   `docs/architecture/19-secrets-and-key-management.md`.
 - `g02.019` secret substrate **complete**.
 - Active roadmap: `g02.020` shared secrets.
-- next: batch card 20.2 (membership change)
+- next: batch card 20.3 (rotation workflow)
 
 ## Rollover guardrail
 

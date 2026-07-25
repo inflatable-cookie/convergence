@@ -114,6 +114,27 @@ When two people hold a secret with the same name, `--owner` picks:
 converge secret get db-password --owner dana
 ```
 
+## When someone leaves
+
+```bash
+converge member remove dana
+```
+
+They lose every capability in the repo immediately. The command then
+lists the secrets still sealed to them, because that part is not
+automatic and cannot be: the server holds no key that opens a secret, so
+only someone who can already read one can re-seal it.
+
+For each secret listed, its owner runs:
+
+```bash
+converge secret unshare <name> --from dana
+```
+
+…and rotates the credential at its source. `converge secret audit`
+shows the same picture at any time: who can read each secret, and which
+recipients have left or rotated their key away.
+
 ## Housekeeping
 
 ```bash

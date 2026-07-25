@@ -641,3 +641,143 @@ fn two_owners_can_hold_the_same_name() -> Result<()> {
     );
     Ok(())
 }
+
+/// Batch 20.2: removing a member is honest about what it did not do.
+#[test]
+fn removing_a_member_reports_the_secrets_still_sealed_to_them() -> Result<()> {
+    let server_dir = tempfile::tempdir()?;
+    let base_url = start_server(server_dir.path())?;
+    let (alice_ws, alice_home) = member(&base_url, "token-a")?;
+    let (bob_ws, bob_home) = member(&base_url, "token-b")?;
+
+    converge_with_stdin(
+        alice_ws.path(),
+        alice_home.path(),
+        &["secret", "set", "deploy-key"],
+        Some("shared-value"),
+    );
+    converge(
+        alice_ws.path(),
+        alice_home.path(),
+        &["secret", "share", "deploy-key", "--with", "bob"],
+    );
+
+    let out = converge(
+        alice_ws.path(),
+        alice_home.path(),
+        &["member", "remove", "bob"],
+    );
+    assert!(
+        out.status.success(),
+        "removal failed: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let said = String::from_utf8_lossy(&out.stdout);
+    assert!(
+        said.contains("deploy-key"),
+        "the affected secret was not named: {said}"
+    );
+    assert!(
+        said.contains("unshare") && said.to_lowercase().contains("rotate"),
+        "removal must say what the owner still has to do: {said}"
+    );
+
+    // Bob really is out: the server refuses him now.
+    let denied = converge(
+        bob_ws.path(),
+        bob_home.path(),
+        &["--json", "secret", "list"],
+    );
+    assert!(
+        !denied.status.success(),
+        "a removed member still reached the repo"
+    );
+
+    // Removing the last admin is refused rather than locking everyone out.
+    let out = converge(
+        alice_ws.path(),
+        alice_home.path(),
+        &["member", "remove", "alice"],
+    );
+    assert!(!out.status.success(), "a repo can be left with no admin");
+    Ok(())
+}
+
+/// `secret audit` shows who can read what, and flags recipients who have
+/// left — the state that membership change creates and nothing else
+/// surfaces.
+#[test]
+fn audit_flags_recipients_who_are_no_longer_members() -> Result<()> {
+    let server_dir = tempfile::tempdir()?;
+    let base_url = start_server(server_dir.path())?;
+    let (alice_ws, alice_home) = member(&base_url, "token-a")?;
+    let (_bob_ws, _bob_home) = member(&base_url, "token-b")?;
+
+    converge_with_stdin(
+        alice_ws.path(),
+        alice_home.path(),
+        &["secret", "set", "deploy-key"],
+        Some("v"),
+    );
+    converge(
+        alice_ws.path(),
+        alice_home.path(),
+        &["secret", "share", "deploy-key", "--with", "bob"],
+    );
+
+    // While bob is a member, he is simply a reader.
+    let audit = json_data(&converge(
+        alice_ws.path(),
+        alice_home.path(),
+        &["--json", "secret", "audit"],
+    ));
+    let row = &audit[0];
+    let readers: Vec<&str> = row["readers"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|r| r.as_str())
+        .collect();
+    assert!(readers.contains(&"bob"), "bob should be listed: {row}");
+    assert_eq!(row["stale"].as_array().map(Vec::len), Some(0));
+
+    // After removal, the same recipient is flagged rather than silently
+    // remaining in the list.
+    converge(
+        alice_ws.path(),
+        alice_home.path(),
+        &["member", "remove", "bob"],
+    );
+    let audit = json_data(&converge(
+        alice_ws.path(),
+        alice_home.path(),
+        &["--json", "secret", "audit"],
+    ));
+    let stale = audit[0]["stale"].as_array().cloned().unwrap_or_default();
+    assert_eq!(
+        stale.len(),
+        1,
+        "the departed recipient was not flagged: {audit}"
+    );
+    assert_eq!(stale[0]["subject"], "bob");
+    assert!(
+        stale[0]["why"]
+            .as_str()
+            .unwrap()
+            .contains("no longer a member"),
+        "{stale:?}"
+    );
+
+    // Human output points at the fix without claiming access was undone.
+    let text = String::from_utf8_lossy(
+        &converge(alice_ws.path(), alice_home.path(), &["secret", "audit"]).stdout,
+    )
+    .to_lowercase();
+    assert!(text.contains("stale recipient"), "{text}");
+    assert!(text.contains("rotate at the source"), "{text}");
+    assert!(
+        !text.contains("revoke"),
+        "audit must not claim revocation: {text}"
+    );
+    Ok(())
+}

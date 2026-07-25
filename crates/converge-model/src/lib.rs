@@ -26,8 +26,8 @@ pub use self::wire::{
     AddLaneMemberRequest, AddMemberRequest, ApproveRequest, BundleProvenance, BundleRecord,
     BundleStatus, CreateLaneRequest, CreateRepoRequest, CreateScopeRequest, EventPage, EventRecord,
     GateGraph, GateNode, InboxBundle, InboxLane, InboxPublication, InboxReport, LaneHead,
-    LaneRecord, MemberAdded, MemberRecord, NegotiateRequest, NegotiateResponse, ObjectFrame,
-    ObjectSet, Page, PromoteRequest, PublicKeyRecord, PublicationRecord, PublishRequest,
-    RegisterKeyRequest, ReleaseRecord, ReleaseRequest, RetentionPolicy, SecretRecord,
-    SecretSummary, SetLaneHeadRequest, SetSecretRequest, VerifyReport, WIRE_VERSION,
+    LaneRecord, MemberAdded, MemberRecord, MemberRemoved, NegotiateRequest, NegotiateResponse,
+    ObjectFrame, ObjectSet, Page, PromoteRequest, PublicKeyRecord, PublicationRecord,
+    PublishRequest, RegisterKeyRequest, ReleaseRecord, ReleaseRequest, RetentionPolicy,
+    SecretRecord, SecretSummary, SetLaneHeadRequest, SetSecretRequest, VerifyReport, WIRE_VERSION,
 };

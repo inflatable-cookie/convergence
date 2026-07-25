@@ -1,6 +1,6 @@
 # 020 Shared Secrets
 
-Status: in progress (20.1 complete)
+Status: in progress (20.1-20.2 complete)
 Owner: repo maintainers
 Updated: 2026-07-25
 
@@ -28,9 +28,12 @@ recipients — the substrate has to exist first.
   recipient; owner-aware resolution with `--owner`, fixing a defect
   where two people holding the same secret name silently served whoever
   sorted first
-- **20.2 Membership change**: adding a member re-encrypts the secrets
-  they are entitled to; removing one drops them from future versions and
-  says plainly that the credential itself must be rotated
+- **20.2 Membership change** (complete, card 075): `converge member
+  remove`, refusing to strand a repo without an admin; the removal
+  response names every secret still sealed to the departing member;
+  `converge secret audit` flags recipients who left or whose key is
+  gone. Automatic re-encryption is impossible by design (doc 19 §7), so
+  the work is reported to whoever can do it rather than claimed
 - **20.3 Rotation workflow**: `converge secret rotate` as a first-class
   verb — new value, new version, re-encrypted to the current list — plus
   an audit view of when each secret last actually changed
@@ -47,4 +50,4 @@ recipients — the substrate has to exist first.
 
 ## Next Task
 
-Batch card 20.2 (membership change).
+Batch card 20.3 (rotation workflow).

@@ -397,6 +397,15 @@ impl MetadataStore for SqliteMetadataStore {
             .context("list public keys")
     }
 
+    fn remove_grants(&self, repo_id: &str, subject: &str) -> Result<u64> {
+        let conn = self.conn.lock().expect("meta lock");
+        let removed = conn.execute(
+            "DELETE FROM grants WHERE repo_id = ?1 AND subject = ?2",
+            params![repo_id, subject],
+        )?;
+        Ok(removed as u64)
+    }
+
     fn list_repos(&self) -> Result<Vec<String>> {
         let conn = self.conn.lock().expect("meta lock");
         let mut stmt = conn.prepare("SELECT repo_id FROM repos ORDER BY repo_id")?;

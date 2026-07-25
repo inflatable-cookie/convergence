@@ -474,6 +474,8 @@ enum SecretCommand {
     },
     /// List secrets in this repo: names and versions, never values.
     List,
+    /// Who can read what, and which recipients have gone stale.
+    Audit,
     /// Delete one of your secrets.
     Rm { name: String },
     /// Let someone else read one of your secrets.
@@ -551,6 +553,8 @@ enum MemberCommand {
     },
     /// List repo members and their capabilities.
     List,
+    /// Remove every capability a member holds in this repo.
+    Remove { subject: String },
 }
 
 #[derive(Subcommand)]
@@ -1584,6 +1588,95 @@ fn run(cli: &Cli, mode: OutputMode, session: &Session) -> Result<serde_json::Val
                         }
                     })
                 }
+                SecretCommand::Audit => {
+                    let members = client.list_members(&remote.repo_id)?;
+                    let keys = client.list_keys(&remote.repo_id)?;
+                    let secrets = client.list_secrets(&remote.repo_id)?;
+
+                    let rows: Vec<serde_json::Value> = secrets
+                        .iter()
+                        .map(|secret| {
+                            let mut readers = Vec::new();
+                            let mut stale = Vec::new();
+                            for key_id in &secret.recipients {
+                                match keys.iter().find(|k| &k.key_id == key_id) {
+                                    // A key nobody registered any more:
+                                    // the recipient rotated it away, so
+                                    // the entry is dead weight.
+                                    None => stale.push(serde_json::json!({
+                                        "key_id": key_id,
+                                        "why": "key is no longer registered",
+                                    })),
+                                    Some(key) => {
+                                        let member =
+                                            members.iter().any(|m| m.subject == key.subject);
+                                        if member {
+                                            readers.push(key.subject.clone());
+                                        } else {
+                                            stale.push(serde_json::json!({
+                                                "key_id": key_id,
+                                                "subject": key.subject,
+                                                "why": "no longer a member of this repo",
+                                            }));
+                                        }
+                                    }
+                                }
+                            }
+                            readers.sort();
+                            readers.dedup();
+                            serde_json::json!({
+                                "name": secret.name,
+                                "owner": secret.owner,
+                                "version": secret.version,
+                                "readers": readers,
+                                "stale": stale,
+                            })
+                        })
+                        .collect();
+
+                    emit(mode, serde_json::json!(rows), |rows| {
+                        let rows = rows.as_array().cloned().unwrap_or_default();
+                        if rows.is_empty() {
+                            println!("no secrets in this repo");
+                        }
+                        for row in &rows {
+                            let readers: Vec<&str> = row["readers"]
+                                .as_array()
+                                .into_iter()
+                                .flatten()
+                                .filter_map(|r| r.as_str())
+                                .collect();
+                            println!(
+                                "{}  owner {}  v{}  readable by: {}",
+                                row["name"].as_str().unwrap_or(""),
+                                row["owner"].as_str().unwrap_or(""),
+                                row["version"],
+                                if readers.is_empty() {
+                                    "owner only".to_string()
+                                } else {
+                                    readers.join(", ")
+                                }
+                            );
+                            for stale in row["stale"].as_array().into_iter().flatten() {
+                                println!(
+                                    "  stale recipient {}: {}",
+                                    stale["subject"]
+                                        .as_str()
+                                        .unwrap_or(stale["key_id"].as_str().unwrap_or("?")),
+                                    stale["why"].as_str().unwrap_or("")
+                                );
+                            }
+                        }
+                        if rows
+                            .iter()
+                            .any(|r| r["stale"].as_array().is_some_and(|s| !s.is_empty()))
+                        {
+                            println!();
+                            println!("A stale recipient cannot reach the server, but already");
+                            println!("read what they read. Unshare, then rotate at the source.");
+                        }
+                    })
+                }
                 SecretCommand::Share { name, with } => {
                     let (summary, added) = reseal(&client, &remote.repo_id, name, with, &[])?;
                     emit(mode, summary, |s| {
@@ -1830,6 +1923,34 @@ fn run(cli: &Cli, mode: OutputMode, session: &Session) -> Result<serde_json::Val
                                 remote.base_url, remote.repo_id, remote.scope, remote.gate
                             );
                         }
+                    })
+                }
+                MemberCommand::Remove { subject } => {
+                    let report = client.remove_member(&remote.repo_id, subject)?;
+                    emit(mode, report, |r| {
+                        println!("{} removed ({} grant(s))", r.subject, r.grants_removed);
+                        if r.still_sealed.is_empty() {
+                            return;
+                        }
+                        // The part an operator must not misread.
+                        println!();
+                        println!(
+                            "{} secret(s) are still sealed to {}:",
+                            r.still_sealed.len(),
+                            r.subject
+                        );
+                        for secret in &r.still_sealed {
+                            println!(
+                                "  {}  owner {}  v{}",
+                                secret.name, secret.owner, secret.version
+                            );
+                        }
+                        println!();
+                        println!("They can no longer reach this server, and they still hold");
+                        println!("whatever they already decrypted. For each secret above, the");
+                        println!("owner should:");
+                        println!("  converge secret unshare <name> --from {}", r.subject);
+                        println!("  rotate the credential at its source, then store the new value");
                     })
                 }
                 MemberCommand::List => {

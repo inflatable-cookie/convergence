@@ -5,7 +5,7 @@ use axum::body::Bytes;
 use axum::extract::{Path, Query, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
-use axum::routing::{get, post, put};
+use axum::routing::{delete, get, post, put};
 use axum::{Json, Router};
 use serde_json::json;
 
@@ -61,6 +61,7 @@ pub fn router(state: AppState) -> Router {
             "/api/repos/:repo/members",
             post(add_member).get(list_members),
         )
+        .route("/api/repos/:repo/members/:subject", delete(remove_member))
         .route("/api/repos/:repo/keys", post(register_key).get(list_keys))
         .route("/api/repos/:repo/secrets", get(list_secrets))
         .route(
@@ -896,6 +897,71 @@ async fn list_keys(
     Ok(Json(
         state.meta.list_public_keys(&repo).map_err(internal_error)?,
     ))
+}
+
+/// Remove every grant a subject holds in this repo (batch 20.2).
+///
+/// What this does *not* do is re-encrypt anything: the server holds no
+/// key that opens a secret (doc 19 §7), so the response names the
+/// secrets still sealed to them and leaves the work with the owners who
+/// can actually do it. Reporting it is the honest alternative to
+/// pretending access was withdrawn.
+async fn remove_member(
+    State(state): State<SharedState>,
+    Path((repo, subject)): Path<(String, String)>,
+    headers: HeaderMap,
+) -> Result<Json<converge_model::MemberRemoved>, ApiError> {
+    let authz = authorize_repo(&state, &headers, &repo, Capability::Admin)?;
+    if authz.subject() == subject {
+        return Err(bad_request(
+            "removing yourself would leave the repo without the admin doing it",
+        ));
+    }
+
+    let grants = state.meta.list_grants(&repo).map_err(internal_error)?;
+    let admins: Vec<&String> = grants
+        .iter()
+        .filter(|(_, capability, _)| capability == Capability::Admin.as_str())
+        .map(|(subject, _, _)| subject)
+        .collect();
+    if admins.len() == 1 && admins[0] == &subject {
+        return Err(bad_request(
+            "that is the repo's only admin; grant admin to someone else first",
+        ));
+    }
+
+    let removed = state
+        .meta
+        .remove_grants(&repo, &subject)
+        .map_err(internal_error)?;
+
+    // Which secrets are still sealed to them, so somebody can act.
+    let keys = state.meta.list_public_keys(&repo).map_err(internal_error)?;
+    let their_keys: Vec<&str> = keys
+        .iter()
+        .filter(|key| key.subject == subject)
+        .map(|key| key.key_id.as_str())
+        .collect();
+    let still_sealed: Vec<converge_model::SecretSummary> = state
+        .meta
+        .list_secrets(&repo)
+        .map_err(internal_error)?
+        .iter()
+        .filter(|record| {
+            record.owner == subject
+                || record
+                    .recipients
+                    .iter()
+                    .any(|key_id| their_keys.contains(&key_id.as_str()))
+        })
+        .map(summarize_secret)
+        .collect();
+
+    Ok(Json(converge_model::MemberRemoved {
+        subject,
+        grants_removed: removed,
+        still_sealed,
+    }))
 }
 
 async fn list_members(
