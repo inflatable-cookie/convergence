@@ -90,7 +90,8 @@ fn run(terminal: &mut ratatui::DefaultTerminal, trace: &mut trace::Trace) -> Res
         while let Ok((argv, result)) = rx.try_recv() {
             trace.command_result(&argv, &result);
             app.finish_in_flight();
-            let entered = enter_resolution(&mut app, &argv, &result);
+            let entered = enter_resolution(&mut app, &argv, &result)
+                || absorb_view_rows(&mut app, &argv, &result);
             if !entered {
                 app.record_result(result);
             }
@@ -123,8 +124,24 @@ fn run(terminal: &mut ratatui::DefaultTerminal, trace: &mut trace::Trace) -> Res
                 return Ok(());
             }
             Some(Action::Enter(view)) => {
-                app.frames.push(view);
-                refresh(&mut app, &session);
+                if app.current_view() != view {
+                    app.frames.push(view);
+                }
+                // List views load through their CLI verb on the worker
+                // (batch 17.1): entering a view must never block the
+                // event loop on the network (arch 15 §3).
+                if let Some(argv) = view.loader() {
+                    app.record_command(&argv);
+                    app.record_in_flight(&argv);
+                    let tx = tx.clone();
+                    let session = std::sync::Arc::clone(&session);
+                    std::thread::spawn(move || {
+                        let result = converge_cli::execute_in(&session, argv.iter().cloned());
+                        let _ = tx.send((argv, result));
+                    });
+                } else {
+                    refresh(&mut app, &session);
+                }
             }
             Some(Action::StartWizard(kind)) => {
                 app.wizard = Some(match kind {
@@ -258,7 +275,12 @@ fn trace_screen(trace: &mut trace::Trace, app: &App) {
             .iter()
             .map(|(label, _)| label.clone())
             .collect(),
-        View::Root => Vec::new(),
+        view @ (View::Bundles | View::Releases | View::Lanes | View::Gates) => app
+            .rows
+            .get(&view)
+            .map(|rows| rows.iter().map(row_label).collect())
+            .unwrap_or_default(),
+        View::Root | View::Help => Vec::new(),
     };
     trace.screen_view(&screen_id, &selectable, app.primary_action().0);
 }
@@ -267,7 +289,11 @@ fn trace_screen(trace: &mut trace::Trace, app: &App) {
 /// Root views render from the `status` report alone; the snap list feeds
 /// the history view.
 fn refresh(app: &mut App, session: &converge_cli::Session) {
-    app.status = converge_cli::execute_in(session, ["status"]).ok();
+    let status = converge_cli::execute_in(session, ["status"]);
+    // `status` is the probe: it is the one verb that fails exactly when
+    // there is no workspace to talk about.
+    app.workspace_missing = status.is_err();
+    app.status = status.ok();
     app.pending_changes = app
         .status
         .as_ref()
@@ -317,6 +343,106 @@ fn enter_resolution(
     if app.current_view() != View::Resolution {
         app.frames.push(View::Resolution);
     }
+    true
+}
+
+/// One row of a list view, rendered from whatever the verb returned.
+///
+/// Deliberately field-driven rather than per-view formatters: these are
+/// CLI payloads, and a view that invented its own vocabulary would be
+/// the divergence the argv contract exists to prevent.
+fn row_label(row: &serde_json::Value) -> String {
+    let s = |key: &str| row[key].as_str().unwrap_or("").to_string();
+    if !s("bundle_id").is_empty() && !s("channel").is_empty() {
+        return format!(
+            "{}  {}  by {}  {}",
+            s("channel"),
+            short_id(&s("bundle_id")),
+            s("released_by"),
+            s("created_at")
+        );
+    }
+    if !s("bundle_id").is_empty() {
+        return format!(
+            "{}  @ {}  -> {}  ({}/{} approvals)",
+            short_id(&s("bundle_id")),
+            s("gate_id"),
+            s("recommendation"),
+            row["approvals"],
+            row["required_approvals"]
+        );
+    }
+    if !s("lane_id").is_empty() {
+        return format!(
+            "{}  owner {}  {}",
+            s("lane_id"),
+            s("owner"),
+            s("visibility")
+        );
+    }
+    if !s("gate_id").is_empty() {
+        let upstreams = row["upstreams"]
+            .as_array()
+            .map(|u| {
+                u.iter()
+                    .filter_map(|v| v.as_str())
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            })
+            .unwrap_or_default();
+        return format!(
+            "{}  {}  {} approval(s)  {}{}",
+            s("gate_id"),
+            if upstreams.is_empty() {
+                "entry".to_string()
+            } else {
+                format!("after {upstreams}")
+            },
+            row["required_approvals"],
+            s("strategy"),
+            if row["may_release"].as_bool().unwrap_or(false) {
+                "  releasable"
+            } else {
+                ""
+            }
+        );
+    }
+    row.to_string()
+}
+
+fn short_id(id: &str) -> String {
+    id.chars().take(12).collect()
+}
+
+/// Store a finished list-view load. Returns false when the result was
+/// something else, so the caller records it normally.
+fn absorb_view_rows(
+    app: &mut App,
+    argv: &[String],
+    result: &anyhow::Result<serde_json::Value>,
+) -> bool {
+    let Some(view) = [View::Bundles, View::Releases, View::Lanes, View::Gates]
+        .into_iter()
+        .find(|view| view.loader().as_deref() == Some(argv))
+    else {
+        return false;
+    };
+    let Ok(value) = result else {
+        return false; // render the error like any other
+    };
+    // The inbox report is an object; its bundles section is the view.
+    let rows = match view {
+        View::Bundles => value["bundles"].as_array().cloned().unwrap_or_default(),
+        View::Gates => value["gates"].as_array().cloned().unwrap_or_default(),
+        _ => value.as_array().cloned().unwrap_or_default(),
+    };
+    app.record_result(Ok(serde_json::json!(format!(
+        "{} {}",
+        rows.len(),
+        view.title().to_lowercase()
+    ))));
+    app.row_selected.insert(view, 0);
+    app.rows.insert(view, rows);
     true
 }
 
@@ -393,6 +519,20 @@ fn render(frame: &mut Frame, app: &App) {
                     format!("Enter: {primary}"),
                     Style::default().add_modifier(Modifier::BOLD),
                 ),
+            ];
+            frame.render_widget(Paragraph::new(lines).block(view_block(app)), body);
+        }
+        View::Root if app.workspace_missing => {
+            // A TUI started outside a workspace used to render an empty
+            // shell and fail every refresh silently (audit P1.5).
+            let lines = vec![
+                Line::raw("no converge workspace in this directory"),
+                Line::raw(""),
+                Line::styled(
+                    "Enter: init  (creates .converge here)",
+                    Style::default().add_modifier(Modifier::BOLD),
+                ),
+                Line::raw("Esc, then q: quit and cd somewhere else"),
             ];
             frame.render_widget(Paragraph::new(lines).block(view_block(app)), body);
         }
@@ -482,6 +622,55 @@ fn render(frame: &mut Frame, app: &App) {
                 items.push(ListItem::new("inbox empty"));
             }
             frame.render_widget(List::new(items).block(view_block(app)), body);
+        }
+        view @ (View::Bundles | View::Releases | View::Lanes | View::Gates) => {
+            let rows = app.rows.get(&view).cloned().unwrap_or_default();
+            let selected = app.row_selected.get(&view).copied().unwrap_or(0);
+            let mut items: Vec<ListItem> = rows
+                .iter()
+                .enumerate()
+                .map(|(i, row)| {
+                    let style = if i == selected {
+                        Style::default().add_modifier(Modifier::REVERSED)
+                    } else {
+                        Style::default()
+                    };
+                    ListItem::new(row_label(row)).style(style)
+                })
+                .collect();
+            if items.is_empty() {
+                items.push(ListItem::new(format!(
+                    "no {} (or not loaded yet)",
+                    view.title().to_lowercase()
+                )));
+            }
+            frame.render_widget(List::new(items).block(view_block(app)), body);
+        }
+        View::Help => {
+            let mut lines = vec![
+                Line::styled("keys", Style::default().add_modifier(Modifier::BOLD)),
+                Line::raw("  Enter: primary action   Esc: back   q: quit   Tab: context"),
+                Line::raw("  Alt+h history   Alt+i inbox   Alt+b bundles   Alt+l lanes"),
+                Line::raw("  Alt+e releases  Alt+g gates   Alt+? help    Alt+r root"),
+                Line::raw(""),
+                Line::styled(
+                    "verbs (type any of these)",
+                    Style::default().add_modifier(Modifier::BOLD),
+                ),
+            ];
+            for chunk in app::COMMANDS.chunks(8) {
+                lines.push(Line::raw(format!("  {}", chunk.join("  "))));
+            }
+            lines.push(Line::raw(""));
+            let remote = app.status.as_ref().map(|s| s["remote"].clone());
+            lines.push(Line::raw(format!(
+                "remote: {}",
+                remote
+                    .as_ref()
+                    .and_then(|r| r["target"].as_str().map(str::to_string))
+                    .unwrap_or_else(|| "not configured".into())
+            )));
+            frame.render_widget(Paragraph::new(lines).block(view_block(app)), body);
         }
         View::History => {
             let mut items: Vec<ListItem> = app

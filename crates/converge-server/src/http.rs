@@ -73,6 +73,7 @@ pub fn router(state: AppState) -> Router {
         .route("/api/repos/:repo/snaps/:id", put(put_snap).get(get_snap))
         .route("/api/repos/:repo/lane-head", post(set_lane_head))
         .route("/api/repos/:repo/lane-head/:lane", get(get_lane_head))
+        .route("/api/repos/:repo/gates", get(get_gates))
         .route("/api/repos/:repo/inbox", get(inbox))
         .route("/api/repos/:repo/events", get(list_events))
         .route("/api/bundles/:id/release", post(release))
@@ -624,6 +625,21 @@ pub fn mint_admin_token() -> anyhow::Result<String> {
         .finalize()
         .to_hex()
         .to_string())
+}
+
+/// The repo's gate graph (batch 17.1). Reading the shape of the pipeline
+/// you publish into needed a server round trip that did not exist.
+async fn get_gates(
+    State(state): State<SharedState>,
+    Path(repo): Path<String>,
+    headers: HeaderMap,
+) -> Result<Json<converge_model::GateGraph>, ApiError> {
+    let subject = subject(&state, &headers)?;
+    authorize(state.meta.as_ref(), &subject, &repo, "*", Capability::Read)
+        .map_err(|err| forbidden(format!("{err:#}")))?;
+    Ok(Json(
+        state.meta.get_gate_graph(&repo).map_err(internal_error)?,
+    ))
 }
 
 async fn create_scope(

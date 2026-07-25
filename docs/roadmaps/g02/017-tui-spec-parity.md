@@ -1,8 +1,8 @@
 # 017 TUI Spec Parity
 
-Status: planned
+Status: in progress (17.1 complete)
 Owner: repo maintainers
-Updated: 2026-07-24
+Updated: 2026-07-25
 
 ## Context
 
@@ -40,8 +40,11 @@ simplified.
 
 ## Execution Plan (batch details in cards)
 
-- **17.1 Missing views**: Bundles, Releases, Lanes, GateGraph,
-  Settings/help; init flow when uninitialized; full verb palette
+- **17.1 Missing views** (complete, card 061): Bundles, Releases,
+  Lanes, Gates and Help views, each loading through one CLI verb on the
+  worker; `GET /api/repos/:repo/gates` + `converge gates` (the gate
+  graph had no read path); init flow when uninitialized; full verb
+  palette and Alt jump keys
 - **17.2 Async everywhere**: every load through the worker channel;
   view timestamps; idle refresh; inbox in event-driven refresh;
   reachability indicator
@@ -63,4 +66,4 @@ simplified.
 
 ## Next Task
 
-Blocked behind g02.016 completion.
+Open batch card 17.2 (async everywhere).

@@ -50,5 +50,6 @@ prefers `cargo nextest` when it is available on the machine.
 
 The audit hardening program `g02.011`-`g02.018` is open (findings
 record: `logs/2026-07/24-180000-audit-findings-and-hardening-program.md`).
-`g02.011`-`g02.016` complete. Next roadmap: `g02.017` TUI spec parity,
-then `g02.018` adversarial test hardening.
+`g02.011`-`g02.016` complete. Active roadmap: `g02.017` TUI spec parity;
+batch 17.1 complete, next is batch card 17.2. `g02.018` adversarial test
+hardening follows.

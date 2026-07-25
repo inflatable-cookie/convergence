@@ -70,4 +70,5 @@ hang, on the binary-heavy beachhead.
 
 ## Next Task
 
-Roadmap `g02.016` is complete. Open `g02.017` (TUI spec parity).
+Roadmap `g02.016` is complete. `g02.017` opened at batch card 17.1
+(card 061).

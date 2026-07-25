@@ -289,6 +289,8 @@ enum Command {
     },
     /// List the repo's releases.
     Releases,
+    /// Show the repo's gate graph.
+    Gates,
     /// Replay a bundle from provenance and prove its identity.
     Verify {
         /// Bundle id, or omit with --release to name a channel head.
@@ -743,6 +745,28 @@ fn run(cli: &Cli, mode: OutputMode, session: &Session) -> Result<serde_json::Val
             )?;
             emit(mode, release, |r| {
                 println!("released {} to channel {}", r.bundle_id, r.channel);
+            })
+        }
+        Command::Gates => {
+            let ws = session.workspace()?;
+            let (client, remote) = remote_client(session, &ws, mode)?;
+            let graph = client.get_gate_graph(&remote.repo_id)?;
+            emit(mode, graph, |g| {
+                for gate in &g.gates {
+                    let upstreams = if gate.upstreams.is_empty() {
+                        "entry".to_string()
+                    } else {
+                        format!("after {}", gate.upstreams.join(", "))
+                    };
+                    println!(
+                        "{}  {}  {} approval(s)  {}{}",
+                        gate.gate_id,
+                        upstreams,
+                        gate.required_approvals,
+                        gate.strategy,
+                        if gate.may_release { "  releasable" } else { "" }
+                    );
+                }
             })
         }
         Command::Releases => {

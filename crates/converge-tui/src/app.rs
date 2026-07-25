@@ -29,12 +29,19 @@ impl Context {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub enum View {
     Root,
     History,
     Resolution,
     Inbox,
+    /// Remote listings loaded through one CLI verb each (batch 17.1).
+    Bundles,
+    Releases,
+    Lanes,
+    Gates,
+    /// Static: verbs, keys, and where this workspace points.
+    Help,
 }
 
 impl View {
@@ -44,6 +51,24 @@ impl View {
             View::History => "History",
             View::Resolution => "Superpositions",
             View::Inbox => "Inbox",
+            View::Bundles => "Bundles",
+            View::Releases => "Releases",
+            View::Lanes => "Lanes",
+            View::Gates => "Gate graph",
+            View::Help => "Help",
+        }
+    }
+
+    /// The CLI verb that loads this view, if it needs data (batch 17.1).
+    /// Views load through the argv contract like everything else, so
+    /// nothing here can show data a CLI user cannot reach.
+    pub fn loader(&self) -> Option<Vec<String>> {
+        match self {
+            View::Bundles => Some(vec!["inbox".into()]),
+            View::Releases => Some(vec!["releases".into()]),
+            View::Lanes => Some(vec!["lane".into(), "list".into()]),
+            View::Gates => Some(vec!["gates".into()]),
+            _ => None,
         }
     }
 }
@@ -86,9 +111,40 @@ impl ResolutionState {
 /// Commands the console accepts. View-entering commands push a frame;
 /// the rest run through the CLI layer verbatim.
 pub const COMMANDS: &[&str] = &[
-    "approve", "bundle", "changes", "diff", "events", "fetch", "history", "inbox", "login",
-    "promote", "publish", "remote", "resolve", "restore", "show", "snap", "status", "sync",
-    "unsnap", "watch",
+    "annotate",
+    "approve",
+    "bundle",
+    "changes",
+    "diff",
+    "events",
+    "fetch",
+    "gates",
+    "gc",
+    "git",
+    "help",
+    "history",
+    "inbox",
+    "init",
+    "lane",
+    "login",
+    "member",
+    "promote",
+    "publish",
+    "releases",
+    "release",
+    "remote",
+    "repo",
+    "resolve",
+    "restore",
+    "retention",
+    "scope",
+    "show",
+    "snap",
+    "status",
+    "sync",
+    "unsnap",
+    "verify",
+    "watch",
 ];
 
 /// Commands that hit the network run on the async worker so the event loop
@@ -110,6 +166,15 @@ pub fn is_remote_command(argv: &[String]) -> bool {
                 // say anything about it (batches 16.1, 16.2).
                 | "resolve"
                 | "show"
+                | "releases"
+                | "gates"
+                | "lane"
+                | "scope"
+                | "repo"
+                | "member"
+                | "retention"
+                | "verify"
+                | "gc"
         )
     )
 }
@@ -168,6 +233,13 @@ pub struct App {
     pub inbox_selected: usize,
     /// Resolution view state.
     pub resolution: Option<ResolutionState>,
+    /// Rows for the loaded list views, keyed by view (batch 17.1). One
+    /// shape for all of them: whatever the loading verb returned.
+    pub rows: BTreeMap<View, Vec<serde_json::Value>>,
+    pub row_selected: BTreeMap<View, usize>,
+    /// No workspace here. The TUI used to render an empty shell and fail
+    /// every refresh in silence (audit P1.5).
+    pub workspace_missing: bool,
 }
 
 impl Default for App {
@@ -192,6 +264,9 @@ impl Default for App {
             inbox_entries: Vec::new(),
             inbox_selected: 0,
             resolution: None,
+            rows: BTreeMap::new(),
+            row_selected: BTreeMap::new(),
+            workspace_missing: false,
         }
     }
 }
@@ -203,6 +278,11 @@ impl App {
 
     /// UX spec §4.2: one state-computed primary action per screen.
     pub fn primary_action(&self) -> (&'static str, Action) {
+        // Nothing else is reachable without a workspace, so nothing else
+        // can be the primary action (audit P1.5).
+        if self.workspace_missing {
+            return ("init", Action::Run(vec!["init".into()]));
+        }
         match self.context {
             Context::Local if self.current_view() == View::Resolution => {
                 let all_decided = self
@@ -251,9 +331,41 @@ impl App {
             View::History => "history",
             View::Resolution => "supers",
             View::Inbox => "inbox",
+            View::Bundles => "bundles",
+            View::Releases => "releases",
+            View::Lanes => "lanes",
+            View::Gates => "gates",
+            View::Help => "help",
         };
         // Wart fix: context is named in the prompt, not color-only.
         format!("{} {view}>", self.context.label())
+    }
+
+    /// Enter a view unless it is already the active one.
+    fn jump(&self, view: View) -> Option<Action> {
+        if self.current_view() == view {
+            return None;
+        }
+        Some(Action::Enter(view))
+    }
+
+    /// Up/Down over a loaded list view (batch 17.1).
+    fn handle_rows_key(&mut self, view: View, key: KeyEvent) -> Option<Option<Action>> {
+        let len = self.rows.get(&view).map(Vec::len).unwrap_or(0);
+        let selected = self.row_selected.entry(view).or_insert(0);
+        match key.code {
+            KeyCode::Up => {
+                *selected = selected.saturating_sub(1);
+                Some(None)
+            }
+            KeyCode::Down => {
+                if len > 0 {
+                    *selected = (*selected + 1).min(len - 1);
+                }
+                Some(None)
+            }
+            _ => None,
+        }
     }
 
     fn refresh_suggestions(&mut self) {
@@ -278,6 +390,12 @@ impl App {
         let argv: Vec<String> = line.split_whitespace().map(str::to_string).collect();
         match argv.first().map(String::as_str) {
             Some("history") if argv.len() == 1 => Some(Action::Enter(View::History)),
+            Some("releases") if argv.len() == 1 => Some(Action::Enter(View::Releases)),
+            Some("gates") if argv.len() == 1 => Some(Action::Enter(View::Gates)),
+            Some("lane") if argv.len() == 2 && argv[1] == "list" => {
+                Some(Action::Enter(View::Lanes))
+            }
+            Some("help") => Some(Action::Enter(View::Help)),
             Some("inbox") if argv.len() == 1 => Some(Action::LoadInbox),
             Some("login") if argv.len() == 1 => Some(Action::StartWizard(WizardKind::Login)),
             Some("publish") if argv.len() == 1 => Some(Action::StartWizard(WizardKind::Publish)),
@@ -327,6 +445,15 @@ impl App {
         {
             return action;
         }
+        if self.input.is_empty()
+            && matches!(
+                self.current_view(),
+                View::Bundles | View::Releases | View::Lanes | View::Gates
+            )
+            && let Some(action) = self.handle_rows_key(self.current_view(), key)
+        {
+            return action;
+        }
         if self.quit_confirm {
             return match key.code {
                 KeyCode::Enter | KeyCode::Char('y') => Some(Action::Quit),
@@ -353,6 +480,11 @@ impl App {
                     }
                     return None;
                 }
+                KeyCode::Char('b') => return self.jump(View::Bundles),
+                KeyCode::Char('l') => return self.jump(View::Lanes),
+                KeyCode::Char('e') => return self.jump(View::Releases),
+                KeyCode::Char('g') => return self.jump(View::Gates),
+                KeyCode::Char('?') => return self.jump(View::Help),
                 KeyCode::Char('r') => {
                     self.frames.truncate(1);
                     return None;
@@ -890,6 +1022,99 @@ mod tests {
             app.handle_key(key(KeyCode::Enter)),
             Some(Action::EnterResolution("b2".into()))
         );
+    }
+
+    #[test]
+    fn jump_keys_enter_each_view_once() {
+        let mut app = App::default();
+        let alt = |c: char| KeyEvent::new(KeyCode::Char(c), KeyModifiers::ALT);
+        for (key, view) in [
+            ('b', View::Bundles),
+            ('l', View::Lanes),
+            ('e', View::Releases),
+            ('g', View::Gates),
+            ('?', View::Help),
+        ] {
+            assert_eq!(app.handle_key(alt(key)), Some(Action::Enter(view)));
+            app.frames.push(view);
+            // Already there: the key is a no-op, not a reload loop.
+            assert_eq!(app.handle_key(alt(key)), None);
+            app.frames.pop();
+        }
+    }
+
+    #[test]
+    fn list_views_load_through_their_cli_verb() {
+        assert_eq!(View::Releases.loader(), Some(vec!["releases".to_string()]));
+        assert_eq!(
+            View::Lanes.loader(),
+            Some(vec!["lane".to_string(), "list".to_string()])
+        );
+        assert_eq!(View::Gates.loader(), Some(vec!["gates".to_string()]));
+        // The bundles view is the inbox's bundle section — there is no
+        // bundle list endpoint, and inventing one in the TUI would be a
+        // surface the CLI cannot reach.
+        assert_eq!(View::Bundles.loader(), Some(vec!["inbox".to_string()]));
+        assert_eq!(View::Help.loader(), None);
+        assert_eq!(View::Root.loader(), None);
+    }
+
+    #[test]
+    fn rows_navigate_within_bounds() {
+        let mut app = App::default();
+        app.frames.push(View::Releases);
+        app.rows.insert(
+            View::Releases,
+            vec![serde_json::json!({"channel": "stable"}); 3],
+        );
+        app.handle_key(key(KeyCode::Down));
+        app.handle_key(key(KeyCode::Down));
+        app.handle_key(key(KeyCode::Down));
+        app.handle_key(key(KeyCode::Down));
+        assert_eq!(app.row_selected[&View::Releases], 2, "clamped at the end");
+        for _ in 0..5 {
+            app.handle_key(key(KeyCode::Up));
+        }
+        assert_eq!(app.row_selected[&View::Releases], 0, "clamped at the start");
+    }
+
+    #[test]
+    fn missing_workspace_makes_init_the_only_move() {
+        let mut app = App {
+            workspace_missing: true,
+            ..App::default()
+        };
+        assert_eq!(
+            app.primary_action(),
+            ("init", Action::Run(vec!["init".into()]))
+        );
+        // Even in remote context: nothing remote is reachable yet.
+        app.context = Context::Remote;
+        assert_eq!(app.primary_action().0, "init");
+    }
+
+    #[test]
+    fn typed_view_commands_enter_views_rather_than_printing() {
+        let mut app = App::default();
+        for (line, view) in [
+            ("releases", View::Releases),
+            ("gates", View::Gates),
+            ("lane list", View::Lanes),
+            ("help", View::Help),
+        ] {
+            typed(&mut app, line);
+            assert_eq!(
+                app.handle_key(key(KeyCode::Enter)),
+                Some(Action::Enter(view)),
+                "`{line}` should open its view"
+            );
+        }
+        // A verb with arguments still runs as a command.
+        typed(&mut app, "lane create shared/wip");
+        assert!(matches!(
+            app.handle_key(key(KeyCode::Enter)),
+            Some(Action::Run(_))
+        ));
     }
 
     #[test]

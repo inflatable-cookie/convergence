@@ -446,6 +446,17 @@ impl RemoteClient {
         response.json().context("parse members")
     }
 
+    pub fn get_gate_graph(&self, repo_id: &str) -> Result<crate::model::GateGraph> {
+        let response = Self::check(
+            self.http
+                .get(self.url(&format!("/api/repos/{repo_id}/gates")))
+                .bearer_auth(&self.token)
+                .send()
+                .context("get gate graph")?,
+        )?;
+        response.json().context("parse gate graph")
+    }
+
     pub fn create_scope(&self, repo_id: &str, scope_id: &str) -> Result<()> {
         Self::check(
             self.http
