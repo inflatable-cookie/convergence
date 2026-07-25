@@ -18,6 +18,9 @@ pub enum View {
     Releases,
     Lanes,
     Gates,
+    /// Who can read what, and what has gone stale (batch 23.2). Values
+    /// are never on this screen — see `SECRET_VALUES_ARE_NOT_A_VIEW`.
+    Secrets,
     /// Static: verbs, keys, and where this workspace points.
     Help,
 }
@@ -33,6 +36,7 @@ impl View {
             View::Releases => "Releases",
             View::Lanes => "Lanes",
             View::Gates => "Gate graph",
+            View::Secrets => "Secrets",
             View::Help => "Help",
         }
     }
@@ -46,6 +50,10 @@ impl View {
             View::Releases => Some(vec!["releases".into()]),
             View::Lanes => Some(vec!["lane".into(), "list".into()]),
             View::Gates => Some(vec!["gates".into()]),
+            // `secret audit`, not `secret list`: the audit already
+            // joins members and registered keys, so the screen answers
+            // "who can read this" instead of "this exists".
+            View::Secrets => Some(vec!["secret".into(), "audit".into()]),
             _ => None,
         }
     }
@@ -203,6 +211,47 @@ pub fn is_remote_command(argv: &[String]) -> bool {
     )
 }
 
+/// Why the Secrets view shows state and never values (batch 23.2).
+///
+/// A secret value cannot enter this program's input buffer. The buffer
+/// is echoed on screen, submitted lines are pushed into
+/// `command_history`, and `↑` replays them — so typing a credential
+/// here would persist it in three places at once. That rules out doing
+/// `secret set` and `secret rotate` from the TUI at all, because both
+/// read the value from stdin, and a raw-mode terminal has no stdin to
+/// read. The screen hands over the command instead of pretending.
+pub const SECRET_VALUES_ARE_NOT_A_VIEW: &str =
+    "secret values are never shown or typed here; run the command in a terminal";
+
+/// Verbs that must open the caller's private key (batch 23.2).
+///
+/// These cannot run from the TUI. Unlocking a key prompts for a
+/// passphrase, and the prompt writes straight to the tty this program
+/// has in raw mode — it lands on top of the drawn screen and then
+/// competes with the event loop for the keystrokes meant to answer it.
+/// Driving the real binary is what found this: pressing `u` on a stale
+/// recipient printed `passphrase:` across the header and hung.
+///
+/// `CONVERGE_PASSPHRASE` makes them work, because then nothing prompts.
+/// Otherwise the command is handed over rather than half-run.
+///
+/// `secret list` and `secret audit` are absent on purpose: they read
+/// metadata the server already holds in the clear, which is why the
+/// Secrets view can exist at all.
+pub fn needs_private_key(argv: &[String]) -> bool {
+    matches!(
+        (
+            argv.first().map(String::as_str),
+            argv.get(1).map(String::as_str),
+        ),
+        (
+            Some("secret"),
+            Some("get" | "set" | "rotate" | "share" | "unshare" | "write-env")
+        ) | (Some("key"), Some("init" | "rotate"))
+            | (Some("run"), _)
+    )
+}
+
 /// Commands whose output carries a decrypted secret (doc 19 §10d).
 ///
 /// Redaction happens where results are *formatted*, not at each call
@@ -247,6 +296,18 @@ pub fn confirmation_prompt(argv: &[String]) -> Option<String> {
             "delete secret {}",
             argv.get(2).cloned().unwrap_or_default()
         )),
+        // Unshare changes who reads *future* versions and cannot be
+        // undone by re-sharing — the person already read what they read.
+        "secret" if argv.get(1).map(String::as_str) == Some("unshare") => Some(format!(
+            "stop sealing {} to {}",
+            argv.get(2).cloned().unwrap_or_default(),
+            argv.iter()
+                .skip_while(|a| *a != "--from")
+                .filter(|a| *a != "--from")
+                .cloned()
+                .collect::<Vec<_>>()
+                .join(", ")
+        )),
         _ => None,
     }
 }
@@ -265,6 +326,10 @@ pub enum Action {
     LoadInbox,
     /// Write the decisions file and run `resolve apply`.
     ApplyResolution,
+    /// Show a command for the user to run elsewhere, without running it
+    /// (batch 23.2). The only current caller is `secret rotate`, which
+    /// needs a value this program must not accept.
+    HandOver(String),
     Quit,
 }
 
@@ -276,6 +341,10 @@ pub enum LastLine {
 }
 
 pub struct App {
+    /// True when `CONVERGE_PASSPHRASE` is set, so key-opening verbs can
+    /// run without a prompt this program has nowhere to put. Read once
+    /// at startup and passed in, so the reducer stays pure.
+    pub passphrase_available: bool,
     pub frames: Vec<View>,
     pub input: String,
     pub command_history: Vec<String>,
@@ -325,6 +394,9 @@ pub struct App {
 impl Default for App {
     fn default() -> Self {
         Self {
+            // Tests get the strict default: nothing that needs a key
+            // runs unless the fixture says a passphrase is available.
+            passphrase_available: false,
             frames: vec![View::Root],
             input: String::new(),
             command_history: Vec::new(),
@@ -389,6 +461,10 @@ impl App {
             view @ (View::Bundles | View::Releases | View::Lanes | View::Gates) => {
                 ("open selected", Action::Enter(view))
             }
+            // Enter does nothing here on purpose: every action on a
+            // secret is destructive or narrowing, so each has its own
+            // named key and its own confirmation.
+            View::Secrets => ("(r rotate, u unshare)", Action::Enter(View::Secrets)),
             View::Inbox => ("open selected", Action::LoadInbox),
             View::History => ("restore selected", Action::Enter(View::History)),
             View::Help => ("back", Action::Enter(View::Help)),
@@ -458,6 +534,7 @@ impl App {
             View::Releases => "releases",
             View::Lanes => "lanes",
             View::Gates => "gates",
+            View::Secrets => "secrets",
             View::Help => "help",
         };
         format!("{view}>")
@@ -505,8 +582,50 @@ impl App {
                 }
                 Some(None)
             }
+            KeyCode::Char('r' | 'u') if view == View::Secrets => {
+                let row = self.rows.get(&view)?.get(*selected)?.clone();
+                Some(self.secret_row_action(&row, key.code))
+            }
             _ => None,
         }
+    }
+
+    /// The two things this screen can do to the selected secret.
+    ///
+    /// `u` unshares exactly the recipients the audit already called
+    /// stale, so the fix is the same list the screen is complaining
+    /// about. `r` hands the rotate command over instead of running it:
+    /// see [`SECRET_VALUES_ARE_NOT_A_VIEW`].
+    fn secret_row_action(&mut self, row: &serde_json::Value, code: KeyCode) -> Option<Action> {
+        let name = row["name"].as_str()?.to_string();
+        if code == KeyCode::Char('r') {
+            // Rotation also needs a *value*, which must never enter the
+            // input buffer even when a passphrase is available.
+            return Some(Action::HandOver(format!("converge secret rotate {name}")));
+        }
+        let stale: Vec<String> = row["stale"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(|s| s["subject"].as_str().map(str::to_string))
+            .collect();
+        if stale.is_empty() {
+            // Nothing to clean up. Saying so beats a confirmation
+            // prompt for a command that would change nothing.
+            self.say(LastLine::Output(format!("{name} has no stale recipients")));
+            return None;
+        }
+        let mut argv = vec!["secret".to_string(), "unshare".to_string(), name];
+        for subject in stale {
+            argv.push("--from".into());
+            argv.push(subject);
+        }
+        if needs_private_key(&argv) && !self.passphrase_available {
+            return Some(Action::HandOver(format!("converge {}", argv.join(" "))));
+        }
+        let prompt = confirmation_prompt(&argv)?;
+        self.pending_confirm = Some((prompt, Action::Run(argv)));
+        None
     }
 
     fn refresh_suggestions(&mut self) {
@@ -534,6 +653,12 @@ impl App {
             Some("history") if argv.len() == 1 => Some(Action::Enter(View::History)),
             Some("releases") if argv.len() == 1 => Some(Action::Enter(View::Releases)),
             Some("gates") if argv.len() == 1 => Some(Action::Enter(View::Gates)),
+            // Bare `secret`, and the audit it is a view of, both land on
+            // the screen. The value-carrying subcommands do not: they
+            // run through the CLI layer like any other verb.
+            Some("secret") if argv.len() == 1 || (argv.len() == 2 && argv[1] == "audit") => {
+                Some(Action::Enter(View::Secrets))
+            }
             Some("lane") if argv.len() == 2 && argv[1] == "list" => {
                 Some(Action::Enter(View::Lanes))
             }
@@ -542,6 +667,9 @@ impl App {
             Some("login") if argv.len() == 1 => Some(Action::StartWizard(WizardKind::Login)),
             Some("publish") if argv.len() == 1 => Some(Action::StartWizard(WizardKind::Publish)),
             Some("resolve") if argv.len() == 2 => Some(Action::EnterResolution(argv[1].clone())),
+            Some(_) if needs_private_key(&argv) && !self.passphrase_available => {
+                Some(Action::HandOver(format!("converge {}", argv.join(" "))))
+            }
             Some(_) => {
                 // Every verb runs from every screen (UX spec §3). There
                 // is no mode to be in the wrong one of.
@@ -595,7 +723,7 @@ impl App {
         if self.input.is_empty()
             && matches!(
                 self.current_view(),
-                View::Bundles | View::Releases | View::Lanes | View::Gates
+                View::Bundles | View::Releases | View::Lanes | View::Gates | View::Secrets
             )
             && let Some(action) = self.handle_rows_key(self.current_view(), key)
         {
@@ -640,6 +768,7 @@ impl App {
                 KeyCode::Char('l') => return self.jump(View::Lanes),
                 KeyCode::Char('e') => return self.jump(View::Releases),
                 KeyCode::Char('g') => return self.jump(View::Gates),
+                KeyCode::Char('s') => return self.jump(View::Secrets),
                 KeyCode::Char('?') => return self.jump(View::Help),
                 KeyCode::Char('r') => {
                     self.frames.truncate(1);
@@ -979,6 +1108,16 @@ impl App {
             Ok(value) => LastLine::Output(summarize(&value)),
             Err(err) => LastLine::Error(format!("{err:#}")),
         };
+        self.say(line);
+    }
+
+    /// Push a line into the Last strip, keeping only the recent ones.
+    ///
+    /// The trim used to live inside `record_result`, so anything that
+    /// pushed directly grew the vector past the strip's height and its
+    /// own line was the one clipped off the bottom — the message never
+    /// appeared (batch 23.2).
+    pub fn say(&mut self, line: LastLine) {
         self.last.push(line);
         if self.last.len() > 4 {
             let excess = self.last.len() - 4;
@@ -1352,6 +1491,150 @@ mod tests {
             app.handle_key(key(KeyCode::Up));
         }
         assert_eq!(app.row_selected[&View::Releases], 0, "clamped at the start");
+    }
+
+    fn secrets_app() -> App {
+        let mut app = App::default();
+        app.frames.push(View::Secrets);
+        app.rows.insert(
+            View::Secrets,
+            vec![
+                serde_json::json!({
+                    "name": "DATABASE_URL", "owner": "alice", "value_version": 2,
+                    "readers": ["alice"],
+                    "stale": [
+                        {"key_id": "k1", "subject": "carol", "why": "no longer a member"},
+                        {"key_id": "k2", "subject": "dave", "why": "no longer a member"},
+                    ],
+                }),
+                serde_json::json!({
+                    "name": "OPENAI_API_KEY", "owner": "alice", "value_version": 1,
+                    "readers": ["alice"], "stale": [],
+                }),
+            ],
+        );
+        app
+    }
+
+    /// `u` acts on exactly the recipients the audit already flagged, so
+    /// the fix is the list the screen is complaining about — all of
+    /// them, since leaving one behind is the state that caused the
+    /// complaint (batch 20.4's rotate-after-leave trap).
+    #[test]
+    fn unshare_targets_every_stale_recipient_and_confirms_first() {
+        let mut app = secrets_app();
+        // Re-sealing opens the key, so it only runs at all when nothing
+        // has to prompt.
+        app.passphrase_available = true;
+        assert_eq!(
+            app.handle_key(key(KeyCode::Char('u'))),
+            None,
+            "a confirmation, not an immediate run"
+        );
+        let (prompt, action) = app.pending_confirm.clone().expect("confirmation pending");
+        assert!(
+            prompt.contains("carol") && prompt.contains("dave"),
+            "the prompt should name who stops reading: {prompt}"
+        );
+        assert_eq!(
+            action,
+            Action::Run(vec![
+                "secret".into(),
+                "unshare".into(),
+                "DATABASE_URL".into(),
+                "--from".into(),
+                "carol".into(),
+                "--from".into(),
+                "dave".into(),
+            ])
+        );
+    }
+
+    /// Driving the real binary found this: `u` re-seals, re-sealing
+    /// unlocks the private key, and the passphrase prompt writes over
+    /// the drawn screen and then fights the event loop for the answer.
+    #[test]
+    fn key_opening_verbs_are_handed_over_when_nothing_can_prompt() {
+        let mut app = secrets_app();
+        assert_eq!(
+            app.handle_key(key(KeyCode::Char('u'))),
+            Some(Action::HandOver(
+                "converge secret unshare DATABASE_URL --from carol --from dave".into()
+            )),
+            "a passphrase prompt has nowhere to go in a raw-mode terminal"
+        );
+        assert!(app.pending_confirm.is_none());
+
+        // Typed into the console, same rule: this used to hang.
+        let mut app = App::default();
+        typed(&mut app, "secret get DATABASE_URL");
+        assert_eq!(
+            app.handle_key(key(KeyCode::Enter)),
+            Some(Action::HandOver("converge secret get DATABASE_URL".into()))
+        );
+
+        // Metadata verbs never open a key, which is why the screen works.
+        assert!(!needs_private_key(&["secret".into(), "audit".into()]));
+        assert!(!needs_private_key(&["secret".into(), "list".into()]));
+    }
+
+    #[test]
+    fn unshare_with_nothing_stale_says_so_instead_of_asking() {
+        let mut app = secrets_app();
+        app.passphrase_available = true;
+        app.handle_key(key(KeyCode::Down));
+        assert_eq!(app.handle_key(key(KeyCode::Char('u'))), None);
+        assert!(
+            app.pending_confirm.is_none(),
+            "no confirmation for a command that would change nothing"
+        );
+        assert!(
+            matches!(app.last.last(), Some(LastLine::Output(text)) if text.contains("no stale")),
+            "it should say why nothing happened: {:?}",
+            app.last.last()
+        );
+    }
+
+    /// Rotation needs a value, and a value must never enter the input
+    /// buffer: it is echoed, submitted lines land in `command_history`,
+    /// and `↑` replays them.
+    #[test]
+    fn rotate_hands_the_command_over_rather_than_running_it() {
+        let mut app = secrets_app();
+        assert_eq!(
+            app.handle_key(key(KeyCode::Char('r'))),
+            Some(Action::HandOver(
+                "converge secret rotate DATABASE_URL".into()
+            ))
+        );
+        assert!(app.pending_confirm.is_none());
+    }
+
+    /// The console reaches the screen; the value-carrying subcommands
+    /// still run through the CLI layer.
+    #[test]
+    fn bare_secret_opens_the_view_but_secret_get_does_not() {
+        let mut app = App::default();
+        typed(&mut app, "secret");
+        assert_eq!(
+            app.handle_key(key(KeyCode::Enter)),
+            Some(Action::Enter(View::Secrets))
+        );
+
+        let mut app = App {
+            passphrase_available: true,
+            ..App::default()
+        };
+        typed(&mut app, "secret get DATABASE_URL");
+        assert_eq!(
+            app.handle_key(key(KeyCode::Enter)),
+            Some(Action::Run(vec![
+                "secret".into(),
+                "get".into(),
+                "DATABASE_URL".into()
+            ])),
+            "reading a value is a command, not a screen"
+        );
     }
 
     #[test]

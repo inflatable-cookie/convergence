@@ -167,7 +167,8 @@ against the build is a wish list.
 - shell model (§1); the "Last" strip renders fields rather than raw JSON
   (batch 17.3)
 - views (§2): Root, History, Inbox, Bundles, Releases, Lanes, Gate
-  Graph, Superpositions
+  Graph, Superpositions, Secrets (batch 23.2, not in the original spec:
+  the substrate postdates it)
 - keys (§3): `q`, layered `Esc` with quit confirmation, `Tab` suggestion
   accept, `Enter` primary action, `↑/↓` list and history, `←/→`/Home/End
   caret movement, `Alt+1..9`/`Alt+0` variant picks, `Alt+f` next
@@ -182,6 +183,32 @@ against the build is a wish list.
   indicator, contextual key layer, wizard step-back and review,
   structured option prompts, `Esc`-quit confirmation, one Root instead
   of a labelled mode (batch 23.1), no log pane
+
+### Secrets view (batch 23.2)
+
+Loaded from `secret audit`, so the screen answers "who can read this and
+what has gone stale" rather than "these exist". It shows state and hands
+commands over; it does not mutate.
+
+That is a constraint, not a scoping choice. **Any verb that opens the
+caller's private key cannot run from this program**: unlocking prompts
+for a passphrase, and the prompt writes straight to the tty the TUI
+holds in raw mode — it lands on top of the drawn screen and then
+competes with the event loop for the keystrokes meant to answer it.
+Driving the real binary is what found this; pressing `u` on a stale
+recipient printed `passphrase:` across the header and hung. `secret
+get`, `set`, `rotate`, `share`, `unshare`, `write-env`, `key init`,
+`key rotate` and `run` are therefore handed over as a command to run in
+a terminal, unless `CONVERGE_PASSPHRASE` is set, in which case nothing
+prompts and they run normally. `secret list` and `secret audit` read
+metadata the server already holds in the clear, which is why the screen
+can exist at all.
+
+A second rule sits on top for values specifically: a secret value must
+never enter the input buffer even when a passphrase *is* available. The
+buffer is echoed, submitted lines are pushed into `command_history`, and
+`↑` replays them, so typing a credential would persist it in three
+places at once. `secret rotate` is handed over unconditionally.
 
 ### Known limits (batch 23.1, from a real session)
 

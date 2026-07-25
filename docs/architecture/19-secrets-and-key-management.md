@@ -316,3 +316,26 @@ than at the call site, so a new surface cannot forget it.
 
 Implement `g02.019` batch 19.1: key identity, registration through the
 membership surface, and the passphrase-protected private key at rest.
+
+## 11. Front-end constraint: passphrase prompts need a terminal
+
+Recorded because it shapes what any front-end can offer, not just the
+one that found it (batch 23.2).
+
+Every operation that reads or re-seals a secret must open the caller's
+private key, which prompts for a passphrase on the controlling terminal.
+A full-screen program holding that terminal in raw mode has nowhere to
+put the prompt: it draws over the interface and then competes for the
+keystrokes meant to answer it.
+
+So a TUI can show secret *metadata* — names, owners, recipients, value
+age, stale entries, all of which the server holds in the clear by §9's
+deliberate trade — and it can hand over a command. It cannot decrypt or
+re-seal. `CONVERGE_PASSPHRASE` lifts the restriction by removing the
+prompt, and is the supported path for non-interactive callers.
+
+Values carry a second, stricter rule: they must never enter a
+front-end's input buffer at all, because buffers are echoed and command
+histories outlive the moment. This is why `secret set` and `secret
+rotate` take their value only from stdin (§10) and why no front-end
+should offer a field for one.

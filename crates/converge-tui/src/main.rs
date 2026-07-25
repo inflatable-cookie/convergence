@@ -97,7 +97,11 @@ fn main() -> Result<()> {
 }
 
 fn run(terminal: &mut ratatui::DefaultTerminal, trace: &mut trace::Trace) -> Result<()> {
-    let mut app = App::default();
+    let mut app = App {
+        // Read once, here, so the reducer never touches the environment.
+        passphrase_available: std::env::var("CONVERGE_PASSPHRASE").is_ok(),
+        ..App::default()
+    };
     // One session for the whole TUI lifetime (batch 15.3): the workspace
     // is discovered once, an idle refresh stats the tree instead of
     // rehashing it, and remote commands share one connection pool.
@@ -220,6 +224,16 @@ fn run(terminal: &mut ratatui::DefaultTerminal, trace: &mut trace::Trace) -> Res
                 trace.session_end();
                 return Ok(());
             }
+            // Deliberately not run: the command needs a value this
+            // program must not accept (app::SECRET_VALUES_ARE_NOT_A_VIEW).
+            Some(Action::HandOver(command)) => {
+                // One line, because the strip shows three and the second
+                // one would be the one clipped. The screen carries the
+                // reason; this carries the command.
+                app.say(app::LastLine::Output(format!(
+                    "run in a terminal: {command}"
+                )));
+            }
             Some(Action::Enter(view)) => {
                 if app.current_view() != view {
                     app.frames.push(view);
@@ -316,6 +330,7 @@ fn action_label(action: &Action) -> String {
         Action::EnterResolution(snap) => format!("resolve {snap}"),
         Action::LoadInbox => "inbox".into(),
         Action::ApplyResolution => "resolve apply".into(),
+        Action::HandOver(command) => format!("hand over: {command}"),
         Action::Quit => "quit".into(),
     }
 }
@@ -342,7 +357,7 @@ fn trace_screen(trace: &mut trace::Trace, app: &App) {
             .iter()
             .map(|(label, _)| label.clone())
             .collect(),
-        view @ (View::Bundles | View::Releases | View::Lanes | View::Gates) => app
+        view @ (View::Bundles | View::Releases | View::Lanes | View::Gates | View::Secrets) => app
             .rows
             .get(&view)
             .map(|rows| rows.iter().map(row_label).collect())
@@ -730,12 +745,82 @@ fn render(frame: &mut Frame, app: &App) {
             }
             frame.render_widget(List::new(items).block(view_block(app)), body);
         }
+        View::Secrets => {
+            let rows = app.rows.get(&View::Secrets).cloned().unwrap_or_default();
+            let selected = app.row_selected.get(&View::Secrets).copied().unwrap_or(0);
+            let mut items: Vec<ListItem> = Vec::new();
+            for (i, row) in rows.iter().enumerate() {
+                let style = if i == selected {
+                    Style::default().add_modifier(Modifier::REVERSED)
+                } else {
+                    Style::default()
+                };
+                let readers: Vec<&str> = row["readers"]
+                    .as_array()
+                    .into_iter()
+                    .flatten()
+                    .filter_map(|r| r.as_str())
+                    .collect();
+                items.push(
+                    ListItem::new(format!(
+                        "{}  owner {}  readable by: {}",
+                        row["name"].as_str().unwrap_or("?"),
+                        row["owner"].as_str().unwrap_or("?"),
+                        if readers.is_empty() {
+                            "owner only".to_string()
+                        } else {
+                            readers.join(", ")
+                        }
+                    ))
+                    .style(style),
+                );
+                // The question an audit actually asks is when the
+                // *credential* last changed, not when its recipient list
+                // did — so the value version leads, as it does in the
+                // CLI's audit output (batch 20.3).
+                items.push(ListItem::new(format!(
+                    "    value v{} last changed {}",
+                    row["value_version"],
+                    row["value_updated_at"].as_str().unwrap_or("unknown")
+                )));
+                for stale in row["stale"].as_array().into_iter().flatten() {
+                    items.push(
+                        ListItem::new(format!(
+                            "    stale: {} — {}",
+                            stale["subject"]
+                                .as_str()
+                                .unwrap_or(stale["key_id"].as_str().unwrap_or("?")),
+                            stale["why"].as_str().unwrap_or("")
+                        ))
+                        .style(Style::default().fg(Color::Yellow)),
+                    );
+                }
+            }
+            if rows.is_empty() {
+                items.push(ListItem::new("no secrets in this repo (or not loaded yet)"));
+            }
+            items.push(ListItem::new(""));
+            // The hint bar lying about what a key does is exactly the
+            // 23.1 finding, so this one tracks the state that decides it.
+            items.push(ListItem::new(if app.passphrase_available {
+                "keys: r rotate (hands over the command)  u unshare stale recipients (confirm)"
+            } else {
+                "keys: r rotate  u unshare stale recipients — both hand the command over"
+            }));
+            // Said on the screen, not just in a doc: someone looking for
+            // a value should learn here that it is not coming.
+            items.push(
+                ListItem::new(app::SECRET_VALUES_ARE_NOT_A_VIEW)
+                    .style(Style::default().fg(Color::DarkGray)),
+            );
+            frame.render_widget(List::new(items).block(view_block(app)), body);
+        }
         View::Help => {
             let mut lines = vec![
                 Line::styled("keys", Style::default().add_modifier(Modifier::BOLD)),
                 Line::raw("  Enter: primary action   Esc: back   q: quit   Tab: complete"),
                 Line::raw("  Alt+h history   Alt+i inbox   Alt+b bundles   Alt+l lanes"),
-                Line::raw("  Alt+e releases  Alt+g gates   Alt+? help    Alt+r root"),
+                Line::raw("  Alt+e releases  Alt+g gates   Alt+s secrets  Alt+? help   Alt+r root"),
                 Line::styled(
                     "  (macOS Terminal and iTerm send composed characters for Option;",
                     Style::default().fg(Color::DarkGray),
@@ -920,4 +1005,140 @@ fn view_block(app: &App) -> Block<'static> {
     Block::default()
         .borders(Borders::ALL)
         .title(app.current_view().title())
+}
+
+#[cfg(test)]
+mod screen_tests {
+    //! What a person actually sees.
+    //!
+    //! Batch 23.1 drove the real binary through a pty to find out that
+    //! the hint bar named the wrong key on six screens — something forty
+    //! reducer tests could not catch, because a reducer test never looks
+    //! at the rendering. These render into a `TestBackend` buffer and
+    //! assert on the text, so the same class of defect fails in CI
+    //! instead of waiting for someone to sit in front of it.
+
+    use super::*;
+    use ratatui::Terminal;
+    use ratatui::backend::TestBackend;
+
+    /// Render `app` and return the screen as lines of text.
+    fn screen(app: &App, width: u16, height: u16) -> Vec<String> {
+        let mut terminal = Terminal::new(TestBackend::new(width, height)).expect("test terminal");
+        terminal.draw(|frame| render(frame, app)).expect("draw");
+        let buffer = terminal.backend().buffer().clone();
+        (0..height)
+            .map(|y| {
+                (0..width)
+                    .map(|x| buffer[(x, y)].symbol())
+                    .collect::<String>()
+                    .trim_end()
+                    .to_string()
+            })
+            .collect()
+    }
+
+    /// One secret readable by two people, one recipient gone stale.
+    fn audited_secrets() -> Vec<serde_json::Value> {
+        vec![serde_json::json!({
+            "name": "DATABASE_URL",
+            "owner": "alice",
+            "version": 4,
+            "value_version": 2,
+            "value_updated_at": "2026-07-20T09:00:00Z",
+            "readers": ["alice", "bob"],
+            "stale": [{
+                "key_id": "b89042d66a02",
+                "subject": "carol",
+                "why": "no longer a member of this repo",
+            }],
+        })]
+    }
+
+    fn secrets_app() -> App {
+        let mut app = App::default();
+        app.frames.push(View::Secrets);
+        app.rows.insert(View::Secrets, audited_secrets());
+        app
+    }
+
+    #[test]
+    fn the_secrets_screen_answers_who_can_read_what() {
+        let text = screen(&secrets_app(), 100, 24).join("\n");
+        assert!(text.contains("Secrets"), "no title: {text}");
+        assert!(
+            text.contains("DATABASE_URL") && text.contains("owner alice"),
+            "the secret and its owner should be on screen: {text}"
+        );
+        assert!(
+            text.contains("readable by: alice, bob"),
+            "readers are the question this screen answers: {text}"
+        );
+        assert!(
+            text.contains("value v2 last changed 2026-07-20"),
+            "when the credential last changed, not its recipient list: {text}"
+        );
+        assert!(
+            text.contains("stale: carol"),
+            "a stale recipient is the thing worth acting on: {text}"
+        );
+    }
+
+    /// The screen must never become a way to read a credential.
+    #[test]
+    fn secret_values_are_not_a_view() {
+        let text = screen(&secrets_app(), 100, 24).join("\n");
+        assert!(
+            text.contains("never shown or typed here"),
+            "the screen should say values are not coming: {text}"
+        );
+        // `secret get` is the only verb that decrypts, and nothing on
+        // this screen offers it.
+        assert!(
+            !text.contains("secret get"),
+            "the secrets screen offered a way to read a value: {text}"
+        );
+    }
+
+    /// The 23.1 finding, as a test: the hint bar renders
+    /// `primary_action().0`, so a screen that names the wrong key fails.
+    #[test]
+    fn the_hint_bar_names_each_screens_own_key() {
+        for (view, expected) in [
+            (View::History, "Enter: restore selected"),
+            (View::Bundles, "Enter: open selected"),
+            (View::Secrets, "Enter: (r rotate, u unshare)"),
+        ] {
+            let mut app = App::default();
+            app.frames.push(view);
+            let text = screen(&app, 100, 24).join("\n");
+            assert!(
+                text.contains(expected),
+                "{} should advertise {expected:?}: {text}",
+                view.title()
+            );
+        }
+    }
+
+    /// Batch 23.1 found History leading with a 64-character id, which
+    /// pushed the message a person reads off the right edge.
+    #[test]
+    fn history_rows_leave_room_for_the_message() {
+        let mut app = App::default();
+        app.frames.push(View::History);
+        app.snaps = vec![serde_json::json!({
+            "id": "e5c175cd97d6870a2104771661362e10700c7311c3f0a172c0b9d5c9d3c6d725",
+            "created_at": "2026-07-25T20:39:17.997231Z",
+            "message": "initial layout",
+        })];
+        let text = screen(&app, 80, 24).join("\n");
+        assert!(
+            text.contains("e5c175cd97d6") && text.contains("initial layout"),
+            "short id and the message should both fit at 80 columns: {text}"
+        );
+        assert!(
+            !text.contains("e5c175cd97d6870a21047716"),
+            "the full id is back, and it will eat the message again: {text}"
+        );
+    }
 }

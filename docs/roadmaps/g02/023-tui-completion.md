@@ -1,6 +1,6 @@
 # 023 TUI Completion
 
-Status: in progress (23.1 complete)
+Status: in progress (23.1-23.2 complete)
 Owner: repo maintainers
 Updated: 2026-07-25
 
@@ -48,9 +48,14 @@ how a product accumulates surfaces that each made sense alone.
   anyone, the hint bar named the wrong key on six screens, and the
   Local/Remote mode kept half of Root hidden from the other half. The
   mode is gone. Net 247 → 246 tests
-- **23.2 Secrets view**: who can read what, value age, stale recipients,
-  and the confirm-once paths for rotate and unshare. The audit output
-  from 20.2-20.3 is already the right shape; this gives it a screen
+- **23.2 Secrets view** (complete, card 083): loaded from `secret
+  audit`; readers, value age and stale recipients, with `u` unsharing
+  every flagged recipient in one command. Driving it found that any verb
+  opening the private key cannot run in a raw-mode terminal at all — the
+  passphrase prompt draws over the screen and fights the event loop — so
+  those are handed over instead, which also closed the same hang for
+  `secret get` typed into the console since 19.3. The pty harness is
+  replaced by checked-in render tests
 - **23.3 Wizard set**: the flag-heavy verbs first — Member, Release and
   Promote, Fetch — reusing the back-one-step and review pattern already
   built. Scope depends on 23.1: a wizard for a screen 23.1 deletes is
@@ -72,4 +77,4 @@ how a product accumulates surfaces that each made sense alone.
 
 ## Next Task
 
-Batch card 23.2 (secrets view).
+Batch card 23.3 (wizard set).
