@@ -5,6 +5,7 @@ edition.workspace = true
 
 [dependencies]
 age.workspace = true
+getrandom.workspace = true
 anyhow.workspace = true
 blake3.workspace = true
 ciborium.workspace = true

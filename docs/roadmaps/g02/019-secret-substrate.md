@@ -1,6 +1,6 @@
 # 019 Secret Substrate
 
-Status: in progress (19.1-19.3 complete)
+Status: in progress (19.1-19.4 complete)
 Owner: repo maintainers
 Updated: 2026-07-25
 
@@ -46,10 +46,11 @@ secrets follow in `g02.020`, which depends on this.
   pinned by test, because argv lands in shell history and `ps`); each
   secret is sealed to every key the caller holds so a rotation strands
   nothing
-- **19.4 Token migration and adversarial tests**: the workspace's own
-  remote token becomes a locally-encrypted secret; wrong-key refusal,
-  tamper detection, and a test proving the server cannot decrypt what it
-  stores
+- **19.4 Token migration and adversarial tests** (complete, card 072):
+  the remote token moves out of the workspace to `CONVERGE_HOME`,
+  encrypted under a machine key, migrating on first read (doc 19 §8a
+  states what that is and is not worth); wrong-key refusal, tamper
+  detection, and a test that reads every byte the server persisted
 - **19.5 Consumption** (doc 19 §10): `converge run --secret NAME -- cmd`
   as the default path; `secret get --json` as the seam for injectors
   that already exist; a loud `secret write-env` escape hatch that warns,
@@ -71,4 +72,4 @@ secrets follow in `g02.020`, which depends on this.
 
 ## Next Task
 
-Batch card 19.4 (token migration and adversarial tests).
+Batch card 19.5 (consumption).

@@ -180,7 +180,30 @@ The server must not:
 | GC (doc 14 §5) | none — secrets are not objects; they have their own retention |
 | Events feed | `secret.changed` and `secret.read` events carrying subject, key, name and version — never content (§10) |
 | `verify` / determinism | untouched — provenance replay never reads a secret |
-| Local token storage | **first customer**: `remote_tokens` in `state.json` is plaintext on disk today, and becomes a locally-encrypted secret |
+| Local token storage | **first customer**, done in batch 19.4 — see §8a |
+
+### 8a. The remote token (batch 19.4)
+
+Convergence's own credential was the clearest case for this substrate
+and the narrowest fix. `remote_tokens` sat in `state.json`, in
+cleartext, *inside the workspace* — read by any backup, any stray
+`cat`, and any agent exploring the tree.
+
+Tokens now live under `CONVERGE_HOME`, encrypted at rest under a
+machine-local key, in files named by a hash of the remote so a directory
+listing does not enumerate which servers a machine talks to. Existing
+workspaces migrate on first read and the plaintext copy is erased.
+
+What that is worth, stated precisely: the credential is no longer in the
+repository and no longer readable by eye. It is **not** protection
+against a determined attacker running as you — the machine key sits on
+the same disk, necessarily.
+
+Encrypting the token to the personal key would close that gap, and would
+also prompt for a passphrase on every remote command. That is not a
+trade worth making: people would keep a plaintext copy somewhere else,
+which is strictly worse than this. If a deployment wants the stronger
+property, the answer is an OS keychain (§9), not a prompt.
 
 ## 9. Deferred, with triggers
 
