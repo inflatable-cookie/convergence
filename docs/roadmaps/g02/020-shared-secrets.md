@@ -1,6 +1,6 @@
 # 020 Shared Secrets
 
-Status: planned
+Status: in progress (20.1 complete)
 Owner: repo maintainers
 Updated: 2026-07-25
 
@@ -23,9 +23,11 @@ recipients — the substrate has to exist first.
 
 ## Execution Plan (batch details in cards)
 
-- **20.1 Multi-recipient secrets**: recipient lists beyond the owner;
-  `converge secret share|unshare`; encryption to every current key of
-  every recipient
+- **20.1 Multi-recipient secrets** (complete, card 074): `converge
+  secret share|unshare`, sealing to every registered key of every
+  recipient; owner-aware resolution with `--owner`, fixing a defect
+  where two people holding the same secret name silently served whoever
+  sorted first
 - **20.2 Membership change**: adding a member re-encrypts the secrets
   they are entitled to; removing one drops them from future versions and
   says plainly that the credential itself must be rotated
@@ -45,4 +47,4 @@ recipients — the substrate has to exist first.
 
 ## Next Task
 
-Blocked behind `g02.019` completion.
+Batch card 20.2 (membership change).

@@ -678,19 +678,15 @@ async fn set_secret(
 async fn get_secret(
     State(state): State<SharedState>,
     Path((repo, name)): Path<(String, String)>,
+    Query(params): Query<SecretQuery>,
     headers: HeaderMap,
 ) -> Result<Json<converge_model::SecretRecord>, ApiError> {
     let authz = authorize_repo(&state, &headers, &repo, Capability::Secret)?;
     let subject = authz.subject().to_string();
-    let record = find_secret(&state, &repo, &name)?;
+    let record = find_secret(&state, &repo, &name, &subject, params.owner.as_deref())?;
 
     let keys = state.meta.list_public_keys(&repo).map_err(internal_error)?;
-    let is_recipient = record.owner == subject
-        || record.recipients.iter().any(|key_id| {
-            keys.iter()
-                .any(|key| &key.key_id == key_id && key.subject == subject)
-        });
-    if !is_recipient {
+    if !is_recipient(&record, &subject, &keys) {
         // Same shape as "no such secret": whether a secret exists is
         // itself information a non-recipient has no claim to.
         return Err(not_found_secret(&name));
@@ -743,7 +739,7 @@ async fn delete_secret(
 ) -> Result<Json<serde_json::Value>, ApiError> {
     let authz = authorize_repo(&state, &headers, &repo, Capability::Secret)?;
     let subject = authz.subject().to_string();
-    let record = find_secret(&state, &repo, &name)?;
+    let record = find_secret(&state, &repo, &name, &subject, Some(&subject))?;
     if record.owner != subject {
         return Err(forbidden(format!("{name} belongs to {}", record.owner)));
     }
@@ -752,6 +748,12 @@ async fn delete_secret(
         .delete_secret(&repo, &subject, &name)
         .map_err(internal_error)?;
     Ok(Json(serde_json::json!({ "deleted": name })))
+}
+
+/// `?owner=` disambiguates when two people hold the same name.
+#[derive(serde::Deserialize)]
+struct SecretQuery {
+    owner: Option<String>,
 }
 
 fn summarize_secret(record: &converge_model::SecretRecord) -> converge_model::SecretSummary {
@@ -769,18 +771,61 @@ fn not_found_secret(name: &str) -> ApiError {
     ApiError(StatusCode::NOT_FOUND, format!("no secret {name}"))
 }
 
+/// Resolve a secret by name for a caller (batch 20.1).
+///
+/// Records are keyed `(repo, owner, name)`, so a name alone is not an
+/// address once more than one person can hold a secret. Resolution
+/// prefers the caller's own, falls back to the single one they can
+/// read, and refuses rather than guessing when several match — the
+/// previous code took the first by owner order, which meant two people
+/// with a `db-password` silently served whoever sorted first.
 fn find_secret(
     state: &AppState,
     repo: &str,
     name: &str,
+    subject: &str,
+    owner: Option<&str>,
 ) -> Result<converge_model::SecretRecord, ApiError> {
-    state
-        .meta
-        .list_secrets(repo)
-        .map_err(internal_error)?
+    let all = state.meta.list_secrets(repo).map_err(internal_error)?;
+    let matching: Vec<converge_model::SecretRecord> = all
         .into_iter()
-        .find(|record| record.name == name)
-        .ok_or_else(|| not_found_secret(name))
+        .filter(|record| record.name == name)
+        .filter(|record| owner.is_none_or(|owner| record.owner == owner))
+        .collect();
+
+    if let Some(mine) = matching.iter().find(|record| record.owner == subject) {
+        return Ok(mine.clone());
+    }
+    let keys = state.meta.list_public_keys(repo).map_err(internal_error)?;
+    let readable: Vec<&converge_model::SecretRecord> = matching
+        .iter()
+        .filter(|record| is_recipient(record, subject, &keys))
+        .collect();
+    match readable.as_slice() {
+        [only] => Ok((*only).clone()),
+        [] => Err(not_found_secret(name)),
+        several => {
+            let owners: Vec<&str> = several.iter().map(|r| r.owner.as_str()).collect();
+            Err(bad_request(format!(
+                "{name} is ambiguous: {} hold one; name whose with --owner",
+                owners.join(", ")
+            )))
+        }
+    }
+}
+
+/// Can `subject` decrypt this record, by owning it or holding one of
+/// its recipient keys?
+fn is_recipient(
+    record: &converge_model::SecretRecord,
+    subject: &str,
+    keys: &[converge_model::PublicKeyRecord],
+) -> bool {
+    record.owner == subject
+        || record.recipients.iter().any(|key_id| {
+            keys.iter()
+                .any(|key| &key.key_id == key_id && key.subject == subject)
+        })
 }
 
 /// Names travel in a URL path and land in a database key, so the

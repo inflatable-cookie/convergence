@@ -91,6 +91,29 @@ incident.
 The trade is deliberate: the server learns *when* you use each secret.
 Doc 19 §10c chooses audit over read-privacy, and no setting reverses it.
 
+## Sharing with the team
+
+```bash
+converge secret share deploy-key --with dana
+converge secret unshare deploy-key --from dana
+```
+
+Sharing decrypts and re-seals to everyone's keys, so it costs a
+passphrase prompt and is done by someone who can already read the
+secret. It seals to *every* key each person has registered, so a
+teammate who rotated is not locked out.
+
+**Unsharing is not revocation.** It stops future versions from being
+sealed to them. They have already read the version they read — if that
+matters, rotate the credential at its source and store the new value.
+The command says so every time.
+
+When two people hold a secret with the same name, `--owner` picks:
+
+```bash
+converge secret get db-password --owner dana
+```
+
 ## Housekeeping
 
 ```bash
@@ -105,6 +128,5 @@ the new value.
 
 ## Next Task
 
-Shared team secrets are `g02.020`: the same records with more
-recipients, plus the membership and rotation questions that come with
-them.
+Membership changes and a first-class rotation workflow are the rest of
+`g02.020`.

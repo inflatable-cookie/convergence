@@ -466,11 +466,31 @@ enum SecretCommand {
     /// process listing on the machine.
     Set { name: String },
     /// Print a secret's value.
-    Get { name: String },
+    Get {
+        name: String,
+        /// Whose secret, when two people hold the same name.
+        #[arg(long)]
+        owner: Option<String>,
+    },
     /// List secrets in this repo: names and versions, never values.
     List,
     /// Delete one of your secrets.
     Rm { name: String },
+    /// Let someone else read one of your secrets.
+    Share {
+        name: String,
+        /// Subject to add; repeatable.
+        #[arg(long = "with", value_name = "SUBJECT", required = true)]
+        with: Vec<String>,
+    },
+    /// Stop sealing future versions to someone.
+    ///
+    /// Not revocation: they have already read what they read (doc 19 §6).
+    Unshare {
+        name: String,
+        #[arg(long = "from", value_name = "SUBJECT", required = true)]
+        from: Vec<String>,
+    },
     /// Write secrets to a dotenv file. The weakest option: plaintext at
     /// rest, in a file anything can read.
     WriteEnv {
@@ -1524,8 +1544,9 @@ fn run(cli: &Cli, mode: OutputMode, session: &Session) -> Result<serde_json::Val
                         println!("  readable by {} key(s) you hold", s.recipients.len());
                     })
                 }
-                SecretCommand::Get { name } => {
-                    let record = client.get_secret(&remote.repo_id, name)?;
+                SecretCommand::Get { name, owner } => {
+                    let record =
+                        client.get_secret_owned(&remote.repo_id, name, owner.as_deref())?;
                     let keys = unlock_local_keys()?;
                     let plaintext = converge_client::identity::open(&keys, &record.ciphertext)?;
                     let value = String::from_utf8(plaintext)
@@ -1561,6 +1582,35 @@ fn run(cli: &Cli, mode: OutputMode, session: &Session) -> Result<serde_json::Val
                                 secret.name, secret.owner, secret.version, secret.updated_at
                             );
                         }
+                    })
+                }
+                SecretCommand::Share { name, with } => {
+                    let (summary, added) = reseal(&client, &remote.repo_id, name, with, &[])?;
+                    emit(mode, summary, |s| {
+                        println!(
+                            "{} shared with {} (version {})",
+                            s.name,
+                            added.join(", "),
+                            s.version
+                        );
+                        println!("  sealed to {} key(s)", s.recipients.len());
+                    })
+                }
+                SecretCommand::Unshare { name, from } => {
+                    let (summary, removed) = reseal(&client, &remote.repo_id, name, &[], from)?;
+                    emit(mode, summary, |s| {
+                        println!(
+                            "{} no longer sealed to {} (version {})",
+                            s.name,
+                            removed.join(", "),
+                            s.version
+                        );
+                        // Doc 19 §6: the word "revoke" is not available
+                        // to us, because it would not be true.
+                        println!(
+                            "  they cannot read future versions. They have already read this one —"
+                        );
+                        println!("  rotate the credential at its source and store the new value.");
                     })
                 }
                 SecretCommand::WriteEnv { path, secrets } => {
@@ -2154,6 +2204,87 @@ fn ensure_ignored(ws: &Workspace, path: &std::path::Path) -> Result<bool> {
     std::fs::write(&ignore_path, updated)
         .with_context(|| format!("update {}", ignore_path.display()))?;
     Ok(true)
+}
+
+/// Re-seal a secret to a changed recipient set (batch 20.1).
+///
+/// Sharing is an encryption-time decision, so it costs a decrypt and a
+/// re-encrypt by someone who can already read the secret. There is no
+/// server-side shortcut, and doc 19 §7 says there must not be one.
+fn reseal(
+    client: &converge_client::remote::RemoteClient,
+    repo_id: &str,
+    name: &str,
+    add: &[String],
+    remove: &[String],
+) -> Result<(converge_client::model::SecretSummary, Vec<String>)> {
+    let record = client.get_secret(repo_id, name)?;
+    let keys = unlock_local_keys()?;
+    let plaintext = converge_client::identity::open(&keys, &record.ciphertext)?;
+
+    let registered = client.list_keys(repo_id)?;
+    let subject_of = |key_id: &str| {
+        registered
+            .iter()
+            .find(|k| k.key_id == key_id)
+            .map(|k| k.subject.clone())
+    };
+
+    // Start from who can read it now, minus anyone being removed.
+    let mut subjects: Vec<String> = record
+        .recipients
+        .iter()
+        .filter_map(|key_id| subject_of(key_id))
+        .collect();
+    subjects.push(record.owner.clone());
+    subjects.retain(|subject| !remove.contains(subject));
+    for subject in add {
+        if !subjects.contains(subject) {
+            subjects.push(subject.clone());
+        }
+    }
+    subjects.sort();
+    subjects.dedup();
+
+    // Every registered key of every recipient: a teammate who rotated
+    // must not be locked out by a share that only saw their old key.
+    let mut recipients = Vec::new();
+    let mut key_ids = Vec::new();
+    for record in &registered {
+        if !subjects.contains(&record.subject) {
+            continue;
+        }
+        recipients.push(
+            record
+                .public_key
+                .parse::<age::x25519::Recipient>()
+                .map_err(|err| anyhow::anyhow!("key {} is unusable: {err}", record.key_id))?,
+        );
+        key_ids.push(record.key_id.clone());
+    }
+    let missing: Vec<&String> = subjects
+        .iter()
+        .filter(|s| !registered.iter().any(|k| &&k.subject == s))
+        .collect();
+    if !missing.is_empty() {
+        anyhow::bail!(
+            "no registered key for {}; they need to run `converge key init` first",
+            missing
+                .iter()
+                .map(|s| s.as_str())
+                .collect::<Vec<_>>()
+                .join(", ")
+        );
+    }
+
+    let ciphertext = converge_client::identity::seal(&recipients, &plaintext)?;
+    let summary = client.set_secret(repo_id, name, &ciphertext, &key_ids, record.version)?;
+    let changed: Vec<String> = if add.is_empty() {
+        remove.to_vec()
+    } else {
+        add.to_vec()
+    };
+    Ok((summary, changed))
 }
 
 /// The caller's own registered keys in this repo.

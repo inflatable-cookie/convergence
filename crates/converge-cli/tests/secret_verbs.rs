@@ -13,6 +13,7 @@ use std::sync::Arc;
 
 use anyhow::Result;
 use converge_server::{AppState, FsObjectStore, MetadataStore, SqliteMetadataStore, router};
+use std::ops::Not;
 
 fn converge_with_stdin(dir: &Path, home: &Path, args: &[&str], stdin: Option<&str>) -> Output {
     let mut child = Command::new(env!("CARGO_BIN_EXE_converge"))
@@ -479,6 +480,164 @@ fn reading_a_secret_leaves_an_audit_event() -> Result<()> {
     assert!(
         !events.to_string().contains("\"v\""),
         "an event carried the value"
+    );
+    Ok(())
+}
+
+/// Batch 20.1: a secret two people can read, and a third cannot.
+#[test]
+fn sharing_lets_a_teammate_read_and_unsharing_stops_future_versions() -> Result<()> {
+    let server_dir = tempfile::tempdir()?;
+    let base_url = start_server(server_dir.path())?;
+    let (alice_ws, alice_home) = member(&base_url, "token-a")?;
+    let (bob_ws, bob_home) = member(&base_url, "token-b")?;
+
+    converge_with_stdin(
+        alice_ws.path(),
+        alice_home.path(),
+        &["secret", "set", "deploy-key"],
+        Some("shared-value"),
+    );
+    assert!(
+        converge(
+            bob_ws.path(),
+            bob_home.path(),
+            &["secret", "get", "deploy-key"]
+        )
+        .status
+        .success()
+        .not(),
+        "bob could read before being shared with"
+    );
+
+    let shared = json_data(&converge(
+        alice_ws.path(),
+        alice_home.path(),
+        &["--json", "secret", "share", "deploy-key", "--with", "bob"],
+    ));
+    assert_eq!(shared["version"], 2, "sharing writes a new version");
+    assert_eq!(
+        shared["recipients"].as_array().map(Vec::len),
+        Some(2),
+        "sealed to both people's keys"
+    );
+
+    let got = converge(
+        bob_ws.path(),
+        bob_home.path(),
+        &["secret", "get", "deploy-key"],
+    );
+    assert!(
+        got.status.success(),
+        "bob still cannot read it: {}",
+        String::from_utf8_lossy(&got.stderr)
+    );
+    assert_eq!(
+        String::from_utf8_lossy(&got.stdout).trim_end(),
+        "shared-value"
+    );
+
+    // Unsharing is honest about what it is not.
+    let out = converge(
+        alice_ws.path(),
+        alice_home.path(),
+        &["secret", "unshare", "deploy-key", "--from", "bob"],
+    );
+    assert!(out.status.success());
+    let said = String::from_utf8_lossy(&out.stdout).to_lowercase();
+    assert!(
+        said.contains("rotate the credential"),
+        "unshare must say what it does not do: {said}"
+    );
+    assert!(
+        !said.contains("revoke"),
+        "unshare must not claim to revoke access: {said}"
+    );
+
+    // Future versions are closed to bob.
+    converge_with_stdin(
+        alice_ws.path(),
+        alice_home.path(),
+        &["secret", "set", "deploy-key"],
+        Some("rotated-value"),
+    );
+    let denied = converge(
+        bob_ws.path(),
+        bob_home.path(),
+        &["secret", "get", "deploy-key"],
+    );
+    assert!(
+        !denied.status.success(),
+        "bob read a version written after being unshared"
+    );
+    Ok(())
+}
+
+/// Two people can hold the same secret name without either being served
+/// the wrong one — the resolution defect batch 20.1 fixed.
+#[test]
+fn two_owners_can_hold_the_same_name() -> Result<()> {
+    let server_dir = tempfile::tempdir()?;
+    let base_url = start_server(server_dir.path())?;
+    let (alice_ws, alice_home) = member(&base_url, "token-a")?;
+    let (bob_ws, bob_home) = member(&base_url, "token-b")?;
+
+    converge_with_stdin(
+        alice_ws.path(),
+        alice_home.path(),
+        &["secret", "set", "db-password"],
+        Some("alice-value"),
+    );
+    converge_with_stdin(
+        bob_ws.path(),
+        bob_home.path(),
+        &["secret", "set", "db-password"],
+        Some("bob-value"),
+    );
+
+    // Each reads their own, whatever the storage order happens to be.
+    let alice_got = converge(
+        alice_ws.path(),
+        alice_home.path(),
+        &["secret", "get", "db-password"],
+    );
+    assert_eq!(
+        String::from_utf8_lossy(&alice_got.stdout).trim_end(),
+        "alice-value"
+    );
+    let bob_got = converge(
+        bob_ws.path(),
+        bob_home.path(),
+        &["secret", "get", "db-password"],
+    );
+    assert_eq!(
+        String::from_utf8_lossy(&bob_got.stdout).trim_end(),
+        "bob-value"
+    );
+
+    // Both records exist, listed with their owners.
+    let listed = json_data(&converge(
+        alice_ws.path(),
+        alice_home.path(),
+        &["--json", "secret", "list"],
+    ));
+    assert_eq!(listed.as_array().map(Vec::len), Some(2));
+
+    // Shared with alice, bob's copy is reachable by naming the owner.
+    converge(
+        bob_ws.path(),
+        bob_home.path(),
+        &["secret", "share", "db-password", "--with", "alice"],
+    );
+    let explicit = converge(
+        alice_ws.path(),
+        alice_home.path(),
+        &["secret", "get", "db-password", "--owner", "bob"],
+    );
+    assert_eq!(
+        String::from_utf8_lossy(&explicit.stdout).trim_end(),
+        "bob-value",
+        "--owner did not select the other person's secret"
     );
     Ok(())
 }

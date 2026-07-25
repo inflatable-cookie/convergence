@@ -493,13 +493,25 @@ impl RemoteClient {
     }
 
     pub fn get_secret(&self, repo_id: &str, name: &str) -> Result<crate::model::SecretRecord> {
-        let response = Self::check(
-            self.http
-                .get(self.url(&format!("/api/repos/{repo_id}/secrets/{name}")))
-                .bearer_auth(&self.token)
-                .send()
-                .context("get secret")?,
-        )?;
+        self.get_secret_owned(repo_id, name, None)
+    }
+
+    /// `owner` disambiguates when two people hold the same name
+    /// (batch 20.1).
+    pub fn get_secret_owned(
+        &self,
+        repo_id: &str,
+        name: &str,
+        owner: Option<&str>,
+    ) -> Result<crate::model::SecretRecord> {
+        let mut request = self
+            .http
+            .get(self.url(&format!("/api/repos/{repo_id}/secrets/{name}")))
+            .bearer_auth(&self.token);
+        if let Some(owner) = owner {
+            request = request.query(&[("owner", owner)]);
+        }
+        let response = Self::check(request.send().context("get secret")?)?;
         response.json().context("parse secret")
     }
 
