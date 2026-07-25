@@ -66,6 +66,4 @@ Three defects, all in the class the audit predicted:
 
 ## Next Task
 
-Batch card 18.4 (live backend CI lane: docker-compose Postgres + MinIO
-conformance, documented local invocation, watch cadence and
-`.convergeignore` tests) — the last card in the audit program.
+Batch card 18.4 (live backend lane) — done, card 068.

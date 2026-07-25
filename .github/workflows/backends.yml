@@ -1,0 +1,112 @@
+name: External backends
+
+# The conformance suite runs against live Postgres and MinIO. It is slow
+# and needs services, so it does not belong on every push — but a suite
+# that never runs is the gap batch 18.4 exists to close. Once a day, and
+# only when something actually changed since the last run.
+on:
+  schedule:
+    - cron: "17 4 * * *"
+  workflow_dispatch:
+
+jobs:
+  changed:
+    runs-on: ubuntu-latest
+    outputs:
+      run: ${{ steps.check.outputs.run }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Any commits since the last scheduled run?
+        id: check
+        run: |
+          # A manual dispatch always runs; the scheduled one only runs if
+          # the day produced commits. Nothing changed means nothing new
+          # can break, and a green run over identical code is noise.
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if [ -n "$(git log --since='25 hours ago' --format=%H)" ]; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "run=false" >> "$GITHUB_OUTPUT"
+            echo "no commits in the last day; skipping the backend lane"
+          fi
+
+  conformance:
+    needs: changed
+    if: needs.changed.outputs.run == 'true'
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_PASSWORD: converge
+          POSTGRES_DB: converge_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      CONVERGE_TEST_POSTGRES_URL: postgres://postgres:converge@127.0.0.1:5432/converge_test
+      CONVERGE_TEST_S3_ENDPOINT: http://127.0.0.1:9000
+      CONVERGE_TEST_S3_BUCKET: converge-test
+      AWS_ACCESS_KEY_ID: minioadmin
+      AWS_SECRET_ACCESS_KEY: minioadmin
+      # Turns "env unset, skipping" into a failure: this lane exists to
+      # run the tests, so a silent skip is the one outcome that must not
+      # look like success.
+      CONVERGE_REQUIRE_BACKENDS: "1"
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install cargo-nextest
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-nextest
+
+      - name: Rust cache
+        uses: Swatinem/rust-cache@v2
+
+      # MinIO needs a server argument, which the `services:` block cannot
+      # express, so it runs as a step instead.
+      - name: Start MinIO
+        run: |
+          docker run -d --name minio -p 9000:9000 \
+            -e MINIO_ROOT_USER=minioadmin \
+            -e MINIO_ROOT_PASSWORD=minioadmin \
+            minio/minio:latest server /data
+          for _ in $(seq 1 30); do
+            if curl -sf http://127.0.0.1:9000/minio/health/live; then break; fi
+            sleep 2
+          done
+
+      - name: Create the test bucket
+        run: |
+          docker run --rm --network host --entrypoint sh minio/mc:latest -c "
+            mc alias set local http://127.0.0.1:9000 minioadmin minioadmin &&
+            mc mb --ignore-existing local/${CONVERGE_TEST_S3_BUCKET}"
+
+      - name: Conformance against live backends
+        run: |
+          cargo nextest run -P ci \
+            --features backend-postgres,backend-s3 \
+            --test backend_conformance
+
+      - name: MinIO logs on failure
+        if: failure()
+        run: docker logs minio

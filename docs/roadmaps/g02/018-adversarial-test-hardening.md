@@ -1,6 +1,6 @@
 # 018 Adversarial Test Hardening
 
-Status: in progress (18.1-18.3 complete)
+Status: complete
 Owner: repo maintainers
 Updated: 2026-07-25
 
@@ -49,11 +49,14 @@ is caught by CI, not by audit.
   defects: unquoted fast-import paths, a backslash name that captured
   but would not restore, and `None`/`Some("")` colliding in snap
   identity
-- **18.4 Live backend CI lane**: docker-compose Postgres + MinIO
-  conformance job; documented local invocation; watch cadence and
-  `.convergeignore` tests
+- **18.4 Live backend lane** (complete, card 068): `effigy backends`
+  over Effigy catalog services locally, a nightly CI job guarded to run
+  only after a day with commits, and `CONVERGE_REQUIRE_BACKENDS` so a
+  missing service fails instead of skipping. Watch cadence and
+  `.convergeignore` tests included; found that restore deleted ignored
+  paths
 
-## Exit Criteria
+## Exit Criteria (all met)
 
 - CI exercises at least one true multi-writer interleaving and one
   kill-based failure injection per subsystem (sync, GC, export,
@@ -63,4 +66,5 @@ is caught by CI, not by audit.
 
 ## Next Task
 
-Open batch card 18.4 (live backend CI lane).
+Roadmap complete, and with it the audit-hardening program
+`g02.011`-`g02.018`.

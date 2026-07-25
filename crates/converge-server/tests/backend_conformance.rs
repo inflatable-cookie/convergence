@@ -283,12 +283,32 @@ fn embedded_backends_conform() -> Result<()> {
     Ok(())
 }
 
+/// Skipping must be a decision, not an accident (batch 18.4).
+///
+/// An unset env var made these tests pass silently, which is how
+/// "external backends are conformance-gated" coexisted for four
+/// roadmaps with "they have never run against a live service". In the
+/// live lane `CONVERGE_REQUIRE_BACKENDS=1` turns a skip into a failure,
+/// so the job cannot quietly degrade into a no-op.
+// Only referenced by the feature-gated tests below; the default build
+// still compiles it so the gate cannot rot behind a flag.
+#[cfg_attr(
+    not(all(feature = "backend-postgres", feature = "backend-s3")),
+    allow(dead_code)
+)]
+fn skip_or_fail(what: &str) -> Result<()> {
+    if std::env::var("CONVERGE_REQUIRE_BACKENDS").is_ok_and(|v| v != "0") {
+        anyhow::bail!("{what} unset but CONVERGE_REQUIRE_BACKENDS is set");
+    }
+    eprintln!("{what} unset; skipping");
+    Ok(())
+}
+
 #[cfg(feature = "backend-postgres")]
 #[test]
 fn postgres_backend_conforms_when_env_present() -> Result<()> {
     let Ok(url) = std::env::var("CONVERGE_TEST_POSTGRES_URL") else {
-        eprintln!("CONVERGE_TEST_POSTGRES_URL unset; skipping");
-        return Ok(());
+        return skip_or_fail("CONVERGE_TEST_POSTGRES_URL");
     };
     let meta = converge_server::PostgresMetadataStore::connect(&url)?;
     conform_metadata(&meta)
@@ -301,9 +321,25 @@ fn s3_backend_conforms_when_env_present() -> Result<()> {
         std::env::var("CONVERGE_TEST_S3_ENDPOINT"),
         std::env::var("CONVERGE_TEST_S3_BUCKET"),
     ) else {
-        eprintln!("CONVERGE_TEST_S3_* unset; skipping");
-        return Ok(());
+        return skip_or_fail("CONVERGE_TEST_S3_*");
     };
     let objects = converge_server::S3ObjectStore::connect(&endpoint, &bucket, "us-east-1")?;
     conform_objects(&objects)
+}
+
+/// The gate itself is compiled in every build, so a lane that forgets
+/// the feature flags still fails loudly rather than reporting success
+/// over an empty test set.
+#[test]
+fn requiring_backends_without_the_features_is_an_error() -> Result<()> {
+    if !std::env::var("CONVERGE_REQUIRE_BACKENDS").is_ok_and(|v| v != "0") {
+        return Ok(());
+    }
+    if !cfg!(feature = "backend-postgres") || !cfg!(feature = "backend-s3") {
+        anyhow::bail!(
+            "CONVERGE_REQUIRE_BACKENDS is set but the backend features are not compiled in; \
+             run with --features backend-postgres,backend-s3"
+        );
+    }
+    Ok(())
 }

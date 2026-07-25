@@ -50,6 +50,5 @@ prefers `cargo nextest` when it is available on the machine.
 
 The audit hardening program `g02.011`-`g02.018` is open (findings
 record: `logs/2026-07/24-180000-audit-findings-and-hardening-program.md`).
-`g02.011`-`g02.017` complete. Active roadmap: `g02.018` adversarial test
-hardening — the last in the audit program; batches 18.1-18.3 complete, next is
-batch card 18.4 — the last card in the program.
+The audit-hardening program `g02.011`-`g02.018` is complete. Next
+planning move: review the remaining backlog in `roadmaps/backlog/`.

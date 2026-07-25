@@ -8,11 +8,13 @@ impl Workspace {
         // Destruction deferred until the target fully materializes
         // (batch 12.1): a superposed or unfetchable target must not
         // cost the current tree.
+        let preserve = self.preserved_entries();
+        let preserve: Vec<&str> = preserve.iter().map(String::as_str).collect();
         materialize_fs::materialize_via_temp(
             &self.store,
             &snap.root_manifest,
             &self.root,
-            &[".converge", ".git"],
+            &preserve,
         )?;
         self.store.set_head(Some(&snap.id))?;
         Ok(())
@@ -33,15 +35,26 @@ impl Workspace {
         force: bool,
     ) -> Result<crate::model::SnapRecord> {
         self.ensure_safe_to_overwrite(force)?;
-        materialize_fs::materialize_via_temp(
-            &self.store,
-            root_manifest,
-            &self.root,
-            &[".converge", ".git"],
-        )?;
+        let preserve = self.preserved_entries();
+        let preserve: Vec<&str> = preserve.iter().map(String::as_str).collect();
+        materialize_fs::materialize_via_temp(&self.store, root_manifest, &self.root, &preserve)?;
         let snap = self.capture_tree(root_manifest, message, derived_from_bundle)?;
         self.store.set_head(Some(&snap.id))?;
         Ok(snap)
+    }
+
+    /// Entries a workspace materialize must leave alone: the internals,
+    /// plus everything `.convergeignore` claims (batch 18.4).
+    ///
+    /// Ignored paths are build output, caches, and local scratch — the
+    /// user has said they are not project content, so a snap never held
+    /// them and a restore has nothing to put back. Deleting them anyway
+    /// destroys expensive local state to no purpose, and it is not what
+    /// checking out a revision means anywhere else.
+    fn preserved_entries(&self) -> Vec<String> {
+        let mut preserve = vec![".converge".to_string(), ".git".to_string()];
+        preserve.extend(super::manifest_scan::common::load_root_ignores(&self.root));
+        preserve
     }
 
     /// Refuse to overwrite a workspace carrying uncaptured work.
