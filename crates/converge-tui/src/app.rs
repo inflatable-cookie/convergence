@@ -59,12 +59,33 @@ impl View {
     }
 }
 
+/// One variant, as much of it as a chooser needs to see (batch 23.5).
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct VariantPreview {
+    /// Where the variant came from — a lane, usually.
+    pub source: String,
+    /// Bounded text, empty when there is nothing readable to show.
+    pub text: String,
+    /// Content continues past what is shown.
+    pub elided: bool,
+    /// Why there is no text: "binary", "deleted in this variant", and so
+    /// on. Shown instead of the text, never alongside it.
+    pub why: String,
+}
+
 /// Non-modal resolution flow state (UX spec §5).
 #[derive(Clone, Debug, Default)]
 pub struct ResolutionState {
     pub snap_id: String,
     /// (path, stable variant keys in display order), sorted by path.
+    ///
+    /// Bare keys, deliberately: `keyed_decisions` writes these into the
+    /// decisions file, so the preview payload is held beside them rather
+    /// than folded in (batch 23.5).
     pub paths: Vec<(String, Vec<serde_json::Value>)>,
+    /// path -> per-variant preview, aligned with `paths`. Empty when the
+    /// loader did not ask for previews.
+    pub previews: BTreeMap<String, Vec<VariantPreview>>,
     /// path -> chosen 0-based variant index (written out as the variant
     /// key, so decisions survive variant reordering).
     pub decisions: BTreeMap<String, u32>,
@@ -222,6 +243,27 @@ pub fn is_remote_command(argv: &[String]) -> bool {
 /// read. The screen hands over the command instead of pretending.
 pub const SECRET_VALUES_ARE_NOT_A_VIEW: &str =
     "secret values are never shown or typed here; run the command in a terminal";
+
+/// A runnable inbox argv, as the TUI should dispatch it.
+///
+/// `resolve list <ref>` is the console form and stays the console form,
+/// because an inbox row has to be a command a person can paste (batch
+/// 16.1). Inside the TUI the same intent opens the resolution view
+/// rather than printing a path list into the Last strip.
+///
+/// Shared (batch 23.5) because the dashboard's primary action began
+/// running the raw command: the top recommendation said "resolve
+/// superpositions" and then printed "2 superposed path(s)" instead of
+/// showing them. One mapping, used everywhere an inbox argv is
+/// dispatched.
+pub fn action_for_argv(argv: Vec<String>) -> Action {
+    match argv.as_slice() {
+        [verb, sub, target] if verb == "resolve" && sub == "list" => {
+            Action::EnterResolution(target.clone())
+        }
+        _ => Action::Run(argv),
+    }
+}
 
 /// Verbs that must open the caller's private key (batch 23.2).
 ///
@@ -526,7 +568,7 @@ impl App {
                 if let Some(top) = self.recommendations.iter().find(|r| r.argv.is_some()) {
                     return (
                         top.kind.cta().to_string(),
-                        Action::Run(top.argv.clone().expect("checked")),
+                        action_for_argv(top.argv.clone().expect("checked")),
                     );
                 }
                 ("history".into(), Action::Enter(View::History))
@@ -1113,17 +1155,7 @@ impl App {
                     .inbox_entries
                     .get(self.inbox_selected)
                     .and_then(|(_, argv)| argv.clone())
-                    .map(|argv| {
-                        // `resolve list <ref>` is the console form; in the
-                        // TUI the same intent opens the resolution view
-                        // instead of printing paths (UX spec §4.2).
-                        match argv.as_slice() {
-                            [verb, sub, target] if verb == "resolve" && sub == "list" => {
-                                Action::EnterResolution(target.clone())
-                            }
-                            _ => Action::Run(argv),
-                        }
-                    });
+                    .map(action_for_argv);
                 // An inbox row is a one-key path to `approve`, so it needs
                 // the same confirmation a typed one gets.
                 if let Some(Action::Run(argv)) = &action
@@ -1511,6 +1543,7 @@ mod tests {
         let mut resolution = ResolutionState {
             snap_id: "s".into(),
             paths: vec![("conflicted.txt".into(), vec![key_a, key_b.clone()])],
+            previews: Default::default(),
             decisions: Default::default(),
             selected: 0,
         };
@@ -1613,7 +1646,9 @@ mod tests {
         let (label, action) = app.primary_action();
         assert_eq!(
             action,
-            Action::Run(vec!["resolve".into(), "list".into(), "b2".into()])
+            Action::EnterResolution("b2".into()),
+            "the dashboard's resolve should open the view, not print a path list \
+             into the Last strip"
         );
         assert_eq!(
             label, "resolve superpositions",
@@ -2021,6 +2056,7 @@ mod tests {
                 ("b.txt".into(), variants.clone()),
                 ("c.txt".into(), variants),
             ],
+            previews: Default::default(),
             decisions: Default::default(),
             selected: 0,
         };
@@ -2051,6 +2087,7 @@ mod tests {
         let mut app = App::default();
         app.frames.push(View::Resolution);
         app.resolution = Some(ResolutionState {
+            previews: Default::default(),
             snap_id: "s".into(),
             paths: vec![
                 ("a.txt".into(), variants.clone()),

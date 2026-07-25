@@ -153,6 +153,28 @@ fn conflict_to_resolved_publish_without_out_of_band_knowledge() -> Result<()> {
         .expect("shared.txt is superposed");
     assert_eq!(variants.len(), 2);
 
+    // `--preview` shows what the choice is *between* (batch 23.5). The
+    // flat list asked people to pick variant 1 or 2 sight unseen, which
+    // batch 23.1 recorded as a decision-correctness problem rather than
+    // a missing nicety.
+    let previewed = json_data(&converge(
+        a,
+        &["--json", "resolve", "list", &bundle_id, "--preview"],
+    ));
+    let shown: Vec<String> = previewed["shared.txt"]
+        .as_array()
+        .expect("previewed variants")
+        .iter()
+        .map(|v| v["preview"].as_str().unwrap_or("").to_string())
+        .collect();
+    assert!(
+        shown.iter().any(|p| p == "alice version") && shown.iter().any(|p| p == "bob version"),
+        "both versions should be legible before choosing: {shown:?}"
+    );
+    // The key is still there and still the thing a decisions file wants,
+    // so the preview is additive rather than a second shape.
+    assert_eq!(previewed["shared.txt"][0]["key"], variants[0]);
+
     // Decide, then apply. The resolution lands as a snap in the
     // workspace, not an orphan manifest id (audit P1.1).
     std::fs::write(
@@ -396,5 +418,87 @@ fn remote_human_output_reads_like_prose_and_reports_transfer() -> Result<()> {
         text.contains("keep all") && !text.contains("None"),
         "retention limits are phrased:\n{text}"
     );
+    Ok(())
+}
+
+/// What a preview does when there is nothing readable to show.
+///
+/// Refusing to guess is the point: two screens of replacement characters
+/// help nobody choose, while "binary" and two sizes do (batch 23.5).
+#[test]
+fn previews_are_bounded_and_say_why_when_there_is_no_text() -> Result<()> {
+    let server_dir = tempfile::tempdir()?;
+    let base_url = start_server(server_dir.path())?;
+
+    let a_dir = tempfile::tempdir()?;
+    let a = a_dir.path();
+    assert!(converge(a, &["init"]).status.success());
+    login(a, &base_url, "token-a", "alice");
+    // One binary path and one very long text path, conflicting.
+    std::fs::write(a.join("image.bin"), [0u8, 1, 2, 3, 0, 5])?;
+    std::fs::write(a.join("long.txt"), "alice\n".repeat(4000))?;
+    converge(a, &["snap", "-m", "alice"]);
+    assert!(
+        converge(a, &["publish", "--lane", "lane-a"])
+            .status
+            .success()
+    );
+
+    let b_dir = tempfile::tempdir()?;
+    let b = b_dir.path();
+    assert!(converge(b, &["init"]).status.success());
+    login(b, &base_url, "token-b", "bob");
+    std::fs::write(b.join("image.bin"), [0u8, 9, 9, 9, 0, 9])?;
+    std::fs::write(b.join("long.txt"), "bob\n".repeat(4000))?;
+    converge(b, &["snap", "-m", "bob"]);
+    assert!(
+        converge(b, &["publish", "--lane", "lane-b"])
+            .status
+            .success()
+    );
+
+    let inbox = json_data(&converge(a, &["--json", "inbox"]));
+    let bundle_id = converge_cli::inbox_actions(&inbox)
+        .iter()
+        .find_map(|action| {
+            action
+                .argv
+                .as_ref()
+                .filter(|argv| argv.first().map(String::as_str) == Some("resolve"))
+                .map(|argv| argv[2].clone())
+        })
+        .expect("a superposed bundle");
+
+    let previewed = json_data(&converge(
+        a,
+        &["--json", "resolve", "list", &bundle_id, "--preview"],
+    ));
+
+    for variant in previewed["image.bin"].as_array().expect("binary variants") {
+        assert_eq!(
+            variant["preview"].as_str(),
+            Some(""),
+            "a binary should have no text"
+        );
+        let why = variant["why"].as_str().unwrap_or("");
+        assert!(
+            why.starts_with("binary") && why.contains("bytes"),
+            "two variants labelled only 'binary' are not a choice; the size is \
+             usually what tells them apart: {why}"
+        );
+    }
+
+    for variant in previewed["long.txt"].as_array().expect("long variants") {
+        let preview = variant["preview"].as_str().expect("text");
+        assert!(
+            preview.lines().count() <= 12,
+            "a preview is bounded: {} lines",
+            preview.lines().count()
+        );
+        assert!(
+            variant["elided"].as_bool().unwrap_or(false),
+            "and says the content continues"
+        );
+    }
     Ok(())
 }

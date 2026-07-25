@@ -608,6 +608,10 @@ enum ResolveCommand {
     List {
         /// Local snap id, or a bundle id (fetched if not local yet).
         target: String,
+        /// Include a bounded text preview of each variant, so a chooser
+        /// can see what they are choosing between.
+        #[arg(long)]
+        preview: bool,
     },
     /// Validate a decisions file against a snap or bundle.
     Validate {
@@ -2276,18 +2280,65 @@ fn run_resolve(
 ) -> Result<serde_json::Value> {
     let ws = session.workspace()?;
     match command {
-        ResolveCommand::List { target } => {
+        ResolveCommand::List { target, preview } => {
             // Path -> stable variant keys (order matches display order).
             let (root, _) = resolve_target(session, &ws, target)?;
             let variants = superposition_variants(&ws.store, &root)?;
-            let keyed: std::collections::BTreeMap<String, Vec<converge_client::model::VariantKey>> =
-                variants
+            if !preview {
+                let keyed: std::collections::BTreeMap<
+                    String,
+                    Vec<converge_client::model::VariantKey>,
+                > = variants
                     .into_iter()
                     .map(|(path, vs)| (path, vs.iter().map(|v| v.key()).collect()))
                     .collect();
-            emit(mode, keyed, |keyed| {
-                for (path, keys) in keyed {
-                    println!("{path}  {} variants", keys.len());
+                return emit(mode, keyed, |keyed| {
+                    for (path, keys) in keyed {
+                        println!("{path}  {} variants", keys.len());
+                    }
+                });
+            }
+            // With `--preview`, each variant carries its key *and* enough
+            // of its content to choose by. Shape stays keyed-by-path so
+            // a caller can read either form the same way.
+            let mut previewed = serde_json::Map::new();
+            for (path, vs) in variants {
+                let rendered: Vec<serde_json::Value> = vs
+                    .iter()
+                    .map(|variant| {
+                        let key = variant.key();
+                        let preview = variant_preview(&ws.store, &key);
+                        serde_json::json!({
+                            "key": key,
+                            "source": key.source,
+                            "preview": preview.text,
+                            "elided": preview.elided,
+                            "why": preview.why,
+                        })
+                    })
+                    .collect();
+                previewed.insert(path, serde_json::Value::Array(rendered));
+            }
+            emit(mode, serde_json::Value::Object(previewed), |previewed| {
+                for (path, variants) in previewed.as_object().into_iter().flatten() {
+                    println!("{path}");
+                    for variant in variants.as_array().into_iter().flatten() {
+                        println!("  [{}]", variant["source"].as_str().unwrap_or("?"));
+                        match variant["preview"].as_str() {
+                            Some(text) if !text.is_empty() => {
+                                for line in text.lines() {
+                                    println!("    {line}");
+                                }
+                                if variant["elided"].as_bool().unwrap_or(false) {
+                                    println!("    …");
+                                }
+                            }
+                            _ => println!(
+                                "    ({})",
+                                variant["why"].as_str().unwrap_or("no preview")
+                            ),
+                        }
+                    }
                 }
             })
         }
@@ -2977,6 +3028,109 @@ fn list_tree(ws: &Workspace, root: &ObjectId, path: &str) -> Result<Vec<TreeEntr
             },
         })
         .collect())
+}
+
+/// A bounded look at one variant's content (g02.023 batch 23.5).
+struct VariantPreview {
+    /// Empty when there is nothing readable to show; `why` says so.
+    text: String,
+    /// True when the content continues past what is shown.
+    elided: bool,
+    /// Why there is no text — and, for a binary, its size, because two
+    /// variants both labelled "binary" are not a choice.
+    why: String,
+}
+
+/// Bytes read before deciding a variant is not previewable text.
+///
+/// A variant can be a 4 GB render; the point of a preview is to tell two
+/// versions apart, and nobody does that past a screenful. Chunked files
+/// read only their first chunk, so the bound holds on the store as well
+/// as on the output.
+const PREVIEW_BYTES: usize = 2048;
+const PREVIEW_LINES: usize = 12;
+
+/// Render a variant for a chooser, or say why it cannot be rendered.
+///
+/// Refusing to guess is the point: a resolution view that showed
+/// mojibake for a binary would be worse than one that says "binary". A
+/// preview exists so somebody can tell two versions apart, and an
+/// honest "these are both binaries, 4.1 MB and 4.3 MB" does that better
+/// than two screens of replacement characters.
+fn variant_preview(
+    store: &converge_client::store::LocalStore,
+    key: &converge_client::model::VariantKey,
+) -> VariantPreview {
+    use converge_client::model::VariantKeyKind as K;
+    let empty = |why: &str| VariantPreview {
+        text: String::new(),
+        elided: false,
+        why: why.to_string(),
+    };
+    let declared_size = match &key.kind {
+        K::File { size, .. } | K::ChunkedFile { size, .. } => Some(*size),
+        _ => None,
+    };
+    let bytes = match &key.kind {
+        K::File { blob, .. } => match store.get_blob(blob) {
+            Ok(bytes) => bytes,
+            // A variant whose blob is not local yet is normal for a
+            // bundle fetched lazily; saying so beats an error.
+            Err(_) => return empty("content not in the local store"),
+        },
+        K::ChunkedFile { recipe, .. } => {
+            let Ok(recipe) = store.get_recipe(recipe) else {
+                return empty("content not in the local store");
+            };
+            let Some(first) = recipe.chunks.first() else {
+                return empty("empty file");
+            };
+            match store.get_blob(&first.blob) {
+                Ok(bytes) => bytes,
+                Err(_) => return empty("content not in the local store"),
+            }
+        }
+        K::Dir { .. } => return empty("directory"),
+        K::Symlink { target } => {
+            return VariantPreview {
+                text: format!("-> {target}"),
+                elided: false,
+                why: "symlink".to_string(),
+            };
+        }
+        // Not an absence of content: a deliberate deletion, and the
+        // chooser needs to see it as a real option.
+        K::Tombstone => return empty("deleted in this variant"),
+    };
+
+    let looked_at = bytes.len().min(PREVIEW_BYTES);
+    let head = &bytes[..looked_at];
+    // A NUL in the first couple of kilobytes is the same heuristic
+    // `git diff` uses, and it is right far more often than it is wrong.
+    if head.contains(&0) {
+        // Size included: two variants both labelled "binary" and nothing
+        // else are not a choice, and the size is usually the thing that
+        // tells a 4.1 MB render from a 4.3 MB one.
+        return empty(&match declared_size {
+            Some(size) => format!("binary, {size} bytes"),
+            None => "binary".to_string(),
+        });
+    }
+    let Ok(text) = std::str::from_utf8(head) else {
+        // Could be a multi-byte character straddling the cut rather than
+        // real binary, but the distinction does not change what we show.
+        return empty("not valid UTF-8");
+    };
+    let mut lines: Vec<&str> = text.lines().take(PREVIEW_LINES).collect();
+    let elided = bytes.len() > looked_at || text.lines().count() > lines.len();
+    if elided && lines.len() == PREVIEW_LINES {
+        lines.truncate(PREVIEW_LINES);
+    }
+    VariantPreview {
+        text: lines.join("\n"),
+        elided,
+        why: String::new(),
+    }
 }
 
 /// What kind of attention a row wants, which is what orders it.

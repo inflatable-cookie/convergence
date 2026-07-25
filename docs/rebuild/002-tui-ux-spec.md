@@ -175,6 +175,8 @@ against the build is a wish list.
   invalid, `Alt+n` next missing, plus `Alt` jumps to each view. In-view
   keys: History `m`/`d`, Bundles `p`/`e` (batch 23.3), Secrets `r`/`u`
   (batch 23.2)
+- layout (§6): the Superpositions 65/35 list+detail split, with a
+  bounded preview per variant (batch 23.5)
 - wizards (§5): Login, Publish, Annotate, plus Member, Fetch, Release
   and Promote (batch 23.3). A wizard's review step **is** the
   confirmation for a verb the console would confirm, so its legend names
@@ -225,10 +227,8 @@ places at once. `secret rotate` is handed over unconditionally.
   fails for the platform most likely to be running this. Typing the verb
   still reaches every view. Help now says so. Not fixed by inventing a
   second key scheme in a subtraction batch
-- **Superpositions asks for a decision it does not show.** A path lists
-  "[2 variants]" and `1-9 pick`, with no way to see what either variant
-  contains. This is §6's 65/35 split, deferred as polish; driving it
-  showed it is a decision-correctness problem, and 23.5 addresses it
+- ~~**Superpositions asks for a decision it does not show.**~~ Fixed in
+  batch 23.5: the 65/35 split with a bounded per-variant preview
 - **a bundle id is only ever printed once.** `publish` prints it; the
   inbox lists a bundle only when it needs *your* action, so one that is
   immediately ready never appears. `events` is the only place to find it
@@ -286,9 +286,15 @@ places at once. `secret rotate` is handed over unconditionally.
   Inbox view and the dashboard read the same order by construction
   rather than by agreement — a second traversal would have been a
   second rule waiting to drift
-- **List + detail 65/35 split for Superpositions (§6)**: variant detail
-  is currently summarised in the row. Trigger: variants carrying more
-  than a source and a size — a diff preview, for instance
+- ~~**List + detail 65/35 split for Superpositions (§6)**~~ — built in
+  batch 23.5. The stated trigger was "variants carrying more than a
+  source and a size", which read as a nice-to-have. Driving the flat
+  list in batch 23.1 showed the deferral had mis-scoped itself: the
+  screen was asking someone to choose between two file contents and
+  showing neither, which is a decision-correctness problem, not polish.
+  `resolve list --preview` returns a bounded look at each variant, the
+  detail pane renders it, and "binary, 4.1 MB" is a legitimate answer —
+  two variants labelled only "binary" are not a choice
 
 ## Next Task
 

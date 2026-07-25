@@ -292,7 +292,14 @@ fn run(terminal: &mut ratatui::DefaultTerminal, trace: &mut trace::Trace) -> Res
                 // `resolve list` may fetch a bundle's tree (batch 16.1),
                 // so it runs on the worker like any other remote verb —
                 // the event loop never blocks (arch 15 §3).
-                let argv = vec!["resolve".into(), "list".into(), target.clone()];
+                // `--preview` so the view can show what it is asking
+                // you to choose between (batch 23.5).
+                let argv = vec![
+                    "resolve".into(),
+                    "list".into(),
+                    target.clone(),
+                    "--preview".into(),
+                ];
                 spawn_verb(&mut app, &tx, &session, argv, Intent::Resolution(target));
             }
             Some(Action::ApplyResolution) => {
@@ -466,14 +473,41 @@ fn enter_resolution(app: &mut App, target: String, result: anyhow::Result<serde_
         Ok(value) => value,
         Err(err) => return app.record_result(Err(err)),
     };
-    let mut paths: Vec<(String, Vec<serde_json::Value>)> = value
-        .as_object()
-        .map(|m| {
-            m.iter()
-                .map(|(k, v)| (k.clone(), v.as_array().cloned().unwrap_or_default()))
-                .collect()
-        })
-        .unwrap_or_default();
+    // `resolve list --preview` wraps each variant as
+    // `{key, source, preview, elided, why}`; the plain form is the bare
+    // key. Both are read here so the view degrades to key-only rather
+    // than to empty if the payload ever arrives without previews.
+    let mut paths: Vec<(String, Vec<serde_json::Value>)> = Vec::new();
+    let mut previews: std::collections::BTreeMap<String, Vec<app::VariantPreview>> =
+        Default::default();
+    for (path, variants) in value.as_object().into_iter().flatten() {
+        let variants = variants.as_array().cloned().unwrap_or_default();
+        let keys: Vec<serde_json::Value> = variants
+            .iter()
+            .map(|v| {
+                if v.get("key").is_some() {
+                    v["key"].clone()
+                } else {
+                    v.clone()
+                }
+            })
+            .collect();
+        if variants.iter().any(|v| v.get("key").is_some()) {
+            previews.insert(
+                path.clone(),
+                variants
+                    .iter()
+                    .map(|v| app::VariantPreview {
+                        source: v["source"].as_str().unwrap_or("?").to_string(),
+                        text: v["preview"].as_str().unwrap_or("").to_string(),
+                        elided: v["elided"].as_bool().unwrap_or(false),
+                        why: v["why"].as_str().unwrap_or("").to_string(),
+                    })
+                    .collect(),
+            );
+        }
+        paths.push((path.clone(), keys));
+    }
     paths.sort_by(|a, b| a.0.cmp(&b.0));
     app.record_result(Ok(serde_json::json!(format!(
         "{} superposed path(s)",
@@ -482,6 +516,7 @@ fn enter_resolution(app: &mut App, target: String, result: anyhow::Result<serde_
     app.resolution = Some(ResolutionState {
         snap_id: target,
         paths,
+        previews,
         decisions: Default::default(),
         selected: 0,
     });
@@ -730,6 +765,14 @@ fn render(frame: &mut Frame, app: &App) {
         View::Resolution => {
             let empty = ResolutionState::default();
             let resolution = app.resolution.as_ref().unwrap_or(&empty);
+            // 65/35 list + detail (spec §6). Batch 23.1 recorded the
+            // flat list as a decision-correctness problem rather than
+            // polish: the screen asked you to choose between two file
+            // contents and showed you neither.
+            let [list_area, detail_area] =
+                Layout::horizontal([Constraint::Percentage(65), Constraint::Percentage(35)])
+                    .areas(body);
+
             let mut items: Vec<ListItem> = resolution
                 .paths
                 .iter()
@@ -754,13 +797,76 @@ fn render(frame: &mut Frame, app: &App) {
             // so they update on every keystroke without a round trip.
             let validation = resolution.validation();
             items.push(ListItem::new(format!(
-                "{} missing, {} invalid of {}   keys: 1-9 pick  0 clear  \
-                 Alt+n next missing  Alt+f next invalid  Enter next/apply",
+                "{} missing, {} invalid of {}",
                 validation.missing,
                 validation.invalid,
                 resolution.paths.len()
             )));
-            frame.render_widget(List::new(items).block(view_block(app)), body);
+            items.push(ListItem::new(
+                "keys: 1-9 pick  0 clear  Alt+n next missing  Alt+f next invalid",
+            ));
+            frame.render_widget(List::new(items).block(view_block(app)), list_area);
+
+            // Detail: the variants for the selected path, numbered to
+            // match the keys that pick them.
+            let mut detail: Vec<Line> = Vec::new();
+            if let Some((path, keys)) = resolution.paths.get(resolution.selected) {
+                let previews = resolution.previews.get(path);
+                let chosen = resolution.decisions.get(path).copied();
+                for (index, key) in keys.iter().enumerate() {
+                    let preview = previews.and_then(|p| p.get(index));
+                    let source = preview
+                        .map(|p| p.source.clone())
+                        .or_else(|| key["source"].as_str().map(str::to_string))
+                        .unwrap_or_else(|| "?".into());
+                    let picked = chosen == Some(index as u32);
+                    detail.push(Line::styled(
+                        format!("{}{} {source}", if picked { "▸ " } else { "  " }, index + 1),
+                        if picked {
+                            Style::default().add_modifier(Modifier::BOLD)
+                        } else {
+                            Style::default()
+                        },
+                    ));
+                    match preview {
+                        Some(preview) if !preview.text.is_empty() => {
+                            for line in preview.text.lines() {
+                                detail.push(Line::raw(format!("    {line}")));
+                            }
+                            if preview.elided {
+                                detail.push(Line::styled(
+                                    "    …",
+                                    Style::default().fg(Color::DarkGray),
+                                ));
+                            }
+                        }
+                        // No text is a fact about the variant, not a
+                        // failure to load one: "binary" and "deleted in
+                        // this variant" are both things you choose
+                        // between (batch 23.5).
+                        Some(preview) => detail.push(Line::styled(
+                            format!("    ({})", preview.why),
+                            Style::default().fg(Color::DarkGray),
+                        )),
+                        None => detail.push(Line::styled(
+                            "    (no preview loaded)",
+                            Style::default().fg(Color::DarkGray),
+                        )),
+                    }
+                    detail.push(Line::raw(""));
+                }
+            }
+            if detail.is_empty() {
+                detail.push(Line::styled(
+                    "no superpositions",
+                    Style::default().fg(Color::DarkGray),
+                ));
+            }
+            frame.render_widget(
+                Paragraph::new(detail)
+                    .block(Block::default().borders(Borders::ALL).title("Variants")),
+                detail_area,
+            );
         }
         View::Inbox => {
             let mut items: Vec<ListItem> = app
@@ -1373,5 +1479,86 @@ mod screen_tests {
             "nothing to say, so say nothing: {text}"
         );
         assert!(text.contains("Enter: history"));
+    }
+
+    fn resolution_app() -> App {
+        let mut app = App::default();
+        app.frames.push(View::Resolution);
+        let key = |source: &str| serde_json::json!({"source": source, "type": "file"});
+        app.resolution = Some(ResolutionState {
+            snap_id: "s".into(),
+            paths: vec![(
+                "docs/plan.md".into(),
+                vec![key("lane-a"), key("lane-b"), key("lane-c")],
+            )],
+            previews: [(
+                "docs/plan.md".to_string(),
+                vec![
+                    app::VariantPreview {
+                        source: "lane-a".into(),
+                        text: "alice's plan\nsecond line".into(),
+                        elided: true,
+                        why: String::new(),
+                    },
+                    app::VariantPreview {
+                        source: "lane-b".into(),
+                        text: String::new(),
+                        elided: false,
+                        why: "binary".into(),
+                    },
+                    app::VariantPreview {
+                        source: "lane-c".into(),
+                        text: String::new(),
+                        elided: false,
+                        why: "deleted in this variant".into(),
+                    },
+                ],
+            )]
+            .into_iter()
+            .collect(),
+            decisions: Default::default(),
+            selected: 0,
+        });
+        app
+    }
+
+    /// Batch 23.1 recorded the flat list as a decision-correctness
+    /// problem: it asked you to choose between file contents and showed
+    /// you none of them.
+    #[test]
+    fn the_resolution_view_shows_what_it_asks_you_to_choose_between() {
+        let text = screen(&resolution_app(), 120, 24).join("\n");
+        assert!(text.contains("docs/plan.md"), "the path is listed: {text}");
+        assert!(
+            text.contains("alice's plan"),
+            "the variant's content is the whole point: {text}"
+        );
+        assert!(
+            text.contains("1 lane-a") && text.contains("2 lane-b"),
+            "variants are numbered to match the keys that pick them: {text}"
+        );
+    }
+
+    /// "Binary" and "deleted" are facts about a variant, not failures to
+    /// load one — a chooser has to be able to pick the deletion.
+    #[test]
+    fn unpreviewable_variants_say_what_they_are() {
+        let text = screen(&resolution_app(), 120, 24).join("\n");
+        assert!(text.contains("(binary)"), "{text}");
+        assert!(text.contains("(deleted in this variant)"), "{text}");
+    }
+
+    #[test]
+    fn the_chosen_variant_is_marked_in_the_detail_pane() {
+        let mut app = resolution_app();
+        app.handle_key(crossterm::event::KeyEvent::new(
+            crossterm::event::KeyCode::Char('2'),
+            crossterm::event::KeyModifiers::NONE,
+        ));
+        let text = screen(&app, 120, 24).join("\n");
+        assert!(
+            text.contains("▸ 2 lane-b"),
+            "the pick should be visible where the variants are: {text}"
+        );
     }
 }

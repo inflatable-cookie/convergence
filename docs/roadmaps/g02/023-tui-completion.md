@@ -1,6 +1,6 @@
 # 023 TUI Completion
 
-Status: in progress (23.1-23.4 complete)
+Status: complete
 Owner: repo maintainers
 Updated: 2026-07-25
 
@@ -70,8 +70,12 @@ how a product accumulates surfaces that each made sense alone.
   the first pass read one that did not exist — so `InboxBundle` now
   carries bounded `contributors`. Driving it caught 23.1's overflow
   finding reintroduced in a new place
-- **23.5 Superposition detail**: the 65/35 split with variant preview,
-  and a reducer test suite for the new panes
+- **23.5 Superposition detail** (complete, card 086): `resolve list
+  --preview` returns a bounded look at each variant, the 65/35 split
+  renders it, and a binary answers with its size rather than nothing.
+  Found that batch 23.4's dashboard recommendation ran `resolve list` as
+  a raw command instead of opening the view — the right mapping existed
+  but was private to the inbox row
 
 ## Exit Criteria
 
@@ -82,6 +86,25 @@ how a product accumulates surfaces that each made sense alone.
 - secrets have a first-class surface with the safety rails the CLI has
 - spec §8's "deferred" list shrinks to items still genuinely waiting
 
+## Outcome
+
+All five exit criteria met. The TUI has been driven by a person, the
+findings are recorded, the surface shrank before it grew, every
+flag-heavy verb has a wizard, secrets have a screen with the CLI's
+safety rails, and spec 002 §8's deferred list is down to items still
+genuinely waiting.
+
+The pattern across the roadmap: **every batch found defects by driving
+the real binary that its own tests could not see.** A capability nobody
+could grant, a token printed twelve characters long, an access token in
+a log file, a hint bar naming the wrong key on six screens, a wizard
+overlay compositing over the view behind it. Reducer tests prove the
+state machine does what it was told; they say nothing about what a
+person sees. The render tests added in 23.2 close that gap for the
+future.
+
 ## Next Task
 
-Batch card 23.5 (superposition detail).
+`g02.022` (ship readiness) is the remaining scheduled roadmap, still
+planned. It is the natural next move: the TUI is now worth putting in
+front of someone, which is what ship readiness is for.
