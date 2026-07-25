@@ -17,7 +17,7 @@
     (closed 2026-07-25).
     Secret substrate program (019-020, opened 2026-07-25): individual
     client-encrypted secrets (019), shared multi-recipient secrets
-    (020). 019 active.
+    (020) — both complete.
 
 - `g01`
   - Status: complete

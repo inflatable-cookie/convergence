@@ -901,3 +901,209 @@ fn value_version_counts_rotations_not_reshares() -> Result<()> {
     assert!(audit.contains("value version 2"), "{audit}");
     Ok(())
 }
+
+/// Batch 20.4: the trap between two correct decisions. Preserving
+/// recipients on rotation (20.3) and leaving a departed member's key in
+/// place (20.2) are each right, and together they re-seal a rotated
+/// credential to someone who has left.
+#[test]
+fn rotating_after_someone_leaves_warns_that_they_are_still_a_recipient() -> Result<()> {
+    let server_dir = tempfile::tempdir()?;
+    let base_url = start_server(server_dir.path())?;
+    let (alice_ws, alice_home) = member(&base_url, "token-a")?;
+    let (bob_ws, bob_home) = member(&base_url, "token-b")?;
+
+    converge_with_stdin(
+        alice_ws.path(),
+        alice_home.path(),
+        &["secret", "set", "deploy-key"],
+        Some("v1"),
+    );
+    converge(
+        alice_ws.path(),
+        alice_home.path(),
+        &["secret", "share", "deploy-key", "--with", "bob"],
+    );
+    converge(
+        alice_ws.path(),
+        alice_home.path(),
+        &["member", "remove", "bob"],
+    );
+
+    // Rotating still works — an operator mid-incident needs the new
+    // value stored — but it says what it just did.
+    let rotated = converge_with_stdin(
+        alice_ws.path(),
+        alice_home.path(),
+        &["secret", "rotate", "deploy-key"],
+        Some("v2"),
+    );
+    assert!(rotated.status.success());
+    let warning = String::from_utf8_lossy(&rotated.stderr);
+    assert!(
+        warning.contains("bob") && warning.contains("left the repo"),
+        "rotation did not warn about the departed recipient: {warning}"
+    );
+    assert!(
+        warning.contains("unshare"),
+        "the warning should name the fix: {warning}"
+    );
+
+    // Bob cannot reach the new value: his grants are gone.
+    let denied = converge(
+        bob_ws.path(),
+        bob_home.path(),
+        &["secret", "get", "deploy-key"],
+    );
+    assert!(
+        !denied.status.success(),
+        "a removed member read a value written after their removal"
+    );
+
+    // After unsharing, the warning stops and bob is off the list.
+    converge(
+        alice_ws.path(),
+        alice_home.path(),
+        &["secret", "unshare", "deploy-key", "--from", "bob"],
+    );
+    let clean = converge_with_stdin(
+        alice_ws.path(),
+        alice_home.path(),
+        &["secret", "rotate", "deploy-key"],
+        Some("v3"),
+    );
+    assert!(
+        !String::from_utf8_lossy(&clean.stderr).contains("left the repo"),
+        "the warning survived the fix: {}",
+        String::from_utf8_lossy(&clean.stderr)
+    );
+    Ok(())
+}
+
+/// A stale recipient cannot sit unnoticed: audit reports it whether or
+/// not anyone has rotated since.
+#[test]
+fn a_stale_recipient_cannot_persist_unnoticed() -> Result<()> {
+    let server_dir = tempfile::tempdir()?;
+    let base_url = start_server(server_dir.path())?;
+    let (alice_ws, alice_home) = member(&base_url, "token-a")?;
+    let (_bob_ws, _bob_home) = member(&base_url, "token-b")?;
+
+    converge_with_stdin(
+        alice_ws.path(),
+        alice_home.path(),
+        &["secret", "set", "deploy-key"],
+        Some("v1"),
+    );
+    converge(
+        alice_ws.path(),
+        alice_home.path(),
+        &["secret", "share", "deploy-key", "--with", "bob"],
+    );
+    converge(
+        alice_ws.path(),
+        alice_home.path(),
+        &["member", "remove", "bob"],
+    );
+
+    for _ in 0..2 {
+        let audit = json_data(&converge(
+            alice_ws.path(),
+            alice_home.path(),
+            &["--json", "secret", "audit"],
+        ));
+        let stale = audit[0]["stale"].as_array().cloned().unwrap_or_default();
+        assert_eq!(
+            stale.len(),
+            1,
+            "the stale recipient vanished from audit: {audit}"
+        );
+        assert_eq!(stale[0]["subject"], "bob");
+
+        // Rotating must not quietly clear the flag: the key is still on
+        // the record until someone unshares.
+        converge_with_stdin(
+            alice_ws.path(),
+            alice_home.path(),
+            &["secret", "rotate", "deploy-key"],
+            Some("rotated"),
+        );
+    }
+    Ok(())
+}
+
+/// Two writers racing: one wins, the other is told to retry, and no
+/// recipient is lost either way.
+#[test]
+fn concurrent_share_and_rotate_cannot_lose_a_recipient() -> Result<()> {
+    let server_dir = tempfile::tempdir()?;
+    let base_url = start_server(server_dir.path())?;
+    let (alice_ws, alice_home) = member(&base_url, "token-a")?;
+    let (bob_ws, bob_home) = member(&base_url, "token-b")?;
+
+    converge_with_stdin(
+        alice_ws.path(),
+        alice_home.path(),
+        &["secret", "set", "deploy-key"],
+        Some("v1"),
+    );
+
+    // Both operations read version 1 and then write. The version guard
+    // means exactly one lands.
+    let share = std::thread::spawn({
+        let ws = alice_ws.path().to_path_buf();
+        let home = alice_home.path().to_path_buf();
+        move || {
+            converge(
+                &ws,
+                &home,
+                &["secret", "share", "deploy-key", "--with", "bob"],
+            )
+        }
+    });
+    let rotate = {
+        let ws = alice_ws.path().to_path_buf();
+        let home = alice_home.path().to_path_buf();
+        converge_with_stdin(&ws, &home, &["secret", "rotate", "deploy-key"], Some("v2"))
+    };
+    let share = share.join().expect("share thread");
+
+    let winners = [share.status.success(), rotate.status.success()]
+        .iter()
+        .filter(|ok| **ok)
+        .count();
+    assert!(winners >= 1, "both writers failed");
+
+    // Whatever happened, the secret is intact and readable by its owner.
+    let got = converge(
+        alice_ws.path(),
+        alice_home.path(),
+        &["secret", "get", "deploy-key"],
+    );
+    assert!(got.status.success(), "the secret was left unreadable");
+
+    // Re-running the loser lands cleanly, and bob ends up a recipient
+    // with the current value — nothing was lost, only retried.
+    converge(
+        alice_ws.path(),
+        alice_home.path(),
+        &["secret", "share", "deploy-key", "--with", "bob"],
+    );
+    let bob_got = converge(
+        bob_ws.path(),
+        bob_home.path(),
+        &["secret", "get", "deploy-key"],
+    );
+    assert!(
+        bob_got.status.success(),
+        "bob could not read after the retry: {}",
+        String::from_utf8_lossy(&bob_got.stderr)
+    );
+    let owner_value = String::from_utf8_lossy(&got.stdout).trim_end().to_string();
+    assert_eq!(
+        String::from_utf8_lossy(&bob_got.stdout).trim_end(),
+        owner_value,
+        "owner and recipient see different values"
+    );
+    Ok(())
+}

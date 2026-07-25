@@ -1,6 +1,6 @@
 # 020 Shared Secrets
 
-Status: in progress (20.1-20.3 complete)
+Status: complete
 Owner: repo maintainers
 Updated: 2026-07-25
 
@@ -39,11 +39,14 @@ recipients — the substrate has to exist first.
   own keys, silently unsharing everyone else on every update.
   `value_version` separates a rotation from a re-share so an audit can
   answer "when did this credential last change?"
-- **20.4 Adversarial**: a removed member cannot read the next version;
-  a stale recipient list cannot silently persist; concurrent share and
-  rotate do not lose a recipient
+- **20.4 Adversarial** (complete, card 077): a removed member cannot
+  read a later version; a stale recipient survives rotation and keeps
+  showing in audit; concurrent share and rotate conflict rather than
+  losing a recipient. Closed the trap between 20.2 and 20.3 — a rotation
+  re-seals to someone who has left, so the write now warns and names
+  them
 
-## Exit Criteria
+## Exit Criteria (all met)
 
 - a team credential is readable by exactly its current recipients
 - no interface describes recipient removal as revoking access
@@ -52,4 +55,5 @@ recipients — the substrate has to exist first.
 
 ## Next Task
 
-Batch card 20.4 (adversarial).
+Roadmap complete, and with it the secret substrate program
+`g02.019`-`g02.020`.

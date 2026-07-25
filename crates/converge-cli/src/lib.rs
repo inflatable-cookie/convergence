@@ -2382,12 +2382,53 @@ fn write_value(
         }
     };
 
+    // Preserving recipients is right (20.3) and leaving a departed
+    // member's key on a secret is right (20.2) — but together they mean
+    // a rotation re-seals the new value to someone who has left. They
+    // cannot fetch it while their grants are gone; re-adding them later
+    // would hand them everything rotated in between. Say so here, where
+    // the person can act on it.
+    warn_about_departed_recipients(client, repo_id, &key_ids)?;
+
     let ciphertext = converge_client::identity::seal(&recipients, value.as_bytes())?;
     // Read-modify-write against the version guard from 19.2: if someone
     // else wrote while we were typing, this is refused rather than
     // erasing them.
     let current = existing.map(|record| record.version).unwrap_or(0);
     client.write_secret(repo_id, name, &ciphertext, &key_ids, current, true)
+}
+
+/// Warn when a preserved recipient list still seals to people who have
+/// left the repo.
+///
+/// A warning rather than a refusal: someone rotating mid-incident needs
+/// the new value stored, and a hard stop would send them to a worse
+/// workaround. Written to stderr so `--json` output stays parseable.
+fn warn_about_departed_recipients(
+    client: &converge_client::remote::RemoteClient,
+    repo_id: &str,
+    key_ids: &[String],
+) -> Result<()> {
+    let members = client.list_members(repo_id)?;
+    let keys = client.list_keys(repo_id)?;
+    let mut departed: Vec<String> = key_ids
+        .iter()
+        .filter_map(|key_id| keys.iter().find(|k| &k.key_id == key_id))
+        .filter(|key| !members.iter().any(|m| m.subject == key.subject))
+        .map(|key| key.subject.clone())
+        .collect();
+    departed.sort();
+    departed.dedup();
+    if departed.is_empty() {
+        return Ok(());
+    }
+    eprintln!(
+        "warning: this secret is still sealed to {}, who left the repo.",
+        departed.join(", ")
+    );
+    eprintln!("  They cannot reach the server now, but would regain this value if");
+    eprintln!("  re-added. To close that: converge secret unshare <name> --from <subject>");
+    Ok(())
 }
 
 /// Re-seal a secret to a changed recipient set (batch 20.1).

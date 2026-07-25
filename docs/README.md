@@ -50,7 +50,8 @@ prefers `cargo nextest` when it is available on the machine.
 
 The audit hardening program `g02.011`-`g02.018` is open (findings
 record: `logs/2026-07/24-180000-audit-findings-and-hardening-program.md`).
-The audit-hardening program `g02.011`-`g02.018` is complete. `g02.019`
-secret substrate is complete. Active roadmap: `g02.020` shared secrets.
-Threat model: `architecture/19-secrets-and-key-management.md`; usage:
+The audit-hardening program `g02.011`-`g02.018` is complete. The secret substrate
+program `g02.019`-`g02.020` is complete. No active roadmap; next
+planning move is reviewing `roadmaps/backlog/`. Threat model:
+`architecture/19-secrets-and-key-management.md`; usage:
 `guides/003-secrets.md`.

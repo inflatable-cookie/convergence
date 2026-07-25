@@ -150,8 +150,19 @@ Convergence therefore:
 - refuses to describe recipient removal as "revoking access", in output
   or docs
 - prompts, on removal, that the underlying credential should be rotated
-- records `version` and `updated_by` so an audit can tell when a secret
-  last actually changed, as opposed to when its recipient list did
+- records `value_version` and `value_updated_at` alongside `version`, so
+  an audit can tell when a secret's *value* last changed as opposed to
+  when its recipient list did. The client declares which it did; the
+  server cannot tell, because a re-seal produces different ciphertext
+  whatever the plaintext was
+- **warns when a write re-seals to someone who has left.** Preserving
+  recipients on a rotation is right, and leaving a departed member's key
+  on the record is right — the server cannot re-seal — but together they
+  mean a rotated credential is sealed to someone outside the repo. They
+  cannot fetch it while their grants are gone; re-adding them later
+  would hand them everything rotated in between. So the write warns and
+  names them rather than refusing: an operator mid-incident needs the
+  new value stored, and a hard stop sends them to a worse workaround
 
 ## 7. Server obligations
 
