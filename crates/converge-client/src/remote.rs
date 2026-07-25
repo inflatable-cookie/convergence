@@ -561,6 +561,29 @@ impl RemoteClient {
         Ok(())
     }
 
+    /// Issue a token for the calling subject, narrower than they are.
+    pub fn issue_token(
+        &self,
+        repo_id: &str,
+        label: &str,
+        capabilities: &[String],
+        expires_in_days: Option<u32>,
+    ) -> Result<crate::model::TokenIssued> {
+        let response = Self::check(
+            self.http
+                .post(self.url(&format!("/api/repos/{repo_id}/tokens")))
+                .bearer_auth(&self.token)
+                .json(&crate::model::IssueTokenRequest {
+                    label: label.into(),
+                    capabilities: capabilities.to_vec(),
+                    expires_in_days,
+                })
+                .send()
+                .context("issue token")?,
+        )?;
+        response.json().context("parse issued token")
+    }
+
     pub fn list_tokens(&self, repo_id: &str) -> Result<Vec<crate::model::TokenRecord>> {
         let response = Self::check(
             self.http

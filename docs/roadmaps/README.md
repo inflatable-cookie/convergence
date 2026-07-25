@@ -39,7 +39,7 @@ records the closed state.
 - Scheduled 2026-07-25: `g02.021` real identity, then `g02.023` TUI
   completion (opening with a simplification sweep). `g02.022` ship
   readiness planned but unscheduled; `g02.024` and `g02.025` parked.
-- next: batch card 21.2 (capability-scoped tokens)
+- next: batch card 21.3 (identity provider seam)
 
 ## Rollover guardrail
 

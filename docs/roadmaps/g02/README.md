@@ -55,7 +55,7 @@ it and removes things before anything new is added.
 - [`018-adversarial-test-hardening.md`](./018-adversarial-test-hardening.md) — complete
 - [`019-secret-substrate.md`](./019-secret-substrate.md) — complete
 - [`020-shared-secrets.md`](./020-shared-secrets.md) — complete
-- [`021-real-identity.md`](./021-real-identity.md) — in progress (21.1 complete)
+- [`021-real-identity.md`](./021-real-identity.md) — in progress (21.1-21.2 complete)
 - [`022-ship-readiness.md`](./022-ship-readiness.md) — planned (unscheduled)
 - [`023-tui-completion.md`](./023-tui-completion.md) — scheduled after `g02.021`
 - [`024-workflow-profiles.md`](./024-workflow-profiles.md) — parked (needs a design partner)
@@ -63,4 +63,4 @@ it and removes things before anything new is added.
 
 ## Next Task
 
-Open batch card 21.2 (capability-scoped tokens) under `g02.021`.
+Open batch card 21.3 (identity provider seam) under `g02.021`.

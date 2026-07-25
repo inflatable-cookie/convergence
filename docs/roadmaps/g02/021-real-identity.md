@@ -1,6 +1,6 @@
 # 021 Real Identity
 
-Status: in progress (21.1 complete)
+Status: in progress (21.1-21.2 complete)
 Owner: repo maintainers
 Updated: 2026-07-25
 
@@ -37,10 +37,10 @@ password that happens to be long.
   authentication with distinct messages; `converge token list|revoke`;
   90-day default lifetime. Found and fixed a 19.4 regression where two
   workspaces on one machine shared one credential
-- **21.2 Capability-scoped tokens**: a token carries a subset of its
-  subject's grants, so a CI token can publish and never read secrets.
-  This is the batch that makes doc 19 §10a's agent identity a one-line
-  operation rather than a second subject
+- **21.2 Capability-scoped tokens** (complete, card 079): `converge
+  token issue --capability …`; scope checked before the grant and with
+  the same implication rules `authorize` uses; issuing cannot widen. A
+  token held by a full admin can publish and cannot read a secret
 - **21.3 Identity provider seam**: OIDC device-code login populating
   subjects and group membership, with the static token map kept as the
   offline path; `converge login` gains a browser flow
@@ -59,4 +59,4 @@ password that happens to be long.
 
 ## Next Task
 
-Open batch card 21.2 (capability-scoped tokens).
+Open batch card 21.3 (identity provider seam).

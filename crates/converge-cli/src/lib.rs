@@ -466,6 +466,19 @@ enum ScopeCommand {
 
 #[derive(Subcommand)]
 enum TokenCommand {
+    /// Issue a token for yourself, narrower than you are.
+    ///
+    /// This is how an agent or a CI job gets a credential that cannot
+    /// reach your secrets, without needing its own account.
+    Issue {
+        #[arg(long)]
+        label: String,
+        /// Capability the token may exercise; repeatable, required.
+        #[arg(long = "capability", value_name = "CAP", required = true)]
+        capabilities: Vec<String>,
+        #[arg(long)]
+        expires_in_days: Option<u32>,
+    },
     /// Tokens issued in this repo. Never shows a token.
     List,
     /// Revoke a token by its short id.
@@ -1799,6 +1812,31 @@ fn run(cli: &Cli, mode: OutputMode, session: &Session) -> Result<serde_json::Val
             let ws = session.workspace()?;
             let (client, remote) = remote_client(session, &ws, mode)?;
             match command {
+                TokenCommand::Issue {
+                    label,
+                    capabilities,
+                    expires_in_days,
+                } => {
+                    let issued = client.issue_token(
+                        &remote.repo_id,
+                        label,
+                        capabilities,
+                        *expires_in_days,
+                    )?;
+                    emit(mode, issued, |i| {
+                        println!("token (shown once): {}", i.token);
+                        println!(
+                            "  id {}  scope: {}",
+                            i.record.token_id,
+                            i.record.capabilities.join(", ")
+                        );
+                        if i.record.expires_at.is_empty() {
+                            println!("  never expires");
+                        } else {
+                            println!("  expires {}", i.record.expires_at);
+                        }
+                    })
+                }
                 TokenCommand::List => {
                     let tokens = client.list_tokens(&remote.repo_id)?;
                     emit(mode, tokens, |tokens| {
@@ -1806,6 +1844,11 @@ fn run(cli: &Cli, mode: OutputMode, session: &Session) -> Result<serde_json::Val
                             println!("no tokens issued in this repo");
                         }
                         for token in tokens {
+                            let scope = if token.capabilities.is_empty() {
+                                "full".to_string()
+                            } else {
+                                token.capabilities.join("+")
+                            };
                             let state = if !token.revoked_at.is_empty() {
                                 format!("revoked {} ({})", token.revoked_at, token.revoked_reason)
                             } else if token.expires_at.is_empty() {
@@ -1814,7 +1857,7 @@ fn run(cli: &Cli, mode: OutputMode, session: &Session) -> Result<serde_json::Val
                                 format!("expires {}", token.expires_at)
                             };
                             println!(
-                                "{}  {}  {}  last used {}",
+                                "{}  {}  [{scope}]  {}  last used {}",
                                 token.token_id,
                                 token.subject,
                                 state,

@@ -69,6 +69,20 @@ impl AuthzContext {
     }
 }
 
+/// Capabilities that satisfy a request for `capability`.
+///
+/// Implication is minimal and explicit (arch 14 §4): publish subsumes
+/// snap-sync; admin subsumes everything; nothing else implies. Shared
+/// with token scoping (batch 21.2) so a scope cannot disagree with a
+/// grant about what implies what.
+pub fn satisfying_capabilities(capability: Capability) -> Vec<Capability> {
+    let mut satisfying = vec![capability, Capability::Admin];
+    if capability == Capability::SnapSync {
+        satisfying.push(Capability::Publish);
+    }
+    satisfying
+}
+
 pub fn authorize(
     meta: &dyn MetadataStore,
     subject: &str,
@@ -76,12 +90,7 @@ pub fn authorize(
     scope_id: &str,
     capability: Capability,
 ) -> Result<AuthzContext> {
-    // Implication is minimal and explicit (arch 14 §4): publish subsumes
-    // snap-sync; admin subsumes everything; nothing else implies.
-    let mut satisfying = vec![capability, Capability::Admin];
-    if capability == Capability::SnapSync {
-        satisfying.push(Capability::Publish);
-    }
+    let satisfying = satisfying_capabilities(capability);
     let mut granted = false;
     for candidate in satisfying {
         if meta.has_grant(subject, repo_id, scope_id, candidate.as_str())? {

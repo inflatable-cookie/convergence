@@ -356,3 +356,143 @@ fn two_workspaces_on_one_machine_keep_separate_logins() -> Result<()> {
     );
     Ok(())
 }
+
+/// Batch 21.2: the agent story as one command.
+///
+/// A scoped token does exactly what its scope allows, even though its
+/// subject is a full admin — which is the whole point: doc 19 §10a's
+/// advice stops needing a second account.
+#[test]
+fn a_scoped_token_is_narrower_than_the_person_holding_it() -> Result<()> {
+    let server_dir = tempfile::tempdir()?;
+    let (base_url, admin_token) = start_bare_server(server_dir.path())?;
+    let admin_dir = tempfile::tempdir()?;
+    let admin = admin_dir.path();
+    assert!(converge(admin, &["init"]).status.success());
+    assert!(
+        login(admin, &base_url, &admin_token, "acme")
+            .status
+            .success()
+    );
+    json_data(&converge(admin, &["--json", "repo", "create"]));
+
+    // root is an admin who can reach secrets.
+    assert!(
+        converge(admin, &["--json", "secret", "list"])
+            .status
+            .success(),
+        "the admin should be able to list secrets"
+    );
+
+    // A token for the same person, scoped to read and publish.
+    let issued = json_data(&converge(
+        admin,
+        &[
+            "--json",
+            "token",
+            "issue",
+            "--label",
+            "build agent",
+            "--capability",
+            "read",
+            "--capability",
+            "publish",
+        ],
+    ));
+    let agent_token = issued["token"].as_str().expect("token").to_string();
+    assert_eq!(
+        issued["record"]["subject"], "root",
+        "a scoped token belongs to the person who issued it"
+    );
+
+    let agent_dir = tempfile::tempdir()?;
+    let agent = agent_dir.path();
+    assert!(converge(agent, &["init"]).status.success());
+    assert!(
+        login(agent, &base_url, &agent_token, "acme")
+            .status
+            .success()
+    );
+
+    // In scope: it can do the work.
+    std::fs::write(agent.join("build.txt"), "output")?;
+    converge(agent, &["snap", "-m", "build"]);
+    assert!(
+        converge(agent, &["publish"]).status.success(),
+        "a token scoped to publish could not publish"
+    );
+
+    // In scope but precise: listing needs only `read` (batch 19.2), so
+    // the agent can still see that secrets exist.
+    assert!(
+        converge(agent, &["--json", "secret", "list"])
+            .status
+            .success(),
+        "the scope should still permit what `read` covers"
+    );
+
+    // Out of scope: reading one needs `secret`, which root holds and
+    // this token does not. Authorization runs before the lookup, so the
+    // name does not have to exist for the refusal to be the right one.
+    let denied = converge(agent, &["--json", "secret", "get", "anything"]);
+    assert!(
+        !denied.status.success(),
+        "a scoped token reached secrets its scope excludes"
+    );
+    let message = String::from_utf8_lossy(&denied.stdout).to_lowercase()
+        + &String::from_utf8_lossy(&denied.stderr).to_lowercase();
+    assert!(
+        message.contains("scoped to"),
+        "the refusal should name the scope rather than the grant: {message}"
+    );
+
+    // The same call as the unscoped admin fails differently: no such
+    // secret, rather than not allowed.
+    let admin_miss = converge(admin, &["--json", "secret", "get", "anything"]);
+    let admin_message = String::from_utf8_lossy(&admin_miss.stdout).to_lowercase();
+    assert!(
+        !admin_message.contains("scoped to"),
+        "the admin's own token should not be scope-limited: {admin_message}"
+    );
+
+    // Admin verbs too, even though the subject is an admin.
+    assert!(
+        !converge(agent, &["--json", "token", "list"])
+            .status
+            .success(),
+        "a scoped token exercised admin"
+    );
+
+    // And it cannot mint itself something wider.
+    let escalation = converge(
+        agent,
+        &[
+            "--json",
+            "token",
+            "issue",
+            "--label",
+            "wider",
+            "--capability",
+            "admin",
+        ],
+    );
+    assert!(
+        !escalation.status.success(),
+        "a scoped token issued a wider one"
+    );
+
+    // The listing shows the scope, so an operator can see what exists.
+    let tokens = json_data(&converge(admin, &["--json", "token", "list"]));
+    let scoped = tokens
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|t| t["label"] == "build agent")
+        .expect("the scoped token is listed");
+    assert_eq!(
+        scoped["capabilities"].as_array().map(Vec::len),
+        Some(2),
+        "the listing should show the scope: {scoped}"
+    );
+    Ok(())
+}

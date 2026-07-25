@@ -63,7 +63,10 @@ pub fn router(state: AppState) -> Router {
         )
         .route("/api/repos/:repo/members/:subject", delete(remove_member))
         .route("/api/repos/:repo/keys", post(register_key).get(list_keys))
-        .route("/api/repos/:repo/tokens", get(list_tokens))
+        .route(
+            "/api/repos/:repo/tokens",
+            post(issue_token).get(list_tokens),
+        )
         .route(
             "/api/repos/:repo/tokens/:token_id/revoke",
             post(revoke_token),
@@ -121,6 +124,54 @@ fn forbidden(msg: impl Into<String>) -> ApiError {
 fn internal_error(err: anyhow::Error) -> ApiError {
     eprintln!("internal error: {err:#}");
     ApiError(StatusCode::INTERNAL_SERVER_ERROR, "internal error".into())
+}
+
+/// Who is calling, and how narrow their credential is (batch 21.2).
+#[derive(Clone, Debug)]
+struct Caller {
+    subject: String,
+    /// Empty means unscoped: the subject's full set.
+    scope: Vec<String>,
+}
+
+impl Caller {
+    /// Does this credential permit `capability`?
+    ///
+    /// Checked with the same implication rules `authorize` uses, so a
+    /// scope cannot disagree with a grant about what implies what — a
+    /// token scoped to `admin` really is total, and one scoped to
+    /// `publish` really does cover snap-sync.
+    fn permits(&self, capability: Capability) -> bool {
+        if self.scope.is_empty() {
+            return true;
+        }
+        crate::authz::satisfying_capabilities(capability)
+            .iter()
+            .any(|c| self.scope.iter().any(|held| held == c.as_str()))
+    }
+}
+
+fn caller(state: &AppState, headers: &HeaderMap) -> Result<Caller, ApiError> {
+    let token = headers
+        .get("authorization")
+        .and_then(|v| v.to_str().ok())
+        .and_then(|v| v.strip_prefix("Bearer "))
+        .ok_or_else(|| ApiError(StatusCode::UNAUTHORIZED, "missing bearer token".into()))?;
+    if let Some(subject) = state.tokens.get(token) {
+        return Ok(Caller {
+            subject: subject.clone(),
+            scope: Vec::new(),
+        });
+    }
+    let record = state
+        .meta
+        .token_by_hash(&token_hash(token))
+        .map_err(internal_error)?;
+    let subject = subject(state, headers)?;
+    Ok(Caller {
+        subject,
+        scope: record.map(|r| r.capabilities).unwrap_or_default(),
+    })
 }
 
 fn subject(state: &AppState, headers: &HeaderMap) -> Result<String, ApiError> {
@@ -243,8 +294,18 @@ fn authorize_repo(
     repo: &str,
     capability: Capability,
 ) -> Result<AuthzContext, ApiError> {
-    let subject = subject(state, headers)?;
-    authorize(state.meta.as_ref(), &subject, repo, "*", capability)
+    let caller = caller(state, headers)?;
+    // Scope before grant (batch 21.2): a narrow token must be refused
+    // even when its subject would be allowed, and the refusal should say
+    // which of the two it was.
+    if !caller.permits(capability) {
+        return Err(forbidden(format!(
+            "this token is scoped to {} and does not carry {}",
+            caller.scope.join(", "),
+            capability.as_str()
+        )));
+    }
+    authorize(state.meta.as_ref(), &caller.subject, repo, "*", capability)
         .map_err(|err| forbidden(format!("{err:#}")))
 }
 
@@ -656,6 +717,7 @@ async fn add_member(
             revoked_at: String::new(),
             revoked_by: String::new(),
             revoked_reason: String::new(),
+            capabilities: Vec::new(),
         };
         state
             .meta
@@ -941,6 +1003,107 @@ fn validate_secret_name(name: &str) -> Result<(), ApiError> {
 
 /// Default lifetime for an issued token (batch 21.1).
 const DEFAULT_TOKEN_DAYS: u32 = 90;
+
+/// Issue a token for the calling subject, optionally narrower than they
+/// are (batch 21.2).
+///
+/// This is what makes doc 19 §10a a single command: an agent gets a
+/// credential that cannot reach secrets, without needing a second
+/// subject, its own membership, and its own lane.
+async fn issue_token(
+    State(state): State<SharedState>,
+    Path(repo): Path<String>,
+    headers: HeaderMap,
+    Json(request): Json<converge_model::IssueTokenRequest>,
+) -> Result<Json<converge_model::TokenIssued>, ApiError> {
+    let caller = caller(&state, &headers)?;
+    // Any member may mint a credential for themselves; narrowing is the
+    // only thing on offer.
+    authorize(
+        state.meta.as_ref(),
+        &caller.subject,
+        &repo,
+        "*",
+        Capability::Read,
+    )
+    .map_err(|err| forbidden(format!("{err:#}")))?;
+
+    let mut capabilities = Vec::new();
+    for name in &request.capabilities {
+        let capability = parse_capability(name)?;
+        // Issuing must not widen. Both halves matter: the caller's own
+        // token cannot mint past its scope, and no one can mint past
+        // their grants.
+        if !caller.permits(capability) {
+            return Err(forbidden(format!(
+                "your token does not carry {name}, so it cannot issue one that does"
+            )));
+        }
+        authorize(state.meta.as_ref(), &caller.subject, &repo, "*", capability)
+            .map_err(|_| forbidden(format!("you do not hold {name} in this repo")))?;
+        capabilities.push(capability.as_str().to_string());
+    }
+    if capabilities.is_empty() {
+        return Err(bad_request(
+            "name at least one capability; an unscoped token is what `member add` issues",
+        ));
+    }
+
+    let token = mint_token()?;
+    let hash = token_hash(&token);
+    let now = time::OffsetDateTime::now_utc();
+    let days = request.expires_in_days.unwrap_or(DEFAULT_TOKEN_DAYS);
+    let expires_at = if days == 0 {
+        String::new()
+    } else {
+        (now + time::Duration::days(days as i64))
+            .format(&time::format_description::well_known::Rfc3339)
+            .map_err(|err| internal_error(anyhow::anyhow!("format expiry: {err}")))?
+    };
+    let record = converge_model::TokenRecord {
+        token_id: hash.chars().take(12).collect(),
+        subject: caller.subject.clone(),
+        label: request.label,
+        issued_at: now_rfc3339()?,
+        issued_by: caller.subject.clone(),
+        repo_id: repo.clone(),
+        expires_at,
+        last_used_at: String::new(),
+        revoked_at: String::new(),
+        revoked_by: String::new(),
+        revoked_reason: String::new(),
+        capabilities,
+    };
+    state
+        .meta
+        .create_token_record(&hash, &record)
+        .map_err(internal_error)?;
+    let _ = state.meta.add_event(
+        &repo,
+        "token.issued",
+        &format!("{}/{}", record.subject, record.token_id),
+        &record.issued_at,
+    );
+    Ok(Json(converge_model::TokenIssued { token, record }))
+}
+
+fn parse_capability(name: &str) -> Result<Capability, ApiError> {
+    let known = [
+        Capability::Read,
+        Capability::SnapSync,
+        Capability::Publish,
+        Capability::Resolve,
+        Capability::Approve,
+        Capability::Promote,
+        Capability::Release,
+        Capability::Secret,
+        Capability::Admin,
+    ];
+    known
+        .into_iter()
+        .find(|c| c.as_str() == name)
+        .ok_or_else(|| bad_request(format!("unknown capability {name}")))
+}
 
 /// Tokens issued in this repo, as facts rather than credentials.
 async fn list_tokens(

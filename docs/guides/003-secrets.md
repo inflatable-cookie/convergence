@@ -16,12 +16,23 @@ how secrets are delivered — it is **who the agent is**. An agent running
 under your credentials can run `converge secret get` exactly as you can.
 
 ```bash
+converge token issue --label "build agent" --capability read --capability publish
+```
+
+That is a token for *you*, scoped narrower than you are: it can publish
+and cannot touch a secret, even though you can. No second account, no
+separate membership.
+
+Give an agent its own subject instead when it should outlive a single
+job and own its work:
+
+```bash
 converge member add my-agent --capability read --capability publish --issue-token
 ```
 
-No `secret` capability, so no amount of exploring reaches a credential:
-the server refuses. That is a boundary you can verify, rather than a
-habit that has to hold.
+Either way there is no `secret` capability, so no amount of exploring
+reaches a credential — the server refuses. That is a boundary you can
+verify, rather than a habit that has to hold.
 
 ## 1. Make a key
 

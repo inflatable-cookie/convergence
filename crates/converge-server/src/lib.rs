@@ -12,7 +12,7 @@ pub mod object_s3;
 pub mod retention;
 pub mod storage;
 
-pub use authz::{AuthzContext, Capability, authorize};
+pub use authz::{AuthzContext, Capability, authorize, satisfying_capabilities};
 pub use engine::{Engine, PublishInput};
 pub use gc::GcReport;
 pub use http::mint_admin_token;

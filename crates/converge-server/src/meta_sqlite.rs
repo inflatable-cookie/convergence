@@ -59,7 +59,8 @@ impl SqliteMetadataStore {
                 last_used_at TEXT NOT NULL DEFAULT '',
                 revoked_at TEXT NOT NULL DEFAULT '',
                 revoked_by TEXT NOT NULL DEFAULT '',
-                revoked_reason TEXT NOT NULL DEFAULT ''
+                revoked_reason TEXT NOT NULL DEFAULT '',
+                capabilities_json TEXT NOT NULL DEFAULT '[]'
             );
             CREATE TABLE IF NOT EXISTS secrets (
                 repo_id TEXT NOT NULL,
@@ -307,8 +308,9 @@ impl MetadataStore for SqliteMetadataStore {
         conn.execute(
             "INSERT OR REPLACE INTO tokens
              (token_hash, subject, token_id, label, issued_at, issued_by, repo_id,
-              expires_at, last_used_at, revoked_at, revoked_by, revoked_reason)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, '', '', '', '')",
+              expires_at, last_used_at, revoked_at, revoked_by, revoked_reason,
+              capabilities_json)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, '', '', '', '', ?9)",
             params![
                 token_hash,
                 record.subject,
@@ -317,7 +319,8 @@ impl MetadataStore for SqliteMetadataStore {
                 record.issued_at,
                 record.issued_by,
                 record.repo_id,
-                record.expires_at
+                record.expires_at,
+                serde_json::to_string(&record.capabilities).unwrap_or_else(|_| "[]".into())
             ],
         )?;
         Ok(())
@@ -327,7 +330,7 @@ impl MetadataStore for SqliteMetadataStore {
         let conn = self.conn.lock().expect("meta lock");
         let mut stmt = conn.prepare(
             "SELECT token_id, subject, label, issued_at, issued_by, repo_id, expires_at,
-                    last_used_at, revoked_at, revoked_by, revoked_reason
+                    last_used_at, revoked_at, revoked_by, revoked_reason, capabilities_json
              FROM tokens WHERE token_hash = ?1",
         )?;
         let mut rows = stmt.query(params![token_hash])?;
@@ -341,7 +344,7 @@ impl MetadataStore for SqliteMetadataStore {
         let conn = self.conn.lock().expect("meta lock");
         let mut stmt = conn.prepare(
             "SELECT token_id, subject, label, issued_at, issued_by, repo_id, expires_at,
-                    last_used_at, revoked_at, revoked_by, revoked_reason
+                    last_used_at, revoked_at, revoked_by, revoked_reason, capabilities_json
              FROM tokens WHERE repo_id = ?1 ORDER BY subject, issued_at",
         )?;
         let rows = stmt.query_map(params![repo_id], |row| {
@@ -369,7 +372,7 @@ impl MetadataStore for SqliteMetadataStore {
         }
         let mut stmt = conn.prepare(
             "SELECT token_id, subject, label, issued_at, issued_by, repo_id, expires_at,
-                    last_used_at, revoked_at, revoked_by, revoked_reason
+                    last_used_at, revoked_at, revoked_by, revoked_reason, capabilities_json
              FROM tokens WHERE token_id = ?1",
         )?;
         let mut rows = stmt.query(params![token_id])?;
@@ -1492,6 +1495,8 @@ fn token_from_row(row: &rusqlite::Row) -> anyhow::Result<converge_model::TokenRe
         revoked_at: row.get(8)?,
         revoked_by: row.get(9)?,
         revoked_reason: row.get(10)?,
+        capabilities: serde_json::from_str::<Vec<String>>(&row.get::<_, String>(11)?)
+            .unwrap_or_default(),
     })
 }
 

@@ -197,6 +197,27 @@ pub struct TokenRecord {
     pub revoked_at: String,
     pub revoked_by: String,
     pub revoked_reason: String,
+    /// Capabilities this token may exercise. Empty means "whatever the
+    /// subject holds" — the original behaviour, and still the default.
+    #[serde(default)]
+    pub capabilities: Vec<String>,
+}
+
+/// Issue a token for the calling subject, optionally narrower than they
+/// are (g02.021 batch 21.2).
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct IssueTokenRequest {
+    pub label: String,
+    /// Empty means the subject's full set.
+    pub capabilities: Vec<String>,
+    pub expires_in_days: Option<u32>,
+}
+
+/// A freshly issued token. `token` is present exactly once.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct TokenIssued {
+    pub token: String,
+    pub record: TokenRecord,
 }
 
 /// Register a public key for the calling subject (g02.019 batch 19.1).

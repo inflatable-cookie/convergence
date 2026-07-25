@@ -43,7 +43,8 @@ impl PostgresMetadataStore {
                 last_used_at TEXT NOT NULL DEFAULT '',
                 revoked_at TEXT NOT NULL DEFAULT '',
                 revoked_by TEXT NOT NULL DEFAULT '',
-                revoked_reason TEXT NOT NULL DEFAULT ''
+                revoked_reason TEXT NOT NULL DEFAULT '',
+                capabilities_json TEXT NOT NULL DEFAULT '[]'
             );
             CREATE TABLE IF NOT EXISTS secrets (
                 repo_id TEXT NOT NULL,
@@ -241,8 +242,9 @@ impl MetadataStore for PostgresMetadataStore {
         c.execute(
             "INSERT INTO tokens
              (token_hash, subject, token_id, label, issued_at, issued_by, repo_id,
-              expires_at, last_used_at, revoked_at, revoked_by, revoked_reason)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, '', '', '', '')
+              expires_at, last_used_at, revoked_at, revoked_by, revoked_reason,
+              capabilities_json)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, '', '', '', '', $9)
              ON CONFLICT (token_hash) DO UPDATE SET
                subject = EXCLUDED.subject,
                token_id = EXCLUDED.token_id,
@@ -250,7 +252,8 @@ impl MetadataStore for PostgresMetadataStore {
                issued_at = EXCLUDED.issued_at,
                issued_by = EXCLUDED.issued_by,
                repo_id = EXCLUDED.repo_id,
-               expires_at = EXCLUDED.expires_at",
+               expires_at = EXCLUDED.expires_at,
+               capabilities_json = EXCLUDED.capabilities_json",
             &[
                 &token_hash,
                 &record.subject,
@@ -260,6 +263,7 @@ impl MetadataStore for PostgresMetadataStore {
                 &record.issued_by,
                 &record.repo_id,
                 &record.expires_at,
+                &serde_json::to_string(&record.capabilities).unwrap_or_else(|_| "[]".into()),
             ],
         )?;
         Ok(())
@@ -269,7 +273,7 @@ impl MetadataStore for PostgresMetadataStore {
         let mut c = self.client.lock().expect("pg lock");
         let rows = c.query(
             "SELECT token_id, subject, label, issued_at, issued_by, repo_id, expires_at,
-                    last_used_at, revoked_at, revoked_by, revoked_reason
+                    last_used_at, revoked_at, revoked_by, revoked_reason, capabilities_json
              FROM tokens WHERE token_hash = $1",
             &[&token_hash],
         )?;
@@ -280,7 +284,7 @@ impl MetadataStore for PostgresMetadataStore {
         let mut c = self.client.lock().expect("pg lock");
         let rows = c.query(
             "SELECT token_id, subject, label, issued_at, issued_by, repo_id, expires_at,
-                    last_used_at, revoked_at, revoked_by, revoked_reason
+                    last_used_at, revoked_at, revoked_by, revoked_reason, capabilities_json
              FROM tokens WHERE repo_id = $1 ORDER BY subject, issued_at",
             &[&repo_id],
         )?;
@@ -305,7 +309,7 @@ impl MetadataStore for PostgresMetadataStore {
         }
         let rows = c.query(
             "SELECT token_id, subject, label, issued_at, issued_by, repo_id, expires_at,
-                    last_used_at, revoked_at, revoked_by, revoked_reason
+                    last_used_at, revoked_at, revoked_by, revoked_reason, capabilities_json
              FROM tokens WHERE token_id = $1",
             &[&token_id],
         )?;
@@ -1331,6 +1335,8 @@ fn token_from_pg_row(r: &postgres::Row) -> converge_model::TokenRecord {
         revoked_at: r.get(8),
         revoked_by: r.get(9),
         revoked_reason: r.get(10),
+        capabilities: serde_json::from_str::<Vec<String>>(&r.get::<_, String>(11))
+            .unwrap_or_default(),
     }
 }
 
