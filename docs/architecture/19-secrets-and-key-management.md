@@ -27,7 +27,10 @@ authorization; this doc never weakens it.
   Confidentiality is the claim; durability is a backup question.
 - **a compromised client.** A secret decrypted on your machine is
   plaintext on your machine. Convergence protects storage and transport,
-  not your laptop.
+  not your laptop. The related and more common case — an AI agent
+  working in your repository under your credentials — is answered by
+  giving the agent its own subject without the `secret` capability
+  (§10a), not by anything cryptographic.
 - **metadata.** The server sees the repo, the owner, the secret's
   *name*, its size, and when it changed. Encrypting names is possible
   and deferred (§9) — it costs the ability to list without decrypting.
@@ -175,7 +178,7 @@ The server must not:
 | Snaps, bundles, merge | none — secrets never enter a manifest |
 | Git export | none — nothing to export, by construction |
 | GC (doc 14 §5) | none — secrets are not objects; they have their own retention |
-| Events feed | a `secret.changed` event carrying name and version, never content |
+| Events feed | `secret.changed` and `secret.read` events carrying subject, key, name and version — never content (§10) |
 | `verify` / determinism | untouched — provenance replay never reads a secret |
 | Local token storage | **first customer**: `remote_tokens` in `state.json` is plaintext on disk today, and becomes a locally-encrypted secret |
 
@@ -190,10 +193,90 @@ The server must not:
 - **Server-side re-encryption on membership change.** Impossible by
   design; the client must do it. Named here only so the absence reads as
   a decision rather than an omission.
-- **Secret injection into process environments** (`converge run -- cmd`).
-  Trigger: real use of secrets in automation. Deliberately separate: the
-  moment secrets enter a subprocess environment, the leak surface is
-  process listings and crash dumps, and that deserves its own design.
+- **Convergence as a process supervisor.** `converge run` starts one
+  child with named secrets in its environment and gets out of the way.
+  Restart policy, health checks, and dependency ordering belong to
+  whatever already does that job. Trigger: none expected — this is a
+  boundary, not a backlog item.
+- **Non-environment injection** (file descriptors, named pipes,
+  `systemd` credentials). Trigger: a consuming program that supports one
+  of them. Almost nothing does today, which is why §10 leads with
+  environment injection despite its limits.
+
+## 10. Consumption
+
+Storing a secret is the easy half. This section owns how one reaches the
+process that needs it.
+
+### 10a. The boundary is an identity, not a file format
+
+Most secrets end up in an environment variable eventually, and `.env`
+files are a poor fit for a repository an AI agent works in — an agent
+exploring the tree reads the file, and the credential lands in a model
+context, a transcript, or a commit.
+
+Changing the *delivery format* does not fix that. An agent that can run
+`converge secret get` is exactly as dangerous as one that can read
+`.env`, because it runs as you, with your grants.
+
+What fixes it is the membership surface from batch 16.3: **give the
+agent its own subject, with a token that has `read` and `publish` and
+not `secret`.** Then no amount of wandering reaches a credential,
+because the server refuses — a boundary that can be verified rather than
+a habit that has to hold. This is the primary guidance in every secrets
+guide, ahead of any advice about files.
+
+### 10b. Three surfaces, in the order people should reach for them
+
+**1. `converge run --secret DATABASE_URL -- ./server`** — the default.
+Named secrets, one child process, nothing written to disk, nothing added
+to the parent environment for anything else to find.
+
+Its limit, stated plainly rather than glossed: a process environment is
+readable through `/proc/<pid>/environ` by the same uid, and it survives
+into crash dumps and inherits into grandchildren. This defends against
+*discovery* — grepping, wandering, an agent reading files — and is not a
+boundary against a determined same-uid attacker. The boundary is 10a.
+
+**2. `converge secret get NAME --json`** — the programmatic seam, for
+injectors that already exist: a task runner's vault, `direnv`, a CI
+runner, `systemd` credentials. Convergence is the source of truth and
+distribution — encrypted, synced, multi-recipient, audited — and an
+injector is a consumer of that, not a competitor to it. Keeping this
+interface stable and boring is what lets the two stay in their lanes.
+
+**3. `converge secret write-env PATH`** — the escape hatch, made loud.
+Some tooling only reads `.env`. Refusing outright would just push people
+to `converge secret get > .env` by hand, which is the same plaintext
+with no audit trail and no ignore entry. So it exists, and it: warns
+every time, adds the path to `.convergeignore` if missing, and emits a
+`secret.read` event per secret written. Documented as the weakest
+option, not as one of three equals.
+
+### 10c. Reads are events
+
+Every decryption-enabling fetch emits `secret.read` (subject, key,
+secret name, version, timestamp) on the existing feed. A file on disk
+cannot tell you it was read; this can. If a credential does walk out —
+through an agent, a stolen token, a departing member — the record shows
+when and under whose key, which is what turns an incident into a
+bounded one.
+
+**This is a deliberate trade against metadata privacy.** Auditing reads
+means the server learns *when* each person uses each secret, and can
+correlate that with everything else it sees. That is consistent with the
+threat model in §1, which already concedes names and change times, but
+the two goals genuinely pull apart and the choice is audit. A deployment
+that wants read-privacy instead would have to give up the audit trail,
+and no configuration offers that today.
+
+### 10d. Redaction
+
+A secret that Convergence prints back into a log defeats the whole
+exercise. Secret values are redacted in the TUI's Last strip, the agent
+trace (doc 15 §2), and any error message that would otherwise embed a
+decrypted value. Redaction is applied at the point of formatting rather
+than at the call site, so a new surface cannot forget it.
 
 ## Next Task
 
