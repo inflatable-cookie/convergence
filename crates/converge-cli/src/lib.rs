@@ -341,6 +341,12 @@ enum Command {
     },
     /// Show the configured remote for this workspace.
     Remote,
+    /// Show or set the workflow profile (shapes guidance, not behavior).
+    Profile {
+        /// New profile: software, daw, or game-assets.
+        #[arg(long)]
+        set: Option<String>,
+    },
     /// Watch the workspace and capture automatic snaps on quiet periods.
     Watch {
         /// Poll interval in milliseconds.
@@ -1010,6 +1016,44 @@ fn run(cli: &Cli, mode: OutputMode, session: &Session) -> Result<serde_json::Val
                 println!("watch cycle complete ({} captures)", c.len());
             })
         }
+        Command::Profile { set } => {
+            let ws = session.workspace()?;
+            let mut cfg = ws.store.read_config()?;
+            if let Some(name) = set {
+                // Parsed, not stored raw: an unrecognized profile would
+                // silently mean "software" on the next read.
+                cfg.workflow_profile = match name.as_str() {
+                    "software" => converge_client::model::WorkflowProfile::Software,
+                    "daw" => converge_client::model::WorkflowProfile::Daw,
+                    "game-assets" => converge_client::model::WorkflowProfile::GameAssets,
+                    other => {
+                        anyhow::bail!("unknown profile {other}; known: software, daw, game-assets")
+                    }
+                };
+                ws.store.write_config(&cfg)?;
+            }
+            let profile = cfg.workflow_profile;
+
+            #[derive(Serialize)]
+            struct ProfileInfo {
+                profile: String,
+                flow: String,
+                release: String,
+            }
+            emit(
+                mode,
+                ProfileInfo {
+                    profile: profile.as_str().to_string(),
+                    flow: profile.flow_hint().to_string(),
+                    release: profile.release_hint().to_string(),
+                },
+                |p| {
+                    println!("profile: {}", p.profile);
+                    println!("  {}", p.flow);
+                    println!("  {}", p.release);
+                },
+            )
+        }
         Command::Remote => {
             let ws = session.workspace()?;
             let cfg = ws.store.read_config()?;
@@ -1497,8 +1541,15 @@ fn run(cli: &Cli, mode: OutputMode, session: &Session) -> Result<serde_json::Val
                 snaps: serde_json::Value,
                 remote: serde_json::Value,
                 git: serde_json::Value,
+                /// Guidance profile (batch 17.4): the TUI reads it from
+                /// here rather than opening the config itself.
+                profile: serde_json::Value,
             }
             let report = StatusReport {
+                profile: serde_json::json!({
+                    "name": cfg.workflow_profile.as_str(),
+                    "flow": cfg.workflow_profile.flow_hint(),
+                }),
                 pending: serde_json::json!({
                     "count": changes.len(),
                     "changes": changes,

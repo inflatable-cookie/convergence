@@ -64,6 +64,5 @@ cut JSON mid-token at 120 characters.
 
 ## Next Task
 
-Batch card 17.4 (reducer test suite completion and spec reconciliation:
-amend `docs/rebuild/002` where the implementation intentionally
-diverges, and decide workflow profiles explicitly).
+Batch card 17.4 (reducer suite and spec reconciliation) — done,
+card 064.

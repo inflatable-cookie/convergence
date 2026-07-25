@@ -312,6 +312,10 @@ pub struct App {
     pub loaded_at: BTreeMap<View, std::time::Instant>,
     /// Last remote outcome: `None` until the first attempt (audit P4.22).
     pub reachable: Option<bool>,
+    /// Caret position in `input`, as a byte offset on a char boundary
+    /// (batch 17.4). Editing mid-command needed it; append-only input
+    /// meant a typo cost the whole line.
+    pub cursor: usize,
 }
 
 impl Default for App {
@@ -341,6 +345,7 @@ impl Default for App {
             workspace_missing: false,
             loaded_at: BTreeMap::new(),
             reachable: None,
+            cursor: 0,
         }
     }
 }
@@ -517,6 +522,7 @@ impl App {
         self.command_history.push(line.clone());
         self.history_cursor = None;
         self.input.clear();
+        self.cursor = 0;
         self.suggestions.clear();
         let argv: Vec<String> = line.split_whitespace().map(str::to_string).collect();
         match argv.first().map(String::as_str) {
@@ -531,13 +537,21 @@ impl App {
             Some("login") if argv.len() == 1 => Some(Action::StartWizard(WizardKind::Login)),
             Some("publish") if argv.len() == 1 => Some(Action::StartWizard(WizardKind::Publish)),
             Some("resolve") if argv.len() == 2 => Some(Action::EnterResolution(argv[1].clone())),
-            Some(_) => match confirmation_prompt(&argv) {
-                Some(prompt) => {
-                    self.pending_confirm = Some((prompt, Action::Run(argv)));
-                    None
+            Some(_) => {
+                // Commands cross the context boundary rather than being
+                // refused (UX spec §3): typing a remote verb in Local
+                // switches context instead of teaching "wrong mode".
+                if is_remote_command(&argv) && self.context == Context::Local {
+                    self.context = Context::Remote;
                 }
-                None => Some(Action::Run(argv)),
-            },
+                match confirmation_prompt(&argv) {
+                    Some(prompt) => {
+                        self.pending_confirm = Some((prompt, Action::Run(argv)));
+                        None
+                    }
+                    None => Some(Action::Run(argv)),
+                }
+            }
             None => None,
         }
     }
@@ -640,6 +654,7 @@ impl App {
                 // root requires confirmation instead of a stray-Esc exit.
                 if !self.input.is_empty() {
                     self.input.clear();
+                    self.cursor = 0;
                     self.suggestions.clear();
                 } else if self.frames.len() > 1 {
                     self.frames.pop();
@@ -657,6 +672,7 @@ impl App {
                     self.context = self.context.toggle();
                 } else if let Some(s) = self.suggestions.get(self.suggestion_index) {
                     self.input = s.clone();
+                    self.cursor = self.input.len();
                     self.refresh_suggestions();
                 }
                 None
@@ -684,6 +700,7 @@ impl App {
                         let idx = self.history_cursor.map_or(len - 1, |i| i.saturating_sub(1));
                         self.history_cursor = Some(idx);
                         self.input = self.command_history[idx].clone();
+                        self.cursor = self.input.len();
                     }
                 } else if !self.suggestions.is_empty() {
                     self.suggestion_index = self.suggestion_index.saturating_sub(1);
@@ -698,17 +715,63 @@ impl App {
                 None
             }
             KeyCode::Backspace => {
-                self.input.pop();
-                self.refresh_suggestions();
+                if let Some(prev) = self.prev_boundary() {
+                    self.input.remove(prev);
+                    self.cursor = prev;
+                    self.refresh_suggestions();
+                }
+                None
+            }
+            KeyCode::Delete => {
+                if self.cursor < self.input.len() {
+                    self.input.remove(self.cursor);
+                    self.refresh_suggestions();
+                }
+                None
+            }
+            KeyCode::Left => {
+                if let Some(prev) = self.prev_boundary() {
+                    self.cursor = prev;
+                }
+                None
+            }
+            KeyCode::Right => {
+                self.cursor = self.next_boundary();
+                None
+            }
+            KeyCode::Home => {
+                self.cursor = 0;
+                None
+            }
+            KeyCode::End => {
+                self.cursor = self.input.len();
                 None
             }
             KeyCode::Char(c) => {
-                self.input.push(c);
+                self.input.insert(self.cursor, c);
+                self.cursor += c.len_utf8();
                 self.refresh_suggestions();
                 None
             }
             _ => None,
         }
+    }
+
+    /// Previous char boundary before the caret, if any.
+    fn prev_boundary(&self) -> Option<usize> {
+        self.input[..self.cursor]
+            .char_indices()
+            .next_back()
+            .map(|(i, _)| i)
+    }
+
+    /// Next char boundary after the caret, clamped to the end.
+    fn next_boundary(&self) -> usize {
+        self.input[self.cursor..]
+            .chars()
+            .next()
+            .map(|c| self.cursor + c.len_utf8())
+            .unwrap_or(self.cursor)
     }
 
     fn handle_wizard_key(&mut self, key: KeyEvent) -> Option<Action> {
@@ -1479,6 +1542,107 @@ mod tests {
         assert!(!line.contains("derived_from_bundle"), "nulls drop: {line}");
         assert!(line.ends_with("→ converge publish --snap 0123"), "{line}");
         assert!(!line.contains('{'), "no raw JSON: {line}");
+    }
+
+    #[test]
+    fn caret_edits_mid_command() {
+        let mut app = App::default();
+        typed(&mut app, "snp");
+        // Fix the typo without retyping the line.
+        app.handle_key(key(KeyCode::Left));
+        app.handle_key(key(KeyCode::Char('a')));
+        assert_eq!(app.input, "snap");
+        assert_eq!(app.cursor, 3);
+
+        // Backspace removes before the caret, Delete after it.
+        app.handle_key(key(KeyCode::Backspace));
+        assert_eq!(app.input, "snp");
+        app.handle_key(key(KeyCode::Delete));
+        assert_eq!(app.input, "sn");
+
+        // Home/End bracket the line, and the caret never leaves it.
+        app.handle_key(key(KeyCode::Home));
+        app.handle_key(key(KeyCode::Left));
+        assert_eq!(app.cursor, 0);
+        app.handle_key(key(KeyCode::End));
+        app.handle_key(key(KeyCode::Right));
+        assert_eq!(app.cursor, app.input.len());
+    }
+
+    #[test]
+    fn caret_survives_history_recall_and_suggestion_accept() {
+        let mut app = App::default();
+        typed(&mut app, "status");
+        app.handle_key(key(KeyCode::Enter));
+        assert_eq!(app.cursor, 0, "submitting clears the line and the caret");
+
+        app.handle_key(key(KeyCode::Up));
+        assert_eq!(app.input, "status");
+        assert_eq!(
+            app.cursor,
+            app.input.len(),
+            "recall puts the caret at the end"
+        );
+
+        typed(&mut app, "");
+        app.handle_key(key(KeyCode::Esc));
+        typed(&mut app, "unsn");
+        app.handle_key(key(KeyCode::Tab));
+        assert_eq!(app.input, "unsnap");
+        assert_eq!(app.cursor, app.input.len());
+    }
+
+    #[test]
+    fn remote_command_typed_in_local_crosses_the_boundary() {
+        let mut app = App::default();
+        assert_eq!(app.context, Context::Local);
+        typed(&mut app, "publish --lane lane-a");
+        app.handle_key(key(KeyCode::Enter));
+        assert_eq!(
+            app.context,
+            Context::Remote,
+            "a remote verb switches context instead of being refused"
+        );
+
+        // Local verbs leave the context alone.
+        app.context = Context::Local;
+        typed(&mut app, "changes");
+        app.handle_key(key(KeyCode::Enter));
+        assert_eq!(app.context, Context::Local);
+    }
+
+    #[test]
+    fn wizard_routing_covers_open_cancel_and_execute() {
+        let mut app = App::default();
+        typed(&mut app, "login");
+        assert_eq!(
+            app.handle_key(key(KeyCode::Enter)),
+            Some(Action::StartWizard(WizardKind::Login))
+        );
+        app.wizard = Some(Wizard::login());
+        // Esc backs out of the first field, which cancels the wizard.
+        app.handle_key(key(KeyCode::Esc));
+        assert!(app.wizard.is_none(), "Esc on the first field cancels");
+
+        // Publish assembles argv and runs it.
+        app.wizard = Some(Wizard::publish(Some("intake"), Vec::new()));
+        for text in ["intake", "", ""] {
+            for c in text.chars() {
+                app.handle_key(key(KeyCode::Char(c)));
+            }
+            app.handle_key(key(KeyCode::Enter));
+        }
+        let action = app.handle_key(key(KeyCode::Enter));
+        assert_eq!(
+            action,
+            Some(Action::Run(vec![
+                "publish".into(),
+                "--gate".into(),
+                "intake".into()
+            ])),
+            "blank lane and notes are omitted, so the server picks the personal lane"
+        );
+        assert!(app.wizard.is_none());
     }
 
     #[test]

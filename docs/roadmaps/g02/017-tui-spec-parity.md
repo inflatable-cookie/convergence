@@ -1,6 +1,6 @@
 # 017 TUI Spec Parity
 
-Status: in progress (17.1-17.3 complete)
+Status: complete
 Owner: repo maintainers
 Updated: 2026-07-25
 
@@ -57,10 +57,13 @@ simplified.
   live validation with `Alt+n` next missing / `Alt+f` next invalid;
   Last strip renders fields instead of truncated JSON; publish wizard's
   lane field blank by default so the server resolves the personal lane
-- **17.4 Reducer test suite + spec reconciliation**: unit tests over
-  `app.rs` state transitions; docs/rebuild/002 amended where the
-  implementation intentionally diverges (workflow profiles decided:
-  build or defer explicitly)
+- **17.4 Reducer suite + spec reconciliation** (complete, card 064):
+  caret editing and automatic Local/Remote crossing (the audit's minor
+  warts); `converge profile [--set]` with hints on the remote dashboard
+  and in Help — profiles were a config field nothing could set or read;
+  reducer tests for caret, history recall, context crossing and wizard
+  routing; spec §8 records built / intentionally different / deferred
+  with triggers
 
 ## Exit Criteria
 
@@ -71,4 +74,4 @@ simplified.
 
 ## Next Task
 
-Open batch card 17.4 (reducer suite and spec reconciliation).
+Roadmap complete. Open `g02.018` (adversarial test hardening).

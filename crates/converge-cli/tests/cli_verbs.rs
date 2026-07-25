@@ -506,3 +506,36 @@ fn message_flag_is_the_same_everywhere() -> anyhow::Result<()> {
     assert_eq!(history[0]["message"], "short form");
     Ok(())
 }
+
+/// Batch 17.4: the workflow profile was a config field nothing could set
+/// or read — dead weight pretending to be a feature.
+#[test]
+fn profile_is_settable_and_reported() -> anyhow::Result<()> {
+    let tmp = tempfile::tempdir()?;
+    let root = tmp.path();
+    assert!(converge(root, &["init"]).status.success());
+
+    let profile = json_data(&converge(root, &["--json", "profile"]));
+    assert_eq!(profile["profile"], "software", "sane default");
+
+    let set = json_data(&converge(root, &["--json", "profile", "--set", "daw"]));
+    assert_eq!(set["profile"], "daw");
+    assert!(set["release"].as_str().unwrap().contains("mixdown"));
+
+    // Status carries it, which is how the TUI reads it.
+    let status = json_data(&converge(root, &["--json", "status"]));
+    assert_eq!(status["profile"]["name"], "daw");
+    assert!(
+        status["profile"]["flow"]
+            .as_str()
+            .unwrap()
+            .contains("mixdown")
+    );
+
+    // An unknown profile is refused, not silently defaulted.
+    let out = converge(root, &["--json", "profile", "--set", "sculpture"]);
+    assert_eq!(out.status.code(), Some(1));
+    let after = json_data(&converge(root, &["--json", "profile"]));
+    assert_eq!(after["profile"], "daw", "the refused set changed nothing");
+    Ok(())
+}

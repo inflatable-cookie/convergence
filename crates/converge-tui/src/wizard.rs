@@ -279,13 +279,15 @@ impl Wizard {
                 value("gate"),
             ],
             WizardKind::Publish => {
-                let mut argv = vec![
-                    "publish".into(),
-                    "--gate".into(),
-                    value("gate"),
-                    "--lane".into(),
-                    value("lane"),
-                ];
+                let mut argv = vec!["publish".into(), "--gate".into(), value("gate")];
+                // Omitted, not blank: `--lane ""` is a lane id nobody
+                // owns, while omitting the flag is what makes the server
+                // resolve the caller's personal lane (batch 17.4).
+                let lane = value("lane");
+                if !lane.is_empty() {
+                    argv.push("--lane".into());
+                    argv.push(lane);
+                }
                 let notes = value("notes");
                 if !notes.is_empty() {
                     argv.push("--notes".into());

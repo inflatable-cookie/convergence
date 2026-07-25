@@ -590,10 +590,16 @@ fn render(frame: &mut Frame, app: &App) {
                 .as_ref()
                 .and_then(|r| r["last_seen_bundle"].as_str().map(str::to_string))
                 .unwrap_or_else(|| "none".to_string());
+            let flow = app
+                .status
+                .as_ref()
+                .and_then(|s| s["profile"]["flow"].as_str().map(str::to_string))
+                .unwrap_or_default();
             let lines = vec![
                 Line::raw(format!("remote: {target}")),
                 Line::raw(format!("last published snap: {last_published}")),
                 Line::raw(format!("last seen bundle: {last_seen}")),
+                Line::styled(flow, Style::default().fg(Color::DarkGray)),
                 Line::raw(""),
                 Line::styled(
                     format!("Enter: {primary}"),
@@ -755,6 +761,18 @@ fn render(frame: &mut Frame, app: &App) {
                     .and_then(|r| r["target"].as_str().map(str::to_string))
                     .unwrap_or_else(|| "not configured".into())
             )));
+            // Workflow profile (UX spec §4.6): guidance, phrased for the
+            // domain. Term renaming stays deferred — see the spec's
+            // implementation-status section.
+            if let Some(status) = &app.status {
+                lines.push(Line::raw(format!(
+                    "profile: {}",
+                    status["profile"]["name"].as_str().unwrap_or("software")
+                )));
+                if let Some(flow) = status["profile"]["flow"].as_str() {
+                    lines.push(Line::raw(format!("  {flow}")));
+                }
+            }
             frame.render_widget(Paragraph::new(lines).block(view_block(app)), body);
         }
         View::History => {
@@ -872,11 +890,16 @@ fn render(frame: &mut Frame, app: &App) {
             app.primary_action().0
         )
     };
+    // The caret is drawn in the line rather than moved with the terminal
+    // cursor: one render path, and the trace sees what the user sees.
+    let (before, after) = app.input.split_at(app.cursor.min(app.input.len()));
     frame.render_widget(
         Paragraph::new(Line::from(vec![
             Span::styled(app.prompt(), Style::default().fg(Color::Green)),
             Span::raw(" "),
-            Span::raw(app.input.clone()),
+            Span::raw(before.to_string()),
+            Span::styled("|", Style::default().fg(Color::Green)),
+            Span::raw(after.to_string()),
             Span::raw("  "),
             Span::styled(legend, Style::default().fg(Color::DarkGray)),
         ])),
