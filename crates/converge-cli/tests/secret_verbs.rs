@@ -318,3 +318,167 @@ fn a_machine_without_the_key_gets_told_what_to_do() -> Result<()> {
     );
     Ok(())
 }
+
+/// Batch 19.5: a secret reaches a child process without ever being
+/// written into the working tree.
+#[test]
+fn run_injects_named_secrets_into_one_child_and_nowhere_else() -> Result<()> {
+    let server_dir = tempfile::tempdir()?;
+    let base_url = start_server(server_dir.path())?;
+    let (ws, home) = member(&base_url, "token-a")?;
+
+    converge_with_stdin(
+        ws.path(),
+        home.path(),
+        &["secret", "set", "db-password"],
+        Some("hunter2"),
+    );
+
+    // The derived variable name is the conventional shape.
+    let out = converge(
+        ws.path(),
+        home.path(),
+        &[
+            "run",
+            "--secret",
+            "db-password",
+            "--",
+            "sh",
+            "-c",
+            "printf %s \"$DB_PASSWORD\"",
+        ],
+    );
+    assert!(
+        out.status.success(),
+        "run failed: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert_eq!(String::from_utf8_lossy(&out.stdout), "hunter2");
+
+    // An explicit mapping when the names differ.
+    let out = converge(
+        ws.path(),
+        home.path(),
+        &[
+            "run",
+            "--secret",
+            "PGPASSWORD=db-password",
+            "--",
+            "sh",
+            "-c",
+            "printf %s \"$PGPASSWORD\"",
+        ],
+    );
+    assert_eq!(String::from_utf8_lossy(&out.stdout), "hunter2");
+
+    // Nothing was written to the workspace on the way through.
+    let tree: Vec<String> = std::fs::read_dir(ws.path())?
+        .filter_map(|e| e.ok())
+        .map(|e| e.file_name().to_string_lossy().into_owned())
+        .collect();
+    assert!(
+        !tree.iter().any(|name| name.contains("env")),
+        "run left something behind: {tree:?}"
+    );
+
+    // The child's exit code is the command's answer, not ours.
+    let failed = converge(
+        ws.path(),
+        home.path(),
+        &["run", "--secret", "db-password", "--", "sh", "-c", "exit 3"],
+    );
+    assert_eq!(failed.status.code(), Some(3));
+    Ok(())
+}
+
+/// The escape hatch closes the door behind itself.
+#[test]
+fn write_env_warns_and_self_ignores() -> Result<()> {
+    let server_dir = tempfile::tempdir()?;
+    let base_url = start_server(server_dir.path())?;
+    let (ws, home) = member(&base_url, "token-a")?;
+    converge_with_stdin(
+        ws.path(),
+        home.path(),
+        &["secret", "set", "api-key"],
+        Some("s3cr3t value"),
+    );
+
+    let out = converge(ws.path(), home.path(), &["secret", "write-env", ".env"]);
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let said = String::from_utf8_lossy(&out.stdout).to_lowercase();
+    assert!(said.contains("plaintext"), "the warning is missing: {said}");
+    assert!(
+        said.contains("converge run"),
+        "it should point at the better option: {said}"
+    );
+
+    // The file holds a usable value, quoted so a space survives.
+    let written = std::fs::read_to_string(ws.path().join(".env"))?;
+    assert_eq!(written.trim(), "API_KEY='s3cr3t value'");
+
+    // And it is ignored, so no snap can ever capture it.
+    let ignore = std::fs::read_to_string(ws.path().join(".convergeignore"))?;
+    assert!(
+        ignore.lines().any(|line| line.trim() == ".env"),
+        "the dotenv was not added to .convergeignore: {ignore}"
+    );
+    let status = json_data(&converge(ws.path(), home.path(), &["--json", "status"]));
+    let pending: Vec<&str> = status["pending"]["changes"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|c| c["path"].as_str())
+        .collect();
+    assert!(
+        !pending.contains(&".env"),
+        "the dotenv is capturable despite the ignore rule: {pending:?}"
+    );
+    // The ignore file itself is project configuration and *should* show
+    // up — a teammate restoring the snap needs it.
+    assert!(
+        pending.contains(&".convergeignore"),
+        "expected the ignore file to be capturable: {pending:?}"
+    );
+    Ok(())
+}
+
+/// Reads are on the record (doc 19 §10c).
+#[test]
+fn reading_a_secret_leaves_an_audit_event() -> Result<()> {
+    let server_dir = tempfile::tempdir()?;
+    let base_url = start_server(server_dir.path())?;
+    let (ws, home) = member(&base_url, "token-a")?;
+    converge_with_stdin(
+        ws.path(),
+        home.path(),
+        &["secret", "set", "audited"],
+        Some("v"),
+    );
+    converge(ws.path(), home.path(), &["secret", "get", "audited"]);
+
+    let events = json_data(&converge(ws.path(), home.path(), &["--json", "events"]));
+    let kinds: Vec<&str> = events
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|e| e["kind"].as_str())
+        .collect();
+    assert!(
+        kinds.contains(&"secret.read"),
+        "a read left no trace: {kinds:?}"
+    );
+    assert!(
+        kinds.contains(&"secret.changed"),
+        "a write left no trace: {kinds:?}"
+    );
+    assert!(
+        !events.to_string().contains("\"v\""),
+        "an event carried the value"
+    );
+    Ok(())
+}

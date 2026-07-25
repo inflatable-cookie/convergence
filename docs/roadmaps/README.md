@@ -34,8 +34,9 @@ records the closed state.
 - Secret substrate program opened 2026-07-25: `g02.019` individual
   secrets, `g02.020` shared secrets. Threat model and object model in
   `docs/architecture/19-secrets-and-key-management.md`.
-- Active roadmap: `g02.019` secret substrate.
-- next: batch card 19.5 (consumption)
+- `g02.019` secret substrate **complete**.
+- Active roadmap: `g02.020` shared secrets.
+- next: batch card 20.1 (multi-recipient secrets)
 
 ## Rollover guardrail
 

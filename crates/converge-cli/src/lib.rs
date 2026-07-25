@@ -349,6 +349,15 @@ enum Command {
         #[command(subcommand)]
         command: SecretCommand,
     },
+    /// Run a command with secrets in its environment and nowhere else.
+    Run {
+        /// Secret to inject, as `NAME` or `ENV_VAR=NAME`. Repeatable.
+        #[arg(long = "secret", value_name = "NAME")]
+        secrets: Vec<String>,
+        /// The command, after `--`.
+        #[arg(last = true, required = true)]
+        command: Vec<String>,
+    },
     /// Show the configured remote for this workspace.
     Remote,
     /// Show or set the workflow profile (shapes guidance, not behavior).
@@ -462,6 +471,15 @@ enum SecretCommand {
     List,
     /// Delete one of your secrets.
     Rm { name: String },
+    /// Write secrets to a dotenv file. The weakest option: plaintext at
+    /// rest, in a file anything can read.
+    WriteEnv {
+        /// Destination, relative to the workspace root.
+        path: PathBuf,
+        /// Secrets to write; defaults to all of yours.
+        #[arg(long = "secret", value_name = "NAME")]
+        secrets: Vec<String>,
+    },
 }
 
 #[derive(Subcommand)]
@@ -1440,6 +1458,43 @@ fn run(cli: &Cli, mode: OutputMode, session: &Session) -> Result<serde_json::Val
                 }
             }
         }
+        Command::Run { secrets, command } => {
+            let ws = session.workspace()?;
+            let (client, remote) = remote_client(session, &ws, mode)?;
+            let keys = unlock_local_keys()?;
+
+            let mut env: Vec<(String, String)> = Vec::new();
+            for spec in secrets {
+                // `ENV_VAR=name` when the two differ, `name` when the
+                // derived variable is good enough.
+                let (var, name) = match spec.split_once('=') {
+                    Some((var, name)) => (var.to_string(), name.to_string()),
+                    None => (env_name_for(spec), spec.clone()),
+                };
+                let record = client.get_secret(&remote.repo_id, &name)?;
+                let value =
+                    String::from_utf8(converge_client::identity::open(&keys, &record.ciphertext)?)
+                        .context("secret is not utf-8")?;
+                env.push((var, value));
+            }
+
+            // One child, named variables, nothing written to disk and
+            // nothing added to this process's own environment (doc 19
+            // §10b). The limit is stated there: a process environment is
+            // readable through /proc by the same uid.
+            let (program, args) = command.split_first().expect("clap requires one");
+            let status = std::process::Command::new(program)
+                .args(args)
+                .envs(env)
+                .status()
+                .with_context(|| format!("run {program}"))?;
+
+            // The child's exit code is the point of running it.
+            if !status.success() {
+                std::process::exit(status.code().unwrap_or(1));
+            }
+            emit(mode, serde_json::json!({ "ran": command }), |_| {})
+        }
         Command::Secret { command } => {
             let ws = session.workspace()?;
             let (client, remote) = remote_client(session, &ws, mode)?;
@@ -1507,6 +1562,62 @@ fn run(cli: &Cli, mode: OutputMode, session: &Session) -> Result<serde_json::Val
                             );
                         }
                     })
+                }
+                SecretCommand::WriteEnv { path, secrets } => {
+                    let keys = unlock_local_keys()?;
+                    let chosen = if secrets.is_empty() {
+                        client
+                            .list_secrets(&remote.repo_id)?
+                            .into_iter()
+                            .map(|s| s.name)
+                            .collect()
+                    } else {
+                        secrets.clone()
+                    };
+
+                    let mut lines = Vec::new();
+                    for name in &chosen {
+                        let record = client.get_secret(&remote.repo_id, name)?;
+                        let value = String::from_utf8(converge_client::identity::open(
+                            &keys,
+                            &record.ciphertext,
+                        )?)
+                        .context("secret is not utf-8")?;
+                        lines.push(format!("{}={}", env_name_for(name), shell_quote(&value)));
+                    }
+
+                    let target = ws.root.join(path);
+                    std::fs::write(&target, format!("{}\n", lines.join("\n")))
+                        .with_context(|| format!("write {}", target.display()))?;
+                    restrict_file(&target)?;
+                    let ignored = ensure_ignored(&ws, path)?;
+
+                    emit(
+                        mode,
+                        serde_json::json!({
+                            "path": path.display().to_string(),
+                            "secrets": chosen,
+                            "added_to_convergeignore": ignored,
+                        }),
+                        |written| {
+                            println!(
+                                "wrote {} secret(s) in plaintext to {}",
+                                written["secrets"].as_array().map(Vec::len).unwrap_or(0),
+                                written["path"].as_str().unwrap_or("")
+                            );
+                            if written["added_to_convergeignore"]
+                                .as_bool()
+                                .unwrap_or(false)
+                            {
+                                println!("  added it to .convergeignore so it is never captured");
+                            }
+                            println!(
+                                "  this is the weakest way to use a secret: anything that can \
+                                 read the file can read the value"
+                            );
+                            println!("  prefer: converge run --secret NAME -- your-command");
+                        },
+                    )
                 }
                 SecretCommand::Rm { name } => {
                     client.delete_secret(&remote.repo_id, name)?;
@@ -1984,6 +2095,65 @@ fn report_progress(progress: converge_client::remote::Progress) {
         progress.objects_total,
         mib(progress.bytes_done)
     );
+}
+
+/// `db-password` becomes `DB_PASSWORD`: the conventional shape, and
+/// predictable enough that nobody has to look it up.
+fn env_name_for(secret_name: &str) -> String {
+    secret_name
+        .chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() {
+                c.to_ascii_uppercase()
+            } else {
+                '_'
+            }
+        })
+        .collect()
+}
+
+/// Single-quote for dotenv, escaping embedded quotes. A secret with a
+/// newline or a space in it is still a secret.
+fn shell_quote(value: &str) -> String {
+    format!("'{}'", value.replace('\'', "'\\''"))
+}
+
+fn restrict_file(path: &std::path::Path) -> Result<()> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600))
+            .with_context(|| format!("restrict {}", path.display()))?;
+    }
+    #[cfg(not(unix))]
+    let _ = path;
+    Ok(())
+}
+
+/// Add the written path to `.convergeignore` if it is not covered.
+///
+/// A plaintext dotenv captured into a snap would be the leak this whole
+/// roadmap exists to prevent, so the escape hatch closes that door
+/// behind itself rather than trusting anyone to remember.
+fn ensure_ignored(ws: &Workspace, path: &std::path::Path) -> Result<bool> {
+    let entry = path.display().to_string();
+    let ignore_path = ws.root.join(".convergeignore");
+    let existing = std::fs::read_to_string(&ignore_path).unwrap_or_default();
+    if existing
+        .lines()
+        .any(|line| line.trim() == entry || line.trim() == entry.trim_end_matches('/'))
+    {
+        return Ok(false);
+    }
+    let mut updated = existing;
+    if !updated.is_empty() && !updated.ends_with('\n') {
+        updated.push('\n');
+    }
+    updated.push_str(&entry);
+    updated.push('\n');
+    std::fs::write(&ignore_path, updated)
+        .with_context(|| format!("update {}", ignore_path.display()))?;
+    Ok(true)
 }
 
 /// The caller's own registered keys in this repo.

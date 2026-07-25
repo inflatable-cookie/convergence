@@ -189,7 +189,7 @@ fn run(terminal: &mut ratatui::DefaultTerminal, trace: &mut trace::Trace) -> Res
                 }
                 Intent::Events => absorb_events(&mut app, &tx, &session, result),
                 Intent::Command => {
-                    app.record_result(result);
+                    app.record_result_for(&argv, result);
                     spawn_refresh(&tx, &session);
                     last_refresh_started = std::time::Instant::now();
                 }

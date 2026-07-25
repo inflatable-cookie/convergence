@@ -96,6 +96,11 @@ impl Trace {
         self.write("user_action", json!({"canonical": canonical, "raw": raw}));
     }
 
+    /// Records argv and the outcome, never the payload — which is what
+    /// keeps a decrypted secret out of the trace (doc 19 §10d). A trace
+    /// is a file that outlives the session and is usually read by
+    /// something else, so this property is load-bearing rather than
+    /// incidental; the test below pins it.
     pub fn command_result(&mut self, argv: &[String], result: &anyhow::Result<serde_json::Value>) {
         let payload = match result {
             Ok(_) => json!({"argv": argv, "ok": true}),
@@ -215,5 +220,24 @@ mod tests {
         let lines = read_lines(handle);
         assert_eq!(lines[0]["error_kind"], "validation");
         assert_eq!(lines[1]["errors_seen"], 1);
+    }
+
+    /// A successful result records that it happened, not what it was.
+    /// `secret get` succeeding must not put the value in a file.
+    #[test]
+    fn command_results_never_carry_a_payload() {
+        let (mut trace, mut file) = trace_with_tempfile();
+        trace.command_result(
+            &["secret".to_string(), "get".to_string(), "db".to_string()],
+            &Ok(serde_json::json!({ "value": "hunter2" })),
+        );
+        file.rewind().expect("rewind");
+        let mut written = String::new();
+        file.read_to_string(&mut written).expect("read");
+        assert!(written.contains("command_result"), "nothing was traced");
+        assert!(
+            !written.contains("hunter2"),
+            "the trace captured a secret value: {written}"
+        );
     }
 }

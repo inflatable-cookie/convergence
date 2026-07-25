@@ -1,6 +1,6 @@
 # 019 Secret Substrate
 
-Status: in progress (19.1-19.4 complete)
+Status: complete
 Owner: repo maintainers
 Updated: 2026-07-25
 
@@ -51,13 +51,13 @@ secrets follow in `g02.020`, which depends on this.
   encrypted under a machine key, migrating on first read (doc 19 §8a
   states what that is and is not worth); wrong-key refusal, tamper
   detection, and a test that reads every byte the server persisted
-- **19.5 Consumption** (doc 19 §10): `converge run --secret NAME -- cmd`
-  as the default path; `secret get --json` as the seam for injectors
-  that already exist; a loud `secret write-env` escape hatch that warns,
-  self-ignores, and audits; `secret.read` events; redaction in the TUI
-  Last strip, the agent trace, and error messages
+- **19.5 Consumption** (complete, card 073): `converge run --secret
+  NAME -- cmd` with exit-code propagation; `secret get --json` as the
+  injector seam; `secret write-env` that warns, self-ignores and audits;
+  `secret.read` events; redaction applied where results are formatted so
+  a new surface cannot forget it
 
-## Exit Criteria
+## Exit Criteria (all met)
 
 - a person can store and retrieve a credential that no other member and
   no operator can read
@@ -72,4 +72,4 @@ secrets follow in `g02.020`, which depends on this.
 
 ## Next Task
 
-Batch card 19.5 (consumption).
+Roadmap complete. Open `g02.020` (shared secrets).

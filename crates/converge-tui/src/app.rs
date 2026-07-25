@@ -225,6 +225,22 @@ pub fn is_remote_command(argv: &[String]) -> bool {
     )
 }
 
+/// Commands whose output carries a decrypted secret (doc 19 §10d).
+///
+/// Redaction happens where results are *formatted*, not at each call
+/// site, so a new surface cannot forget it. The Last strip and the agent
+/// trace are both persistent records that outlive the moment — a secret
+/// in either is a secret leaked to whatever reads them later.
+pub fn output_is_secret(argv: &[String]) -> bool {
+    matches!(
+        (
+            argv.first().map(String::as_str),
+            argv.get(1).map(String::as_str)
+        ),
+        (Some("secret"), Some("get")) | (Some("run"), _)
+    )
+}
+
 /// Verbs that confirm once before running (UX spec §4.5, audit P2.10).
 ///
 /// The test is not "destructive" but "hard to walk back for someone
@@ -971,7 +987,20 @@ impl App {
     }
 
     pub fn record_result(&mut self, result: anyhow::Result<serde_json::Value>) {
+        self.record_result_for(&[], result)
+    }
+
+    /// Record a result, redacting it when the command that produced it
+    /// returns a secret (doc 19 §10d).
+    pub fn record_result_for(
+        &mut self,
+        argv: &[String],
+        result: anyhow::Result<serde_json::Value>,
+    ) {
         let line = match result {
+            Ok(_) if output_is_secret(argv) => {
+                LastLine::Output("(secret value withheld)".to_string())
+            }
             Ok(value) => LastLine::Output(summarize(&value)),
             Err(err) => LastLine::Error(format!("{err:#}")),
         };
@@ -1654,6 +1683,39 @@ mod tests {
             "blank lane and notes are omitted, so the server picks the personal lane"
         );
         assert!(app.wizard.is_none());
+    }
+
+    #[test]
+    fn secret_bearing_output_is_redacted_in_the_last_strip() {
+        let mut app = App::default();
+        let argv =
+            |parts: &[&str]| -> Vec<String> { parts.iter().map(|s| s.to_string()).collect() };
+
+        app.record_result_for(
+            &argv(&["secret", "get", "db-password"]),
+            Ok(serde_json::json!({ "value": "hunter2" })),
+        );
+        let LastLine::Output(line) = app.last.last().expect("a line") else {
+            panic!("expected output");
+        };
+        assert!(
+            !line.contains("hunter2"),
+            "the strip captured a value: {line}"
+        );
+        assert!(line.contains("withheld"), "{line}");
+
+        // `run` carries values in its argv-adjacent output too.
+        assert!(output_is_secret(&argv(&[
+            "run", "--secret", "X", "--", "cmd"
+        ])));
+        // Everything else renders normally.
+        assert!(!output_is_secret(&argv(&["secret", "list"])));
+        assert!(!output_is_secret(&argv(&["status"])));
+        app.record_result_for(&argv(&["secret", "list"]), Ok(serde_json::json!([1, 2])));
+        let LastLine::Output(line) = app.last.last().expect("a line") else {
+            panic!("expected output");
+        };
+        assert_eq!(line, "2 item(s)");
     }
 
     #[test]

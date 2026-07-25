@@ -695,6 +695,22 @@ async fn get_secret(
         // itself information a non-recipient has no claim to.
         return Err(not_found_secret(&name));
     }
+
+    // Every fetch that enables a decryption is on the record (doc 19
+    // §10c). A file on disk cannot tell you it was read; this can, and
+    // that is what turns a leaked credential into a bounded incident.
+    // The trade is deliberate: the server learns when each person uses
+    // each secret, which §10c chooses over read-privacy.
+    let at = now_rfc3339()?;
+    state
+        .meta
+        .add_event(
+            &repo,
+            "secret.read",
+            &format!("{subject}/{name}@{}", record.version),
+            &at,
+        )
+        .map_err(internal_error)?;
     Ok(Json(record))
 }
 
