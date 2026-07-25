@@ -62,6 +62,11 @@ pub fn router(state: AppState) -> Router {
             post(add_member).get(list_members),
         )
         .route("/api/repos/:repo/keys", post(register_key).get(list_keys))
+        .route("/api/repos/:repo/secrets", get(list_secrets))
+        .route(
+            "/api/repos/:repo/secrets/:name",
+            put(set_secret).get(get_secret).delete(delete_secret),
+        )
         .route(
             "/api/repos/:repo/scopes",
             post(create_scope).get(list_scopes),
@@ -600,6 +605,183 @@ async fn add_member(
         granted: request.capabilities,
         token,
     }))
+}
+
+/// Store an encrypted secret (batch 19.2).
+///
+/// The server is an envelope service: it validates the *shape* of the
+/// request and never the ciphertext, which it stores and returns
+/// byte-exact.
+async fn set_secret(
+    State(state): State<SharedState>,
+    Path((repo, name)): Path<(String, String)>,
+    headers: HeaderMap,
+    Json(request): Json<converge_model::SetSecretRequest>,
+) -> Result<Json<converge_model::SecretSummary>, ApiError> {
+    let authz = authorize_repo(&state, &headers, &repo, Capability::Secret)?;
+    let subject = authz.subject().to_string();
+    validate_secret_name(&name)?;
+    if request.ciphertext.is_empty() {
+        return Err(bad_request("ciphertext is empty"));
+    }
+    if request.recipients.is_empty() {
+        return Err(bad_request(
+            "a secret with no recipients could never be read again",
+        ));
+    }
+
+    let record = converge_model::SecretRecord {
+        name: name.clone(),
+        owner: subject.clone(),
+        recipients: request.recipients,
+        ciphertext: request.ciphertext,
+        version: request.expected_version + 1,
+        updated_at: now_rfc3339()?,
+        updated_by: subject.clone(),
+    };
+    // Guarded like publish and promote (doc 14 §3): a stale write fails
+    // the batch instead of quietly winning, so two people rotating the
+    // same credential cannot lose one of the rotations.
+    state
+        .meta
+        .apply_batch(&[
+            crate::storage::MetaOp::AssertSecretVersion {
+                repo_id: repo.clone(),
+                owner: subject.clone(),
+                name: name.clone(),
+                expected: request.expected_version,
+            },
+            crate::storage::MetaOp::PutSecret {
+                repo_id: repo.clone(),
+                record: record.clone(),
+            },
+            crate::storage::MetaOp::AddEvent {
+                repo_id: repo.clone(),
+                kind: "secret.changed".into(),
+                subject_id: format!("{subject}/{name}@{}", record.version),
+                created_at: record.updated_at.clone(),
+            },
+        ])
+        .map_err(|err| {
+            if err.is::<crate::storage::BatchConflict>() {
+                ApiError(StatusCode::CONFLICT, format!("{err}"))
+            } else {
+                internal_error(err)
+            }
+        })?;
+    Ok(Json(summarize_secret(&record)))
+}
+
+/// Fetch ciphertext. Only a recipient may, which the grant check alone
+/// does not give us: `admin` subsumes every capability (doc 14 §4), so
+/// without this a repo admin could pull every envelope in the repo.
+async fn get_secret(
+    State(state): State<SharedState>,
+    Path((repo, name)): Path<(String, String)>,
+    headers: HeaderMap,
+) -> Result<Json<converge_model::SecretRecord>, ApiError> {
+    let authz = authorize_repo(&state, &headers, &repo, Capability::Secret)?;
+    let subject = authz.subject().to_string();
+    let record = find_secret(&state, &repo, &name)?;
+
+    let keys = state.meta.list_public_keys(&repo).map_err(internal_error)?;
+    let is_recipient = record.owner == subject
+        || record.recipients.iter().any(|key_id| {
+            keys.iter()
+                .any(|key| &key.key_id == key_id && key.subject == subject)
+        });
+    if !is_recipient {
+        // Same shape as "no such secret": whether a secret exists is
+        // itself information a non-recipient has no claim to.
+        return Err(not_found_secret(&name));
+    }
+    Ok(Json(record))
+}
+
+/// Names and versions, never ciphertext. Deliberately readable by any
+/// member: knowing that a secret exists is what lets someone ask to be
+/// added to it.
+async fn list_secrets(
+    State(state): State<SharedState>,
+    Path(repo): Path<String>,
+    headers: HeaderMap,
+) -> Result<Json<Vec<converge_model::SecretSummary>>, ApiError> {
+    authorize_repo(&state, &headers, &repo, Capability::Read)?;
+    Ok(Json(
+        state
+            .meta
+            .list_secrets(&repo)
+            .map_err(internal_error)?
+            .iter()
+            .map(summarize_secret)
+            .collect(),
+    ))
+}
+
+/// Only the owner may delete: a recipient can read a secret, not
+/// destroy someone else's copy of it.
+async fn delete_secret(
+    State(state): State<SharedState>,
+    Path((repo, name)): Path<(String, String)>,
+    headers: HeaderMap,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let authz = authorize_repo(&state, &headers, &repo, Capability::Secret)?;
+    let subject = authz.subject().to_string();
+    let record = find_secret(&state, &repo, &name)?;
+    if record.owner != subject {
+        return Err(forbidden(format!("{name} belongs to {}", record.owner)));
+    }
+    state
+        .meta
+        .delete_secret(&repo, &subject, &name)
+        .map_err(internal_error)?;
+    Ok(Json(serde_json::json!({ "deleted": name })))
+}
+
+fn summarize_secret(record: &converge_model::SecretRecord) -> converge_model::SecretSummary {
+    converge_model::SecretSummary {
+        name: record.name.clone(),
+        owner: record.owner.clone(),
+        recipients: record.recipients.clone(),
+        version: record.version,
+        updated_at: record.updated_at.clone(),
+        updated_by: record.updated_by.clone(),
+    }
+}
+
+fn not_found_secret(name: &str) -> ApiError {
+    ApiError(StatusCode::NOT_FOUND, format!("no secret {name}"))
+}
+
+fn find_secret(
+    state: &AppState,
+    repo: &str,
+    name: &str,
+) -> Result<converge_model::SecretRecord, ApiError> {
+    state
+        .meta
+        .list_secrets(repo)
+        .map_err(internal_error)?
+        .into_iter()
+        .find(|record| record.name == name)
+        .ok_or_else(|| not_found_secret(name))
+}
+
+/// Names travel in a URL path and land in a database key, so the
+/// grammar is narrow on purpose.
+fn validate_secret_name(name: &str) -> Result<(), ApiError> {
+    if name.is_empty() || name.len() > 128 {
+        return Err(bad_request("secret name must be 1-128 characters"));
+    }
+    if !name
+        .chars()
+        .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.'))
+    {
+        return Err(bad_request(
+            "secret name may use letters, digits, dash, underscore and dot",
+        ));
+    }
+    Ok(())
 }
 
 /// Register a public key for the *calling* subject (batch 19.1).

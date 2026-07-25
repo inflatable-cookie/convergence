@@ -51,6 +51,17 @@ impl SqliteMetadataStore {
                 token_hash TEXT PRIMARY KEY,
                 subject TEXT NOT NULL
             );
+            CREATE TABLE IF NOT EXISTS secrets (
+                repo_id TEXT NOT NULL,
+                owner TEXT NOT NULL,
+                name TEXT NOT NULL,
+                recipients_json TEXT NOT NULL,
+                ciphertext TEXT NOT NULL,
+                version INTEGER NOT NULL,
+                updated_at TEXT NOT NULL,
+                updated_by TEXT NOT NULL,
+                PRIMARY KEY (repo_id, owner, name)
+            );
             CREATE TABLE IF NOT EXISTS public_keys (
                 repo_id TEXT NOT NULL,
                 key_id TEXT NOT NULL,
@@ -306,6 +317,47 @@ impl MetadataStore for SqliteMetadataStore {
         })?;
         rows.collect::<std::result::Result<_, _>>()
             .context("list grants")
+    }
+
+    fn get_secret(
+        &self,
+        repo_id: &str,
+        owner: &str,
+        name: &str,
+    ) -> Result<Option<converge_model::SecretRecord>> {
+        let conn = self.conn.lock().expect("meta lock");
+        get_secret_conn(&conn, repo_id, owner, name)
+    }
+
+    fn list_secrets(&self, repo_id: &str) -> Result<Vec<converge_model::SecretRecord>> {
+        let conn = self.conn.lock().expect("meta lock");
+        let mut stmt = conn.prepare(
+            "SELECT name, owner, recipients_json, ciphertext, version, updated_at, updated_by
+             FROM secrets WHERE repo_id = ?1 ORDER BY owner, name",
+        )?;
+        let rows = stmt.query_map(params![repo_id], |row| {
+            Ok(converge_model::SecretRecord {
+                name: row.get(0)?,
+                owner: row.get(1)?,
+                recipients: serde_json::from_str::<Vec<String>>(&row.get::<_, String>(2)?)
+                    .unwrap_or_default(),
+                ciphertext: row.get(3)?,
+                version: row.get::<_, i64>(4)? as u64,
+                updated_at: row.get(5)?,
+                updated_by: row.get(6)?,
+            })
+        })?;
+        rows.collect::<std::result::Result<_, _>>()
+            .context("list secrets")
+    }
+
+    fn delete_secret(&self, repo_id: &str, owner: &str, name: &str) -> Result<()> {
+        let conn = self.conn.lock().expect("meta lock");
+        conn.execute(
+            "DELETE FROM secrets WHERE repo_id = ?1 AND owner = ?2 AND name = ?3",
+            params![repo_id, owner, name],
+        )?;
+        Ok(())
     }
 
     fn add_public_key(&self, repo_id: &str, key: &converge_model::PublicKeyRecord) -> Result<()> {
@@ -1110,6 +1162,42 @@ fn apply_op_conn(conn: &Connection, op: &MetaOp) -> Result<()> {
             subject_id,
             created_at,
         } => add_event_conn(conn, repo_id, kind, subject_id, created_at),
+        MetaOp::PutSecret { repo_id, record } => {
+            conn.execute(
+                "INSERT OR REPLACE INTO secrets
+                 (repo_id, owner, name, recipients_json, ciphertext, version, updated_at, updated_by)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+                params![
+                    repo_id,
+                    record.owner,
+                    record.name,
+                    serde_json::to_string(&record.recipients).unwrap_or_else(|_| "[]".into()),
+                    record.ciphertext,
+                    record.version as i64,
+                    record.updated_at,
+                    record.updated_by
+                ],
+            )?;
+            Ok(())
+        }
+        MetaOp::AssertSecretVersion {
+            repo_id,
+            owner,
+            name,
+            expected,
+        } => {
+            let actual = get_secret_conn(conn, repo_id, owner, name)?
+                .map(|record| record.version)
+                .unwrap_or(0);
+            if actual != *expected {
+                return Err(BatchConflict(format!(
+                    "secret {name} is at version {actual}, not {expected}; \
+                     re-read it and retry so a concurrent rotation is not lost"
+                ))
+                .into());
+            }
+            Ok(())
+        }
         MetaOp::AssertPartitionState {
             repo_id,
             scope_id,
@@ -1272,6 +1360,32 @@ fn record_promotion_conn(
         params![bundle_id, from_gate, to_gate, at],
     )?;
     Ok(())
+}
+
+fn get_secret_conn(
+    conn: &rusqlite::Connection,
+    repo_id: &str,
+    owner: &str,
+    name: &str,
+) -> anyhow::Result<Option<converge_model::SecretRecord>> {
+    let mut stmt = conn.prepare(
+        "SELECT name, owner, recipients_json, ciphertext, version, updated_at, updated_by
+         FROM secrets WHERE repo_id = ?1 AND owner = ?2 AND name = ?3",
+    )?;
+    let mut rows = stmt.query(params![repo_id, owner, name])?;
+    let Some(row) = rows.next()? else {
+        return Ok(None);
+    };
+    Ok(Some(converge_model::SecretRecord {
+        name: row.get(0)?,
+        owner: row.get(1)?,
+        recipients: serde_json::from_str::<Vec<String>>(&row.get::<_, String>(2)?)
+            .unwrap_or_default(),
+        ciphertext: row.get(3)?,
+        version: row.get::<_, i64>(4)? as u64,
+        updated_at: row.get(5)?,
+        updated_by: row.get(6)?,
+    }))
 }
 
 fn add_event_conn(

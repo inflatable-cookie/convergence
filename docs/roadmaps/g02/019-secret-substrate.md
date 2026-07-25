@@ -1,6 +1,6 @@
 # 019 Secret Substrate
 
-Status: in progress (19.1 complete)
+Status: in progress (19.1-19.2 complete)
 Owner: repo maintainers
 Updated: 2026-07-25
 
@@ -36,9 +36,11 @@ secrets follow in `g02.020`, which depends on this.
   init|list|rotate`; X25519 keypair via `age`; private key sealed under
   a passphrase and stored `0600` under `CONVERGE_HOME`, not the
   workspace; public keys registered against the token's subject
-- **19.2 Secret records and endpoints**: `SecretRecord` storage in both
-  metadata backends, a `secret` capability, version-guarded writes, and
-  endpoints that move ciphertext without inspecting it
+- **19.2 Secret records and endpoints** (complete, card 070):
+  `SecretRecord` in both backends, a `secret` capability *plus* a
+  separate recipient check (admin subsumes capabilities, so the grant
+  alone would let an admin pull every envelope), version-guarded writes
+  through `apply_batch`, and ciphertext the server never parses
 - **19.3 Secret verbs**: `converge secret set|get|list|rm`, reading and
   writing through the argv contract like every other surface
 - **19.4 Token migration and adversarial tests**: the workspace's own
@@ -66,4 +68,4 @@ secrets follow in `g02.020`, which depends on this.
 
 ## Next Task
 
-Batch card 19.2 (secret records and endpoints).
+Batch card 19.3 (secret verbs).

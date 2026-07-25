@@ -14,6 +14,10 @@ pub enum Capability {
     Approve,
     Promote,
     Release,
+    /// Read and write encrypted secrets (g02.019). Holding it is
+    /// necessary and not sufficient: an endpoint also checks that the
+    /// caller is a recipient (doc 19 §7).
+    Secret,
     Admin,
 }
 
@@ -27,6 +31,7 @@ impl Capability {
             Capability::Approve => "approve",
             Capability::Promote => "promote",
             Capability::Release => "release",
+            Capability::Secret => "secret",
             Capability::Admin => "admin",
         }
     }

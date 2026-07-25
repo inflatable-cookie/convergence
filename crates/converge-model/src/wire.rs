@@ -197,6 +197,45 @@ pub struct PublicKeyRecord {
     pub created_at: String,
 }
 
+/// An encrypted secret as the server holds it (g02.019, doc 19 §3).
+///
+/// `ciphertext` is an armored age file. The server stores and returns it
+/// byte-exact and has no code path that parses it — armored rather than
+/// binary so a database row is visibly an age file and obviously not
+/// plaintext.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+pub struct SecretRecord {
+    pub name: String,
+    pub owner: String,
+    /// Key ids that can decrypt. One entry until `g02.020` adds sharing.
+    pub recipients: Vec<String>,
+    pub ciphertext: String,
+    pub version: u64,
+    pub updated_at: String,
+    pub updated_by: String,
+}
+
+/// A secret without its ciphertext, for listings.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+pub struct SecretSummary {
+    pub name: String,
+    pub owner: String,
+    pub recipients: Vec<String>,
+    pub version: u64,
+    pub updated_at: String,
+    pub updated_by: String,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct SetSecretRequest {
+    pub ciphertext: String,
+    pub recipients: Vec<String>,
+    /// Version the writer believes it is replacing; `0` creates. A
+    /// mismatch is refused rather than overwritten, so two people
+    /// rotating the same credential cannot silently lose one of them.
+    pub expected_version: u64,
+}
+
 /// One member's standing in a repo.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct MemberRecord {

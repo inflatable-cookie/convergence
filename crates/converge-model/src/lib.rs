@@ -28,6 +28,6 @@ pub use self::wire::{
     GateGraph, GateNode, InboxBundle, InboxLane, InboxPublication, InboxReport, LaneHead,
     LaneRecord, MemberAdded, MemberRecord, NegotiateRequest, NegotiateResponse, ObjectFrame,
     ObjectSet, Page, PromoteRequest, PublicKeyRecord, PublicationRecord, PublishRequest,
-    RegisterKeyRequest, ReleaseRecord, ReleaseRequest, RetentionPolicy, SetLaneHeadRequest,
-    VerifyReport, WIRE_VERSION,
+    RegisterKeyRequest, ReleaseRecord, ReleaseRequest, RetentionPolicy, SecretRecord,
+    SecretSummary, SetLaneHeadRequest, SetSecretRequest, VerifyReport, WIRE_VERSION,
 };

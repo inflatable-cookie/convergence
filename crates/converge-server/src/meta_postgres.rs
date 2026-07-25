@@ -35,6 +35,17 @@ impl PostgresMetadataStore {
                 token_hash TEXT PRIMARY KEY,
                 subject TEXT NOT NULL
             );
+            CREATE TABLE IF NOT EXISTS secrets (
+                repo_id TEXT NOT NULL,
+                owner TEXT NOT NULL,
+                name TEXT NOT NULL,
+                recipients_json TEXT NOT NULL,
+                ciphertext TEXT NOT NULL,
+                version BIGINT NOT NULL,
+                updated_at TEXT NOT NULL,
+                updated_by TEXT NOT NULL,
+                PRIMARY KEY (repo_id, owner, name)
+            );
             CREATE TABLE IF NOT EXISTS public_keys (
                 repo_id TEXT NOT NULL,
                 key_id TEXT NOT NULL,
@@ -238,6 +249,35 @@ impl MetadataStore for PostgresMetadataStore {
             .iter()
             .map(|r| (r.get(0), r.get(1), r.get(2)))
             .collect())
+    }
+
+    fn get_secret(
+        &self,
+        repo_id: &str,
+        owner: &str,
+        name: &str,
+    ) -> Result<Option<converge_model::SecretRecord>> {
+        let mut c = self.client.lock().expect("pg lock");
+        get_secret_pg(&mut *c, repo_id, owner, name)
+    }
+
+    fn list_secrets(&self, repo_id: &str) -> Result<Vec<converge_model::SecretRecord>> {
+        let mut c = self.client.lock().expect("pg lock");
+        let rows = c.query(
+            "SELECT name, owner, recipients_json, ciphertext, version, updated_at, updated_by
+             FROM secrets WHERE repo_id = $1 ORDER BY owner, name",
+            &[&repo_id],
+        )?;
+        Ok(rows.iter().map(secret_from_row).collect())
+    }
+
+    fn delete_secret(&self, repo_id: &str, owner: &str, name: &str) -> Result<()> {
+        let mut c = self.client.lock().expect("pg lock");
+        c.execute(
+            "DELETE FROM secrets WHERE repo_id = $1 AND owner = $2 AND name = $3",
+            &[&repo_id, &owner, &name],
+        )?;
+        Ok(())
     }
 
     fn add_public_key(&self, repo_id: &str, key: &converge_model::PublicKeyRecord) -> Result<()> {
@@ -966,6 +1006,48 @@ fn apply_op_pg(c: &mut impl postgres::GenericClient, op: &MetaOp) -> Result<()> 
             subject_id,
             created_at,
         } => add_event_pg(c, repo_id, kind, subject_id, created_at).map(|_| ()),
+        MetaOp::PutSecret { repo_id, record } => {
+            c.execute(
+                "INSERT INTO secrets
+                 (repo_id, owner, name, recipients_json, ciphertext, version, updated_at, updated_by)
+                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+                 ON CONFLICT (repo_id, owner, name) DO UPDATE SET
+                   recipients_json = EXCLUDED.recipients_json,
+                   ciphertext = EXCLUDED.ciphertext,
+                   version = EXCLUDED.version,
+                   updated_at = EXCLUDED.updated_at,
+                   updated_by = EXCLUDED.updated_by",
+                &[
+                    repo_id,
+                    &record.owner,
+                    &record.name,
+                    &serde_json::to_string(&record.recipients).unwrap_or_else(|_| "[]".into()),
+                    &record.ciphertext,
+                    &(record.version as i64),
+                    &record.updated_at,
+                    &record.updated_by,
+                ],
+            )?;
+            Ok(())
+        }
+        MetaOp::AssertSecretVersion {
+            repo_id,
+            owner,
+            name,
+            expected,
+        } => {
+            let actual = get_secret_pg(c, repo_id, owner, name)?
+                .map(|record| record.version)
+                .unwrap_or(0);
+            if actual != *expected {
+                return Err(BatchConflict(format!(
+                    "secret {name} is at version {actual}, not {expected}; \
+                     re-read it and retry so a concurrent rotation is not lost"
+                ))
+                .into());
+            }
+            Ok(())
+        }
         MetaOp::AssertPartitionState {
             repo_id,
             scope_id,
@@ -1119,6 +1201,32 @@ fn record_promotion_pg(
         &[&bundle_id, &from_gate, &to_gate, &at],
     )?;
     Ok(())
+}
+
+fn secret_from_row(r: &postgres::Row) -> converge_model::SecretRecord {
+    converge_model::SecretRecord {
+        name: r.get(0),
+        owner: r.get(1),
+        recipients: serde_json::from_str::<Vec<String>>(&r.get::<_, String>(2)).unwrap_or_default(),
+        ciphertext: r.get(3),
+        version: r.get::<_, i64>(4) as u64,
+        updated_at: r.get(5),
+        updated_by: r.get(6),
+    }
+}
+
+fn get_secret_pg(
+    c: &mut impl postgres::GenericClient,
+    repo_id: &str,
+    owner: &str,
+    name: &str,
+) -> Result<Option<converge_model::SecretRecord>> {
+    let row = c.query_opt(
+        "SELECT name, owner, recipients_json, ciphertext, version, updated_at, updated_by
+         FROM secrets WHERE repo_id = $1 AND owner = $2 AND name = $3",
+        &[&repo_id, &owner, &name],
+    )?;
+    Ok(row.as_ref().map(secret_from_row))
 }
 
 fn add_event_pg(

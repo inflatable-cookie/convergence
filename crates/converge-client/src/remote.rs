@@ -467,6 +467,64 @@ impl RemoteClient {
         response.json().context("parse keys")
     }
 
+    /// Store ciphertext (batch 19.2). `expected_version` is the version
+    /// being replaced; 0 creates.
+    pub fn set_secret(
+        &self,
+        repo_id: &str,
+        name: &str,
+        ciphertext: &str,
+        recipients: &[String],
+        expected_version: u64,
+    ) -> Result<crate::model::SecretSummary> {
+        let response = Self::check(
+            self.http
+                .put(self.url(&format!("/api/repos/{repo_id}/secrets/{name}")))
+                .bearer_auth(&self.token)
+                .json(&crate::model::SetSecretRequest {
+                    ciphertext: ciphertext.into(),
+                    recipients: recipients.to_vec(),
+                    expected_version,
+                })
+                .send()
+                .context("set secret")?,
+        )?;
+        response.json().context("parse secret summary")
+    }
+
+    pub fn get_secret(&self, repo_id: &str, name: &str) -> Result<crate::model::SecretRecord> {
+        let response = Self::check(
+            self.http
+                .get(self.url(&format!("/api/repos/{repo_id}/secrets/{name}")))
+                .bearer_auth(&self.token)
+                .send()
+                .context("get secret")?,
+        )?;
+        response.json().context("parse secret")
+    }
+
+    pub fn list_secrets(&self, repo_id: &str) -> Result<Vec<crate::model::SecretSummary>> {
+        let response = Self::check(
+            self.http
+                .get(self.url(&format!("/api/repos/{repo_id}/secrets")))
+                .bearer_auth(&self.token)
+                .send()
+                .context("list secrets")?,
+        )?;
+        response.json().context("parse secrets")
+    }
+
+    pub fn delete_secret(&self, repo_id: &str, name: &str) -> Result<()> {
+        Self::check(
+            self.http
+                .delete(self.url(&format!("/api/repos/{repo_id}/secrets/{name}")))
+                .bearer_auth(&self.token)
+                .send()
+                .context("delete secret")?,
+        )?;
+        Ok(())
+    }
+
     pub fn list_members(&self, repo_id: &str) -> Result<Vec<crate::model::MemberRecord>> {
         let response = Self::check(
             self.http

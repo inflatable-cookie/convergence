@@ -97,6 +97,20 @@ pub enum MetaOp {
         gate_id: String,
         expected: PartitionState,
     },
+    /// Store an encrypted secret (g02.019). The server never inspects
+    /// `ciphertext`.
+    PutSecret {
+        repo_id: String,
+        record: converge_model::SecretRecord,
+    },
+    /// Fail the batch unless the secret is still at `expected` (0 = must
+    /// not exist yet).
+    AssertSecretVersion {
+        repo_id: String,
+        owner: String,
+        name: String,
+        expected: u64,
+    },
     /// Fail the batch unless exactly `expected` publications exist with
     /// seq > `after_seq` (pins the in-memory window and the next seq).
     AssertPublicationCount {
@@ -163,6 +177,17 @@ pub trait MetadataStore: Send + Sync {
     // other without an out-of-band exchange.
     fn add_public_key(&self, repo_id: &str, key: &converge_model::PublicKeyRecord) -> Result<()>;
     fn list_public_keys(&self, repo_id: &str) -> Result<Vec<converge_model::PublicKeyRecord>>;
+
+    // encrypted secrets (g02.019 batch 19.2). Writes go through
+    // `apply_batch` so a stale version fails the whole batch.
+    fn get_secret(
+        &self,
+        repo_id: &str,
+        owner: &str,
+        name: &str,
+    ) -> Result<Option<converge_model::SecretRecord>>;
+    fn list_secrets(&self, repo_id: &str) -> Result<Vec<converge_model::SecretRecord>>;
+    fn delete_secret(&self, repo_id: &str, owner: &str, name: &str) -> Result<()>;
 
     /// Server-wide admin: a grant recorded against the `*` repo. Repo
     /// grants stay exact-match (see `has_grant`) so this cannot widen an
