@@ -1,6 +1,6 @@
 # 022 Ship Readiness
 
-Status: in progress (22.1-22.2 complete)
+Status: in progress (22.1-22.3 complete)
 Owner: repo maintainers
 Updated: 2026-07-25
 
@@ -63,7 +63,7 @@ does not run until the operator says so.
   mismatch and what to do. This lands *before* 22.4, because the point
   of 22.4 is to accumulate real history and "re-init" stops being an
   acceptable answer the moment that history exists
-- **22.3 Operator guide** (card 089): deploy, back up, restore, and
+- **22.3 Operator guide** (complete, card 089): deploy, back up, restore, and
   **verify a restore** — including the secrets case, where a lost object
   store is unrecoverable by design and the backup is the only
   mitigation. Written against a real local deployment, not from memory
@@ -90,4 +90,4 @@ does not run until the operator says so.
 
 ## Next Task
 
-Batch card 22.3 (operator guide).
+Batch card 22.4 (real workspace shakedown) — operator-driven.

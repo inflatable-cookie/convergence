@@ -1,6 +1,6 @@
 # 089 Operator Guide
 
-Status: ready
+Status: complete
 Updated: 2026-07-25
 Roadmap: `g02.022`
 
@@ -54,6 +54,40 @@ test that exercises the thing that cannot be regenerated.
 
 - `effigy validate`
 - `effigy qa:docs`
+
+## Outcome
+
+Every step was run against a real deployment — build it, back it up,
+destroy it, restore it, prove the restore — and the guide was written
+from what happened rather than from what should happen.
+
+- **`converge doctor --deep`**, because driving the restore found the
+  gap: a deployment whose entire `objects/` directory was missing passed
+  every ordinary check and reported "nothing wrong here". The control
+  plane was answering, and nothing doctor asked touched the object
+  store. `--deep` asks the server whether it still holds the root
+  manifest of its own `stable` release — one round trip, no transfer,
+  and precisely the question that fails
+- **a `fetch` is not a restore test.** A `fetch --release stable --into`
+  reported success against that same gutted deployment, because the
+  workspace had fetched before and was served out of its own local
+  store. Correct behaviour, useless as verification. The guide now says
+  to check from a clean workspace, and the automated test uses one
+- **two backups, not one.** The server's data directory holds ciphertext;
+  `~/.converge` holds the keys that open it. Neither is recoverable from
+  the other, and losing either is total in its own way. The guide states
+  both in a table rather than burying it
+- **stop the server first, and here is why**: SQLite runs in
+  rollback-journal mode, not WAL, so a transaction in flight leaves a
+  `meta.sqlite-journal` beside the database and a tar that catches one
+  without the other restores torn
+- the whole round trip is an automated test: publish, release, seal a
+  secret, copy the directory, serve the copy, and assert the secret
+  still decrypts, provenance still replays, and the tree still
+  materializes. Plus the mistake case — database without objects —
+  asserting plain `doctor` passes it and `--deep` does not
+- what is *not* recoverable is stated: a secret whose key is lost, an
+  unpublished snap, a token's plaintext
 
 ## Next Task
 

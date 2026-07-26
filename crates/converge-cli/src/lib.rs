@@ -377,7 +377,15 @@ enum Command {
     /// Show the configured remote for this workspace.
     Remote,
     /// Report the state of this setup and what is wrong with it.
-    Doctor,
+    Doctor {
+        /// Also ask the server to prove it can still serve data.
+        ///
+        /// Costs a round trip per check and is the thing to run after a
+        /// restore: the ordinary checks pass against a deployment whose
+        /// object store is gone (g02.022 batch 22.3).
+        #[arg(long)]
+        deep: bool,
+    },
     /// Show or set the workflow profile (shapes guidance, not behavior).
     Profile {
         /// New profile: software, daw, or game-assets.
@@ -1232,7 +1240,7 @@ fn run(cli: &Cli, mode: OutputMode, session: &Session) -> Result<serde_json::Val
                 },
             )
         }
-        Command::Doctor => run_doctor(mode, session),
+        Command::Doctor { deep } => run_doctor(mode, session, *deep),
         Command::Remote => {
             let ws = session.workspace()?;
             let cfg = ws.store.read_config()?;
@@ -2311,6 +2319,79 @@ fn latest_snap(ws: &Workspace) -> Result<converge_client::model::SnapRecord> {
     snaps.into_iter().next().context("no snaps to publish")
 }
 
+/// Can this deployment still hand over the bytes it claims to hold?
+///
+/// The control-plane checks cannot answer this: SQLite holds bundle
+/// records, release channels and secret ciphertext, while the trees
+/// those records point at live in the object store. Back up one without
+/// the other and every ordinary check still passes.
+///
+/// Asked as a negotiate against the current channel head's root
+/// manifest, which is cheap — one round trip, no transfer — and precise:
+/// the server reports the object as missing exactly when it cannot
+/// serve it.
+///
+/// **Run this from a client that does not already have the data.** A
+/// `fetch` from a workspace that fetched before is served out of the
+/// local store and proves nothing about the server; batch 22.3 watched
+/// that happen.
+fn serving_check(
+    client: &converge_client::remote::RemoteClient,
+    remote: &converge_client::model::RemoteConfig,
+) -> Check {
+    let head = match client.get_channel_head(&remote.repo_id, "stable") {
+        Ok(record) => record.bundle_id,
+        // No `stable` channel is a normal state, not a fault: say what
+        // was not checked rather than inventing a pass.
+        Err(_) => {
+            return Check::ok("serving", "not checked: no `stable` release to ask about");
+        }
+    };
+    let bundle = match client.get_bundle(&head) {
+        Ok(bundle) => bundle,
+        Err(err) => {
+            return Check::bad(
+                "serving",
+                format!(
+                    "the stable release names bundle {} which will not load: {err:#}",
+                    &head[..12.min(head.len())]
+                ),
+                "restore the deployment from a backup that includes its object store",
+            );
+        }
+    };
+    let Some(root) = bundle.root_manifest else {
+        return Check::ok("serving", "the stable release has an empty tree");
+    };
+    let asking = converge_client::model::ObjectSet {
+        manifests: vec![root.clone()],
+        ..Default::default()
+    };
+    match client.negotiate(&remote.repo_id, asking) {
+        Ok(missing) if missing.manifests.is_empty() => Check::ok(
+            "serving",
+            format!(
+                "holds the stable release's tree ({})",
+                &head[..12.min(head.len())]
+            ),
+        ),
+        Ok(_) => Check::bad(
+            "serving",
+            format!(
+                "the server does not hold the root manifest of its own stable release ({})",
+                &head[..12.min(head.len())]
+            ),
+            "the object store is missing or incomplete — restore from a backup \
+             that includes it, not just the database",
+        ),
+        Err(err) => Check::bad(
+            "serving",
+            format!("could not ask the server what it holds: {err:#}"),
+            "check the server log",
+        ),
+    }
+}
+
 /// One check `doctor` ran, and what to do when it failed.
 #[derive(Serialize)]
 struct Check {
@@ -2363,7 +2444,7 @@ const CLOCK_SKEW_WARN_SECONDS: i64 = 60;
 ///
 /// It reports and recommends. It never changes state — a diagnostic you
 /// cannot safely run when you are unsure is not one.
-fn run_doctor(mode: OutputMode, session: &Session) -> Result<serde_json::Value> {
+fn run_doctor(mode: OutputMode, session: &Session, deep: bool) -> Result<serde_json::Value> {
     let mut checks: Vec<Check> = Vec::new();
 
     let workspace = session.workspace();
@@ -2520,6 +2601,16 @@ fn run_doctor(mode: OutputMode, session: &Session) -> Result<serde_json::Value> 
                                 "not compared (the server sent no usable Date)",
                             )),
                             None => {}
+                        }
+
+                        // Everything above proves the *control plane* is
+                        // answering. None of it touches the object
+                        // store, so a deployment restored from a backup
+                        // that captured only the database passes every
+                        // check above and can serve nothing (batch
+                        // 22.3, found by doing exactly that).
+                        if deep && probe.authorized {
+                            checks.push(serving_check(&client, &remote));
                         }
                     }
                     Ok(None) => checks.push(Check::bad(
