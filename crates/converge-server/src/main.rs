@@ -59,10 +59,19 @@ fn main() -> Result<()> {
     }
 
     // The stamp check comes before anything opens a database or a
-    // store (batch 22.2). An empty directory reads as version 1 and is
-    // stamped on the way past, so a fresh deployment is stamped from
-    // its first run and an existing unstamped one is left alone.
-    let fresh = !data_dir.exists() || std::fs::read_dir(&data_dir).is_ok_and(|d| d.count() == 0);
+    // store (batch 22.2), so a fresh deployment is stamped from its
+    // first run and an existing unstamped one is left alone.
+    //
+    // "Fresh" means *Convergence* has not been here, not that the
+    // directory is empty. Batch 22.4 caught the difference on the first
+    // command of the shakedown: redirecting a server log into the data
+    // directory created a file before the server started, the emptiness
+    // test said "not fresh", and the deployment silently went unstamped
+    // — which "absent means 1" then makes invisible. A stray
+    // `.DS_Store` would have done the same.
+    let fresh = !data_dir.join(converge_model::format::FORMAT_FILE).exists()
+        && !data_dir.join("meta.sqlite").exists()
+        && !data_dir.join("objects").exists();
     std::fs::create_dir_all(&data_dir).context("create data dir")?;
     converge_model::format::check_compatible(&data_dir, converge_model::format::StoreKind::Server)?;
     if fresh {

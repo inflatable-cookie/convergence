@@ -129,7 +129,11 @@ fn deployment(ws: &Path, home: &Path) -> Result<Deployment> {
     std::fs::write(ws.join("README.md"), "acme")?;
     std::fs::create_dir_all(ws.join("docs"))?;
     std::fs::write(ws.join("docs/plan.md"), "the plan")?;
-    assert!(converge(ws, home, &["snap", "-m", "initial"]).status.success());
+    assert!(
+        converge(ws, home, &["snap", "-m", "initial"])
+            .status
+            .success()
+    );
 
     let published = json(&converge(ws, home, &["--json", "publish"]));
     let bundle_id = published["bundle"]["bundle_id"]
@@ -195,8 +199,17 @@ fn a_restored_deployment_still_serves_trees_provenance_and_secrets() -> Result<(
             ws,
             home,
             &[
-                "login", "--url", &restored_url, "--token", "t", "--repo", "acme", "--scope",
-                "default", "--gate", "intake",
+                "login",
+                "--url",
+                &restored_url,
+                "--token",
+                "t",
+                "--repo",
+                "acme",
+                "--scope",
+                "default",
+                "--gate",
+                "intake",
             ],
         )
         .status
@@ -206,7 +219,10 @@ fn a_restored_deployment_still_serves_trees_provenance_and_secrets() -> Result<(
     // The credential still opens. This is the one that cannot be
     // regenerated from anywhere else.
     let got = converge(ws, home, &["--json", "secret", "get", "DATABASE_URL"]);
-    assert!(got.status.success(), "the secret did not survive the restore");
+    assert!(
+        got.status.success(),
+        "the secret did not survive the restore"
+    );
     assert_eq!(json(&got)["value"], "postgres://user:pw@db/acme");
 
     // Provenance still replays: the objects are there *and* consistent.
@@ -232,7 +248,10 @@ fn a_restored_deployment_still_serves_trees_provenance_and_secrets() -> Result<(
         ],
     );
     assert!(fetched.status.success());
-    assert_eq!(std::fs::read_to_string(into.join("docs/plan.md"))?, "the plan");
+    assert_eq!(
+        std::fs::read_to_string(into.join("docs/plan.md"))?,
+        "the plan"
+    );
     Ok(())
 }
 
@@ -258,7 +277,11 @@ fn a_backup_missing_its_objects_passes_every_check_except_the_deep_one() -> Resu
     let clean_dir = tempfile::tempdir()?;
     let clean_home = tempfile::tempdir()?;
     let clean = clean_dir.path();
-    assert!(converge(clean, clean_home.path(), &["init"]).status.success());
+    assert!(
+        converge(clean, clean_home.path(), &["init"])
+            .status
+            .success()
+    );
     assert!(
         converge(
             clean,

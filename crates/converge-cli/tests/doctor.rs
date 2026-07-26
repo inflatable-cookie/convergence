@@ -255,3 +255,66 @@ fn walk(root: &Path) -> Vec<(std::path::PathBuf, u64)> {
     out.sort();
     out
 }
+
+/// The identity directory is also called `.converge` and lives in the
+/// home directory — directly above most people's work.
+///
+/// Batch 22.4 found what that cost on the first real session: a verb run
+/// where no workspace existed walked up, matched `~/.converge`, and
+/// reported the whole home directory as the workspace. `converge snap`
+/// there would have tried to capture everything the user owns.
+#[test]
+fn discovery_never_mistakes_the_identity_directory_for_a_workspace() -> Result<()> {
+    let home = tempfile::tempdir()?;
+    // A realistic identity directory: `key init` shape, no config.json.
+    let identity = home.path().join(".converge");
+    std::fs::create_dir_all(identity.join("keys"))?;
+    std::fs::write(identity.join("machine.key"), "not a real key")?;
+
+    // A working directory *below* it, with no workspace of its own.
+    let work = home.path().join("projects").join("something");
+    std::fs::create_dir_all(&work)?;
+
+    let out = converge(&work, home.path(), &["status"]);
+    assert!(
+        !out.status.success(),
+        "status found a workspace where there is none"
+    );
+    let message = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        message.contains("No .converge workspace found"),
+        "expected a no-workspace refusal, got: {message}"
+    );
+
+    // And `doctor` must not report the home directory as a workspace.
+    let report = report(&converge(&work, home.path(), &["--json", "doctor"]));
+    let workspace = check(&report, "workspace");
+    assert_eq!(
+        workspace["ok"], false,
+        "doctor claimed a workspace at {}",
+        workspace["detail"]
+    );
+    Ok(())
+}
+
+/// A real workspace below the home directory still resolves — the fix
+/// must not have broken discovery itself.
+#[test]
+fn a_real_workspace_below_the_home_directory_still_resolves() -> Result<()> {
+    let home = tempfile::tempdir()?;
+    std::fs::create_dir_all(home.path().join(".converge/keys"))?;
+    let work = home.path().join("projects").join("real");
+    std::fs::create_dir_all(&work)?;
+    assert!(converge(&work, home.path(), &["init"]).status.success());
+
+    // From a subdirectory, so discovery has to walk up at least once.
+    let nested = work.join("src").join("deep");
+    std::fs::create_dir_all(&nested)?;
+    let out = converge(&nested, home.path(), &["status"]);
+    assert!(
+        out.status.success(),
+        "discovery stopped finding real workspaces: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    Ok(())
+}
