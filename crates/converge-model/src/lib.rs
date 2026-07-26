@@ -1,6 +1,7 @@
 mod chunk;
 mod config;
 pub mod encoding;
+pub mod format;
 mod ids;
 mod manifest;
 mod resolution;

@@ -1,6 +1,6 @@
 # 022 Ship Readiness
 
-Status: in progress (22.1 complete)
+Status: in progress (22.1-22.2 complete)
 Owner: repo maintainers
 Updated: 2026-07-25
 
@@ -58,7 +58,7 @@ does not run until the operator says so.
   reporting workspace, remote, identity, key, server reachability and
   clock skew in one answer, each failure naming its fix; a local install
   path; `--version` traceable to a commit. No packaging, no publishing
-- **22.2 Store format and upgrade refusal** (card 088): a version stamp
+- **22.2 Store format and upgrade refusal** (complete, card 088): a version stamp
   on the workspace and server stores, with a refusal that names the
   mismatch and what to do. This lands *before* 22.4, because the point
   of 22.4 is to accumulate real history and "re-init" stops being an
@@ -90,4 +90,4 @@ does not run until the operator says so.
 
 ## Next Task
 
-Batch card 22.2 (store format and upgrade refusal).
+Batch card 22.3 (operator guide).

@@ -137,6 +137,77 @@ Rebuild replaces it with **FastCDC** content-defined chunking:
 - parameters (target size, normalization level) are recorded in the recipe
   header — future retuning cannot corrupt old recipes
 
+## 3. On-disk format versioning (g02.022 batch 22.2)
+
+`WIRE_VERSION` (§1) covers what two processes say to each other. This
+covers what a process says to a directory it will read again later.
+
+Both stores carry a version stamp: `.converge/format` in a workspace and
+`format` in a server's data directory, each holding one line —
+`converge-workspace-1`, `converge-server-1`.
+
+### Why its own file
+
+`WorkspaceConfig` has carried a `version` field since the rebuild and
+nothing ever read it. Worse, it could not have worked: `config.json` is
+parsed by serde, so a format change that alters its *shape* fails to
+parse before anything looks at the version. The error would be "missing
+field", not "wrong version".
+
+A version stamp has to be readable by every binary that will ever meet
+it, including ones written after the format it stamps. So it is a
+standalone file holding text, and it will stay that way.
+
+### Absent means 1
+
+A store written before the stamp existed has none. Absent is defined as
+version 1, permanently, and nothing rewrites it — so opening a store
+stays a pure read. That property is load-bearing: `converge doctor`
+opens a workspace and is tested to change nothing, and a
+migrate-on-open would have made the diagnostic a mutation.
+
+Version 2 onwards must write the file.
+
+### What requires a bump
+
+The test is **would a binary at the other version misread this**, not
+"did the bytes change".
+
+Not a bump:
+
+- adding a file or directory that older readers do not look for
+- adding an optional field older readers skip with `#[serde(default)]`
+- anything under a path that is already ignored
+
+A bump:
+
+- changing what an existing field or file *means*
+- changing an id's domain tag, which changes identity — batch 18.3 moved
+  `converge-snap-v3` to `v4` and would have needed one
+- removing something an older reader requires
+- changing the layout an older writer would write into
+
+### Both directions are refused
+
+An older binary opening a newer store is the more dangerous case: it is
+the one that reads fields whose meaning changed underneath it. It is
+also the one people hit, because downgrading is what you do when a new
+version misbehaves.
+
+The refusal names the version found, the version supported, what to do,
+and — because it happens on *open*, before anything is read — that
+nothing has been touched.
+
+### `--force` is not a licence to destroy
+
+`converge init --force` refuses a store this build cannot read. Driving
+this found the hole: every verb refused a format-99 workspace, and then
+`init --force` reset it to format 1, destroying exactly the history the
+refusal existed to protect. `--force` means "re-initialise over my own
+store". Discarding one you cannot read means removing the directory
+yourself, which is an unmistakable act rather than a flag people reach
+for casually.
+
 ## Next Task
 
 Implement `converge-model` DTOs + FastCDC chunker early in the first rebuild

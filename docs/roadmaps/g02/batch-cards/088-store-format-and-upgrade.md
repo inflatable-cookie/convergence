@@ -1,6 +1,6 @@
 # 088 Store Format And Upgrade Refusal
 
-Status: ready
+Status: complete
 Updated: 2026-07-25
 Roadmap: `g02.022`
 
@@ -52,6 +52,30 @@ skips. Those corrupt quietly.
 
 - `effigy validate`
 - `effigy qa:docs`
+
+## Outcome
+
+- a stamp file per store: `.converge/format` and `<data-dir>/format`.
+  Its own file, not `config.json`'s existing `version` field, which
+  nothing ever read and which **could not have worked**: config.json is
+  parsed by serde, so a shape change fails to parse before anything
+  looks at the version
+- **absent means 1, permanently**, and nothing rewrites it, so opening a
+  store stays a pure read. Load-bearing: batch 22.1's `doctor` opens a
+  workspace and is tested to change nothing
+- both directions refused, on *open*, so the message can say "Nothing
+  has been read or written" and mean it. A stamp of the wrong *kind*
+  gets its own message, since a workspace passed as a data directory is
+  a different mistake
+- **`--force` was a hole, found by driving it.** Every verb refused a
+  format-99 workspace; `init --force` then reset it to format 1 and
+  destroyed it. Worse, batch 22.1's `doctor` was recommending exactly
+  that command. Both fixed: `--force` will not re-initialise a store
+  this build cannot read, and discarding one means removing the
+  directory by hand — an unmistakable act rather than a casual flag
+- doc 16 §3 records what requires a bump: would a binary at the other
+  version *misread* this, not "did the bytes change"
+- 291 tests green
 
 ## Next Task
 

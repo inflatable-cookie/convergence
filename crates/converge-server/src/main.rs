@@ -58,7 +58,19 @@ fn main() -> Result<()> {
         }
     }
 
+    // The stamp check comes before anything opens a database or a
+    // store (batch 22.2). An empty directory reads as version 1 and is
+    // stamped on the way past, so a fresh deployment is stamped from
+    // its first run and an existing unstamped one is left alone.
+    let fresh = !data_dir.exists() || std::fs::read_dir(&data_dir).is_ok_and(|d| d.count() == 0);
     std::fs::create_dir_all(&data_dir).context("create data dir")?;
+    converge_model::format::check_compatible(&data_dir, converge_model::format::StoreKind::Server)?;
+    if fresh {
+        converge_model::format::write_version(
+            &data_dir,
+            converge_model::format::StoreKind::Server,
+        )?;
+    }
 
     // Backend selection (arch 14 §2): embedded defaults; external behind
     // feature gates.

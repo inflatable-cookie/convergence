@@ -21,6 +21,10 @@ impl LocalStore {
                 root.display()
             ));
         }
+        // Checked on *open*, not on first bad read (batch 22.2). By the
+        // time a read looks wrong, something has already been written
+        // against an assumption that did not hold.
+        crate::model::format::check_compatible(&root, crate::model::format::StoreKind::Workspace)?;
         Ok(Self { root })
     }
 
@@ -32,6 +36,28 @@ impl LocalStore {
                 STORE_DIR,
                 root.display()
             ));
+        }
+        // `--force` means "re-initialise over my own store". It does not
+        // mean "destroy a store I cannot read" (batch 22.2).
+        //
+        // Found by driving it: every verb refused a format-7 workspace,
+        // and then `init --force` cheerfully reset it to format 1 —
+        // destroying exactly the history the refusal existed to protect.
+        // Deleting the directory by hand is an unmistakable act; a flag
+        // people reach for casually is not.
+        if root.exists() {
+            crate::model::format::check_compatible(
+                &root,
+                crate::model::format::StoreKind::Workspace,
+            )
+            .map_err(|err| {
+                anyhow!(
+                    "{err}\n\n\
+                     `--force` will not re-initialise a store this build cannot read.\n\
+                     If you are certain you want to discard it, remove {} yourself.",
+                    root.display()
+                )
+            })?;
         }
 
         fs::create_dir_all(root.join("objects/blobs")).context("create blobs dir")?;
@@ -59,6 +85,8 @@ impl LocalStore {
         };
         let state_bytes = serde_json::to_vec_pretty(&state).context("serialize workspace state")?;
         write_atomic(&root.join("state.json"), &state_bytes).context("write state.json")?;
+
+        crate::model::format::write_version(&root, crate::model::format::StoreKind::Workspace)?;
 
         Ok(Self { root })
     }

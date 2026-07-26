@@ -2368,7 +2368,27 @@ fn run_doctor(mode: OutputMode, session: &Session) -> Result<serde_json::Value> 
 
     let workspace = session.workspace();
     match &workspace {
-        Ok(ws) => checks.push(Check::ok("workspace", format!("{}", ws.root.display()))),
+        Ok(ws) => {
+            checks.push(Check::ok("workspace", format!("{}", ws.root.display())));
+            // A workspace that opened at all is compatible — `open`
+            // refuses otherwise (batch 22.2) — so this reports the
+            // version rather than re-checking it.
+            let version = converge_client::model::format::read_version(
+                ws.store.root_dir(),
+                converge_client::model::format::StoreKind::Workspace,
+            )
+            .unwrap_or(0);
+            checks.push(Check::ok("store format", format!("version {version}")));
+        }
+        // A format mismatch surfaces here, and it must **not** be
+        // answered with `converge init`: `init --force` on a store this
+        // binary cannot read would destroy exactly the history the
+        // refusal was protecting (batch 22.2).
+        Err(err) if format!("{err:#}").contains("format") => checks.push(Check::bad(
+            "workspace",
+            format!("{err:#}"),
+            "use a Convergence build that reads this format — do NOT run `init --force` here",
+        )),
         Err(err) => checks.push(Check::bad(
             "workspace",
             format!("{err:#}"),

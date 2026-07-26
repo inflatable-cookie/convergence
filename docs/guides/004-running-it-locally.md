@@ -2,7 +2,7 @@
 
 Status: current
 Updated: 2026-07-25
-Roadmap: `g02.022` batch 22.1
+Roadmap: `g02.022` batches 22.1-22.2
 
 How to install Convergence on your own machine, stand up a throwaway
 server, and use it for real work. Nothing here publishes anything.
@@ -86,6 +86,9 @@ ok   server         reachable, credential accepted
 ok   clock          0s from the server
 ```
 
+It also reports the store format version, which is what a "this
+workspace cannot be read" message is about.
+
 It changes nothing, so it is safe to run when you are unsure. Exit
 status is non-zero when something is broken, and `--json` emits one
 envelope, so it works in a script:
@@ -141,6 +144,25 @@ it. **A backup you have not restored is a hypothesis**; batch 22.3 turns
 this section into a tested procedure. Until then, treat it as the
 minimum rather than the answer.
 
+## 6a. If a version refuses to open your store
+
+```
+error: this workspace is format 2, and this build of Convergence reads 1.
+It was written by a newer version. Upgrade Convergence, or point at a
+different workspace.
+Nothing has been read or written.
+```
+
+That refusal is the guard working. Nothing was read and nothing was
+written, so the store is exactly as it was.
+
+**Do not run `converge init --force`.** It refuses in this situation on
+purpose, because it would discard the store rather than repair it. Get a
+build that reads the format instead — `converge --version` on the one
+that wrote it tells you which.
+
+The same applies to the server and its data directory.
+
 ## 7. Throwing it away
 
 Delete the data directory and the workspace. There is no global state
@@ -156,6 +178,5 @@ CONVERGE_HOME=/tmp/throwaway-identity converge key init
 
 ## Next Task
 
-Batch 22.2 adds a store-format version, so an old workspace against a
-new binary is refused with an explanation rather than misread. Batch
-22.3 turns §6 into a procedure that has actually been tested.
+Batch 22.3 turns §6 into a procedure that has actually been tested,
+including a restore that is verified rather than assumed.
