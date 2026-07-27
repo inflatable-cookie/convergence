@@ -26,6 +26,44 @@ const MAP_FILE: &str = "git-map.json";
 /// git repo at `git_workdir`. Incremental: snaps already in the mapping
 /// table are reused as parents, not re-exported. Mirror branches are
 /// force-moved (doc 18: snapshot semantics, read-only for git users).
+/// Who the mirrored commits are attributed to.
+///
+/// A mirror is a git artifact, so git's own identity is the right source:
+/// it makes `git log --author`, `git blame` and forge attribution work on
+/// the exported branch instead of showing one placeholder for everything.
+/// Batch 22.4 found every commit authored `Converge <converge@local>` in
+/// a repo with two identities.
+///
+/// The honest limit: this is whoever runs the export, applied to the
+/// whole lineage. A local snap record carries no author -- identity is
+/// attached at publish, server-side -- so per-snap attribution is not
+/// available to ask for. That is right for the ordinary case of one
+/// person's workspace and wrong for a history that mixes authors; fixing
+/// it properly means putting an author on the snap record.
+fn git_identity(git_workdir: &Path) -> (String, String) {
+    let get = |key: &str| -> Option<String> {
+        let out = Command::new("git")
+            .args(["config", "--get", key])
+            .current_dir(git_workdir)
+            .output()
+            .ok()?;
+        if !out.status.success() {
+            return None;
+        }
+        let value = String::from_utf8_lossy(&out.stdout).trim().to_string();
+        // A name with a newline or an angle bracket would break the
+        // fast-import command it lands in.
+        if value.is_empty() || value.contains(['\n', '<', '>']) {
+            return None;
+        }
+        Some(value)
+    };
+    (
+        get("user.name").unwrap_or_else(|| "Converge".to_string()),
+        get("user.email").unwrap_or_else(|| "converge@local".to_string()),
+    )
+}
+
 pub fn export_lineage(
     store: &LocalStore,
     git_workdir: &Path,
@@ -59,6 +97,7 @@ pub fn export_lineage(
         }
     }
 
+    let author = git_identity(git_workdir);
     let mut map = load_map(store)?;
 
     // Lineage oldest-first (parents before children), tolerating thinned
@@ -98,7 +137,14 @@ pub fn export_lineage(
     for (index, snap) in to_export.iter().enumerate() {
         let mark = index + 1;
         mark_of.insert(snap.id.clone(), mark);
-        write_commit(store, &mut stream, export_ref, snap, mark, &mark_of, &map)?;
+        let ctx = CommitContext {
+            store,
+            export_ref,
+            mark_of: &mark_of,
+            map: &map,
+            author: author.clone(),
+        };
+        write_commit(&ctx, &mut stream, snap, mark)?;
     }
 
     let mut child = Command::new("git")
@@ -157,15 +203,30 @@ pub fn export_lineage(
     })
 }
 
+/// Everything a commit needs that does not change between commits.
+struct CommitContext<'a> {
+    store: &'a LocalStore,
+    export_ref: &'a str,
+    /// Snaps written earlier in this same stream, by fast-import mark.
+    mark_of: &'a BTreeMap<String, usize>,
+    /// Snaps mirrored by an earlier export, by git sha.
+    map: &'a BTreeMap<String, String>,
+    author: (String, String),
+}
+
 fn write_commit(
-    store: &LocalStore,
+    ctx: &CommitContext<'_>,
     stream: &mut Vec<u8>,
-    export_ref: &str,
     snap: &SnapRecord,
     mark: usize,
-    mark_of: &BTreeMap<String, usize>,
-    map: &BTreeMap<String, String>,
 ) -> Result<()> {
+    let CommitContext {
+        store,
+        export_ref,
+        mark_of,
+        map,
+        author: (author_name, author_email),
+    } = ctx;
     let epoch = time::OffsetDateTime::parse(
         &snap.created_at,
         &time::format_description::well_known::Rfc3339,
@@ -193,7 +254,10 @@ fn write_commit(
     stream.extend_from_slice(format!("commit {export_ref}\n").as_bytes());
     stream.extend_from_slice(format!("mark :{mark}\n").as_bytes());
     stream.extend_from_slice(
-        format!("committer Converge <converge@local> {epoch} +0000\n").as_bytes(),
+        format!("author {author_name} <{author_email}> {epoch} +0000\n").as_bytes(),
+    );
+    stream.extend_from_slice(
+        format!("committer {author_name} <{author_email}> {epoch} +0000\n").as_bytes(),
     );
     stream.extend_from_slice(format!("data {}\n{message}\n", message.len() + 1).as_bytes());
 

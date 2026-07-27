@@ -290,6 +290,33 @@ fn watch_once_captures_automatic_snap_only_when_changed() -> anyhow::Result<()> 
     let history = json_data(&converge(root, &["--json", "history"]));
     assert_eq!(history[0]["trigger"], "automatic");
 
+    // And says so to a person. An automatic snap carries no message, so
+    // batch 22.4 found its row was an id and a date and nothing else --
+    // in the one view whose job is listing snaps, while `status` and the
+    // record itself both said `automatic`.
+    let human = converge(root, &["history"]);
+    let text = String::from_utf8_lossy(&human.stdout);
+    assert!(
+        text.contains("(automatic)"),
+        "history does not distinguish an automatic snap: {text}"
+    );
+
+    // An explicit snap with no message stays blank: that was a choice.
+    std::fs::write(root.join("w.txt"), "v2")?;
+    assert!(converge(root, &["snap"]).status.success());
+    let after = converge(root, &["history"]);
+    let text = String::from_utf8_lossy(&after.stdout);
+    assert_eq!(
+        text.lines()
+            .next()
+            .unwrap()
+            .trim()
+            .matches("(automatic)")
+            .count(),
+        0,
+        "an explicit snap was labelled automatic: {text}"
+    );
+
     // Quiet workspace: no capture.
     let captures = json_data(&converge(root, &["--json", "watch", "--once"]));
     assert_eq!(

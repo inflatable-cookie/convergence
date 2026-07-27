@@ -643,6 +643,54 @@ On the live deployment: 9 pins, 109 objects → 0 pins, 108 objects. The
 release still replays from provenance and still fetches cold into a
 clean workspace.
 
+### 28. `watch` behaves, and history would not tell you it had run (fixed)
+
+Driven against a real editing session: one edit captured after the quiet
+period, five edits a second apart coalesced into a single snap, an idle
+tree captured nothing, and killing the process left no debris and no
+pending changes. The debounce is a two-tick stability check, which is
+the right shape.
+
+What is wrong is downstream. An automatic snap carries no message, and
+`history` printed only id, timestamp and the message — so its row was an
+id and a date and nothing else. `status` says `(automatic)`, the record
+says `trigger: automatic`, the `--json` history carries it; only the one
+view whose job is listing snaps dropped it. After an afternoon of
+`watch`, most rows look identical and none say why. Now labelled
+`(automatic)`; an explicit snap with no message still shows nothing,
+because that was somebody's choice.
+
+Two things checked rather than assumed, both fine. Thinning already
+spares the head and explicit snaps, keeps everything under an hour, and
+`lineage_walk_tolerates_thinned_ancestors` covers the dangling-parent
+case. And thinning a *published* automatic snap is harmless:
+`last_published` is only ever compared, never dereferenced, and the
+server holds its own copy of the record.
+
+### 29. The git mirror attributed every commit to nobody (fixed)
+
+`converge git export` mirrored 14 snaps to a branch whose tree is
+byte-identical to the workspace, incrementally, with the
+`Converge-Snap:` trailer that makes the next export incremental. All
+correct.
+
+Every commit was authored `Converge <converge@local>` — in a repo with
+two identities in it. On a branch that exists to be read with git tools,
+that leaves `git log --author`, `git blame` and forge attribution
+showing one placeholder for all of history.
+
+The mirror is a git artifact, so it now takes git's own identity from
+`user.name` / `user.email`, falling back to the old placeholder when
+those are unset, and rejecting values containing a newline or an angle
+bracket because they land in a fast-import command.
+
+The limit is worth stating: this attributes the whole lineage to whoever
+runs the export. A local snap record carries no author at all — identity
+is attached at publish, server-side — so per-snap attribution is not
+available to ask for. Right for one person's workspace, wrong for a
+history that mixes authors, and fixing it properly means putting an
+author on the snap record. Logged, not done.
+
 ## Measurements
 
 | | |
@@ -666,6 +714,8 @@ clean workspace.
 | Stale tokens in `~/.converge` | 493 → 1 |
 | Release consumed cold, read-only token | 44 files, byte-identical |
 | Server objects / pins before → after | 109 / 9 → 108 / 0 |
+| Watch: 5 edits 1s apart | 1 snap |
+| Git mirror | 14 commits, tree byte-identical |
 
 ## Next Task
 

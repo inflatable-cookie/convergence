@@ -801,12 +801,20 @@ fn run(cli: &Cli, mode: OutputMode, session: &Session) -> Result<serde_json::Val
             let list: Vec<SnapSummary> = snaps.iter().map(snap_summary).collect();
             emit(mode, list, |list| {
                 for s in list {
-                    println!(
-                        "{}  {}  {}",
-                        s.id,
-                        s.created_at,
-                        s.message.as_deref().unwrap_or("")
-                    );
+                    // An automatic snap has no message, so without this
+                    // its row is an id and a date and nothing else --
+                    // and after an afternoon of `converge watch` most
+                    // rows look like that. `status` and the record
+                    // itself both say `automatic`; only this view, whose
+                    // whole job is listing snaps, dropped it (batch
+                    // 22.4). An explicit snap with no message still
+                    // shows nothing: that was somebody's choice.
+                    let note = match s.message.as_deref() {
+                        Some(message) => message,
+                        None if s.trigger == "automatic" => "(automatic)",
+                        None => "",
+                    };
+                    println!("{}  {}  {note}", s.id, s.created_at);
                 }
             })
         }

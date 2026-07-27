@@ -98,6 +98,10 @@ fn git_repo_imports_works_under_convergence_and_mirrors_back() -> Result<()> {
     let tmp = tempfile::tempdir()?;
     let root = tmp.path();
     git(root, &["init", "--quiet"])?;
+    // Pinned rather than inherited, so the export attribution below is
+    // asserting something and not just echoing the developer's own config.
+    git(root, &["config", "user.name", "Ada Lovelace"])?;
+    git(root, &["config", "user.email", "ada@example.test"])?;
     std::fs::write(root.join("game.cfg"), "resolution=1080")?;
     git(root, &["add", "."])?;
     git(root, &["commit", "--quiet", "-m", "initial config"])?;
@@ -123,6 +127,20 @@ fn git_repo_imports_works_under_convergence_and_mirrors_back() -> Result<()> {
     let export = export_lineage(&ws.store, root, "converge/lane/local", &snap.id)?;
     assert_eq!(export.exported_commits, 1, "imports not duplicated");
     assert_eq!(export.skipped_existing, 2);
+
+    // Mirrored commits carry the repository's git identity. Batch 22.4
+    // found every exported commit authored `Converge <converge@local>`,
+    // which leaves `git log --author`, `git blame` and forge attribution
+    // useless on a branch that exists to be read with git tools.
+    let author = git(
+        root,
+        &["log", "-1", "--format=%an <%ae>", "converge/lane/local"],
+    )?;
+    assert_eq!(
+        author.trim(),
+        "Ada Lovelace <ada@example.test>",
+        "the mirror did not carry the repository's identity"
+    );
 
     // Plain git consumes the mirror.
     let count = git(root, &["rev-list", "--count", "converge/lane/local"])?;
