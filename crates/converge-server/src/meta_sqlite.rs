@@ -1388,6 +1388,39 @@ fn apply_op_conn(conn: &Connection, op: &MetaOp) -> Result<()> {
             subject_id,
             created_at,
         } => add_event_conn(conn, repo_id, kind, subject_id, created_at),
+        MetaOp::SetGateGraph { repo_id, graph } => {
+            let json = serde_json::to_string(graph)?;
+            conn.execute(
+                "INSERT INTO gate_graphs (repo_id, graph_json) VALUES (?1, ?2)
+                 ON CONFLICT(repo_id) DO UPDATE SET graph_json = excluded.graph_json",
+                params![repo_id, json],
+            )?;
+            Ok(())
+        }
+        MetaOp::AssertGateGraph { repo_id, expected } => {
+            let current: Option<String> = conn
+                .query_row(
+                    "SELECT graph_json FROM gate_graphs WHERE repo_id = ?1",
+                    params![repo_id],
+                    |row| row.get(0),
+                )
+                .ok();
+            // Compared as parsed graphs, not as text: two encodings of
+            // the same graph are the same graph, and a whitespace
+            // difference should not look like somebody else's edit.
+            let matches = match &current {
+                Some(json) => serde_json::from_str::<GateGraph>(json)
+                    .map(|g| &g == expected)
+                    .unwrap_or(false),
+                None => expected.gates.is_empty(),
+            };
+            if !matches {
+                anyhow::bail!(
+                    "the gate graph changed while you were editing it; re-read and try again"
+                );
+            }
+            Ok(())
+        }
         MetaOp::PutSecret { repo_id, record } => {
             conn.execute(
                 "INSERT OR REPLACE INTO secrets

@@ -746,6 +746,34 @@ impl RemoteClient {
         response.json().context("parse gate graph")
     }
 
+    /// Replace a repo's gate graph (batch 26.2).
+    ///
+    /// `expected` is the graph the caller read: sending it makes a
+    /// concurrent edit lose loudly rather than be silently overwritten.
+    pub fn set_gate_graph(
+        &self,
+        repo_id: &str,
+        gates: Vec<crate::model::GateNode>,
+        expected: Option<crate::model::GateGraph>,
+        force: bool,
+        dry_run: bool,
+    ) -> Result<converge_model::SetGatesResponse> {
+        let response = Self::check(
+            self.http
+                .put(self.url(&format!("/api/repos/{repo_id}/gates")))
+                .bearer_auth(&self.token)
+                .json(&converge_model::SetGatesRequest {
+                    gates,
+                    expected,
+                    force,
+                    dry_run,
+                })
+                .send()
+                .context("set gate graph")?,
+        )?;
+        response.json().context("parse gate change")
+    }
+
     pub fn create_scope(&self, repo_id: &str, scope_id: &str) -> Result<()> {
         Self::check(
             self.http

@@ -1,6 +1,6 @@
 # 093 Gate Write Path
 
-Status: ready
+Status: complete
 Updated: 2026-07-27
 Roadmap: `g02.026`
 
@@ -68,6 +68,47 @@ what happens when a handler authorizes its own way.
 ## Validation
 
 - `effigy validate`
+
+## Outcome
+
+`PUT /api/repos/:repo/gates`, admin-only through `authorize_repo`, with
+three checks in front of the write — cheapest first, so a caller gets
+the most specific refusal available:
+
+1. is the graph legal at all (26.1 validation)
+2. would the change strand work that exists
+3. is it still the graph the caller read
+
+`MetaOp::SetGateGraph` and `MetaOp::AssertGateGraph` in both backends,
+so the write and its `gate.changed` event land in one guarded batch —
+another workspace learning about a reshape that did not happen would be
+worse than not learning. Graphs compare as parsed values rather than
+text, because two encodings of the same graph are the same graph and a
+whitespace difference should not look like somebody else's edit.
+
+`expected` is optional. Sending it makes a concurrent edit lose loudly;
+omitting it is allowed, because a script setting a known graph should
+not have to round-trip first, and the cost is stated rather than hidden.
+
+The `force` argument, settled: refusing outright sounds safer and is
+not. A repo whose graph can never be reshaped because it once held a
+publication is a repo that has to be recreated, which is worse than a
+documented sharp edge. Batch 20.4 reached the same conclusion about
+rotating after a departure — warn, name the consequence, let the
+operator decide, and never make the safe path the impossible one. The
+refusal names the gate and what it holds, and a `dry_run` reports the
+same impact while changing nothing.
+
+Seven tests, including two that exist because of specific past
+failures: an admin's *read-scoped* token still cannot reshape the graph
+(21.4 found twenty handlers that authorized their own way, one of which
+let a read-scoped token grant itself admin), and a concurrent reshape
+loses rather than silently overwriting the edit that beat it.
+
+**Stated, not defended**: a publish that has already resolved its target
+gate may complete under the previous graph. Closing that would mean
+asserting the graph inside the publish batch, on the hot path, to defend
+against a reshape that is refused anyway whenever the gate holds work.
 
 ## Next Task
 

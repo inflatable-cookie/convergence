@@ -1213,6 +1213,35 @@ fn apply_op_pg(c: &mut impl postgres::GenericClient, op: &MetaOp) -> Result<()> 
             subject_id,
             created_at,
         } => add_event_pg(c, repo_id, kind, subject_id, created_at).map(|_| ()),
+        MetaOp::SetGateGraph { repo_id, graph } => {
+            let json = serde_json::to_string(graph)?;
+            tx.execute(
+                "INSERT INTO gate_graphs (repo_id, graph_json) VALUES ($1, $2)
+                 ON CONFLICT (repo_id) DO UPDATE SET graph_json = EXCLUDED.graph_json",
+                &[&repo_id, &json],
+            )?;
+            Ok(())
+        }
+        MetaOp::AssertGateGraph { repo_id, expected } => {
+            let row = tx.query_opt(
+                "SELECT graph_json FROM gate_graphs WHERE repo_id = $1",
+                &[&repo_id],
+            )?;
+            // Parsed, not textual: two encodings of the same graph are
+            // the same graph.
+            let matches = match row {
+                Some(row) => serde_json::from_str::<GateGraph>(row.get(0))
+                    .map(|g| &g == expected)
+                    .unwrap_or(false),
+                None => expected.gates.is_empty(),
+            };
+            if !matches {
+                anyhow::bail!(
+                    "the gate graph changed while you were editing it; re-read and try again"
+                );
+            }
+            Ok(())
+        }
         MetaOp::PutSecret { repo_id, record } => {
             c.execute(
                 "INSERT INTO secrets

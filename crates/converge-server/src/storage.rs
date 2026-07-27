@@ -111,6 +111,21 @@ pub enum MetaOp {
         name: String,
         expected: u64,
     },
+    /// Replace a repo's gate graph (batch 26.2).
+    SetGateGraph {
+        repo_id: String,
+        graph: GateGraph,
+    },
+    /// Fail the batch unless the graph is still the one the caller read.
+    ///
+    /// Two admins reshaping at once would otherwise be a lost update,
+    /// and a gate graph is exactly the kind of thing two people edit
+    /// after agreeing to change it — the loser re-reads and sees what
+    /// actually happened instead of silently overwriting it.
+    AssertGateGraph {
+        repo_id: String,
+        expected: GateGraph,
+    },
     /// Fail the batch unless exactly `expected` publications exist with
     /// seq > `after_seq` (pins the in-memory window and the next seq).
     AssertPublicationCount {

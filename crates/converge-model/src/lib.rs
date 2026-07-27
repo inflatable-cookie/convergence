@@ -32,5 +32,6 @@ pub use self::wire::{
     NegotiateRequest, NegotiateResponse, ObjectFrame, ObjectSet, Page, PromoteRequest,
     PublicKeyRecord, PublicationRecord, PublishRequest, RegisterKeyRequest, ReleaseRecord,
     ReleaseRequest, RetentionPolicy, RevokeTokenRequest, SecretRecord, SecretSummary,
-    SetLaneHeadRequest, SetSecretRequest, TokenIssued, TokenRecord, VerifyReport, WIRE_VERSION,
+    SetGatesRequest, SetGatesResponse, SetLaneHeadRequest, SetSecretRequest, TokenIssued,
+    TokenRecord, VerifyReport, WIRE_VERSION,
 };

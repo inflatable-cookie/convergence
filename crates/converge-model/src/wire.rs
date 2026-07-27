@@ -504,7 +504,7 @@ pub struct SetLaneHeadRequest {
     pub force: bool,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct GateNode {
     pub gate_id: String,
     pub name: String,
@@ -523,7 +523,31 @@ fn default_strategy() -> String {
     "whole-file".to_string()
 }
 
+/// Ask the server to replace a repo's gate graph (batch 26.2).
 #[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct SetGatesRequest {
+    pub gates: Vec<GateNode>,
+    /// The graph the caller believes is current. Sent back so a
+    /// concurrent edit loses rather than silently overwrites; omitted
+    /// means "I did not look", which is allowed but not recommended.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub expected: Option<GateGraph>,
+    /// Proceed even though the change would strand live work.
+    #[serde(default)]
+    pub force: bool,
+    /// Report what would happen and change nothing.
+    #[serde(default)]
+    pub dry_run: bool,
+}
+
+/// What a graph change did, or would do.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct SetGatesResponse {
+    pub applied: bool,
+    pub impact: crate::gates::GraphImpact,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct GateGraph {
     pub gates: Vec<GateNode>,
 }
