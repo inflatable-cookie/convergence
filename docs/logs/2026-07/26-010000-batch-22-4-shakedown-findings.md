@@ -691,6 +691,62 @@ available to ask for. Right for one person's workspace, wrong for a
 history that mixes authors, and fixing it properly means putting an
 author on the snap record. Logged, not done.
 
+### 30. `sync pull --materialize` silently discarded diverged work (fixed)
+
+The multi-person path, driven properly for the first time: a second
+person added through `member add --issue-token`, their own workspace
+seeded from the `stable` release, both editing the same file.
+
+What works. The lane was created on first `sync push` without being
+declared, and pushed 5 objects rather than the tree. A private personal
+lane refused a pull from `tom` — who is an *admin* — with a clear
+message, which is the same rule secrets use: admin subsumes capabilities
+but not recipiency. After `lane add-member`, the pull fetched into the
+local store and pointedly did not touch the working tree, offering
+`--materialize` or `restore` as the next step.
+
+Then `sync pull --lane personal/alex --materialize`, from a head that
+had diverged. It replaced the working tree, moved head, and said
+`pulled lane head 4752f9e11920 (workspace updated)`. The other person's
+committed snap was simply gone from the tree. Nothing warned, nothing
+asked, nothing mentioned that the snap record survives and a `restore`
+brings it back.
+
+`--force` already existed on this verb — for *pending changes*.
+Divergence is the other way to lose work and it was unguarded, which is
+the more dangerous of the two: pending changes are visible in `status`,
+while a diverged head looks exactly like an up-to-date one.
+
+`head_left_behind_by` returns the current head when it is not an
+ancestor of the target. The refusal names both snaps, states that the
+record is kept, gives the `restore` that brings it back, and gives the
+`--force` that proceeds. A missing ancestor record reads as "not an
+ancestor": snaps get thinned, and the cautious reading of an incomplete
+lineage is the safe one. Fast-forward and same-snap cases still proceed,
+which the test pins as explicitly as the refusal.
+
+### 31. Your own newest work sat mid-list, unmarked (fixed)
+
+Straight after that pull, `converge history` — whose help said "List
+snaps, newest first" — showed:
+
+```
+4752f9e1…  18:13:28  alex: urgency decays when ignored
+0d56f900…  18:13:17  checkout of bundle cb59de7525b6
+b4891414…  18:13:40  tom: urgency climbs while waiting
+```
+
+The newest snap is third. The listing is ordered by lineage from head,
+then everything unreachable, and `list_snaps` documents exactly that —
+so the code was right and the help text was wrong.
+
+Sorting by time would be the wrong fix; lineage order is more useful,
+and it is the *reason* the row is where it is. What was missing is that
+nothing said so. Rows off head's lineage now read `[off your current
+line]`, and the help says what the order actually is. The moment this
+matters is precisely the moment above: your work has just been moved
+aside, and the list gives you no way to see which entry is yours.
+
 ## Measurements
 
 | | |
@@ -716,6 +772,8 @@ author on the snap record. Logged, not done.
 | Server objects / pins before → after | 109 / 9 → 108 / 0 |
 | Watch: 5 edits 1s apart | 1 snap |
 | Git mirror | 14 commits, tree byte-identical |
+| Lane push, changed file | 5 objects |
+| Diverged materialize | head replaced silently, 0 warnings |
 
 ## Next Task
 

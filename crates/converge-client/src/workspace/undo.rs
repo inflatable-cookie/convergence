@@ -65,6 +65,60 @@ impl Workspace {
         })
     }
 
+    /// Every snap reachable from `from` by walking parents.
+    ///
+    /// Missing records are simply absent: a thinned ancestor ends that
+    /// path rather than failing the walk.
+    pub fn lineage_ids(&self, from: &str) -> Result<std::collections::HashSet<String>> {
+        let mut seen = std::collections::HashSet::new();
+        let mut stack = vec![from.to_string()];
+        while let Some(id) = stack.pop() {
+            if !seen.insert(id.clone()) || !self.store.has_snap(&id) {
+                continue;
+            }
+            stack.extend(self.store.get_snap(&id)?.parents);
+        }
+        Ok(seen)
+    }
+
+    /// Would moving head to `target` leave local captures behind?
+    ///
+    /// Returns the current head when it is *not* an ancestor of
+    /// `target` — that is, when adopting `target` would abandon work
+    /// that exists only here.
+    ///
+    /// Batch 22.4 found `sync pull --materialize` doing exactly that in
+    /// silence: two people edited the same file, one pulled the other's
+    /// lane, and their own committed snap was replaced in the working
+    /// tree with no warning, no confirmation and no mention that a
+    /// `restore` would bring it back. The record survived, so nothing
+    /// was lost — but the user had no way to know that from what they
+    /// were told.
+    ///
+    /// A missing ancestor record is treated as "not an ancestor". Snaps
+    /// can be thinned, and the safe reading of an incomplete lineage is
+    /// the cautious one.
+    pub fn head_left_behind_by(&self, target: &str) -> Result<Option<String>> {
+        let Some(head) = self.store.get_head()? else {
+            return Ok(None);
+        };
+        if head == target {
+            return Ok(None);
+        }
+        let mut stack = vec![target.to_string()];
+        let mut seen = std::collections::HashSet::new();
+        while let Some(id) = stack.pop() {
+            if !seen.insert(id.clone()) || !self.store.has_snap(&id) {
+                continue;
+            }
+            if id == head {
+                return Ok(None);
+            }
+            stack.extend(self.store.get_snap(&id)?.parents);
+        }
+        Ok(Some(head))
+    }
+
     /// Has this snap been published to any configured remote target?
     fn is_published(&self, snap_id: &str) -> Result<bool> {
         let cfg = self.store.read_config()?;

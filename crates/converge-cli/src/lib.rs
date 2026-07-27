@@ -168,7 +168,7 @@ enum Command {
         #[arg(short, long)]
         message: Option<String>,
     },
-    /// List snaps, newest first.
+    /// List snaps: your current line of work first, then the rest.
     History,
     /// Restore workspace contents from a snap.
     Restore {
@@ -764,6 +764,8 @@ struct SnapSummary {
     created_at: String,
     message: Option<String>,
     trigger: String,
+    /// Reachable from the current head by walking parents.
+    on_current_line: bool,
     files: u64,
     bytes: u64,
 }
@@ -774,6 +776,9 @@ fn snap_summary(s: &converge_client::model::SnapRecord) -> SnapSummary {
         created_at: s.created_at.clone(),
         message: s.message.clone(),
         trigger: s.trigger.clone(),
+        // Callers that care set this; the default suits the summary
+        // views that only ever show head's own lineage.
+        on_current_line: true,
         files: s.stats.files,
         bytes: s.stats.bytes,
     }
@@ -798,7 +803,22 @@ fn run(cli: &Cli, mode: OutputMode, session: &Session) -> Result<serde_json::Val
         Command::History => {
             let ws = session.workspace()?;
             let snaps = ws.list_snaps()?;
-            let list: Vec<SnapSummary> = snaps.iter().map(snap_summary).collect();
+            // `list_snaps` walks head's lineage first and appends
+            // everything else, so the boundary is where reachability
+            // stops -- which is what tells someone their own work is on
+            // a different line, not merely older.
+            let lineage: std::collections::HashSet<String> = match ws.store.get_head()? {
+                Some(head) => ws.lineage_ids(&head)?,
+                None => Default::default(),
+            };
+            let list: Vec<SnapSummary> = snaps
+                .iter()
+                .map(|s| {
+                    let mut summary = snap_summary(s);
+                    summary.on_current_line = lineage.contains(&s.id);
+                    summary
+                })
+                .collect();
             emit(mode, list, |list| {
                 for s in list {
                     // An automatic snap has no message, so without this
@@ -814,7 +834,16 @@ fn run(cli: &Cli, mode: OutputMode, session: &Session) -> Result<serde_json::Val
                         None if s.trigger == "automatic" => "(automatic)",
                         None => "",
                     };
-                    println!("{}  {}  {note}", s.id, s.created_at);
+                    // Batch 22.4: after a diverged `sync pull`, the
+                    // user's own newest snap sat mid-list looking like
+                    // ordinary old history. Ordering alone cannot say
+                    // "this is not on the line you are standing on".
+                    let line = if s.on_current_line {
+                        ""
+                    } else {
+                        "  [off your current line]"
+                    };
+                    println!("{}  {}  {note}{line}", s.id, s.created_at);
                 }
             })
         }
@@ -1553,6 +1582,24 @@ fn run(cli: &Cli, mode: OutputMode, session: &Session) -> Result<serde_json::Val
                     // an undocumented `restore --force` (audit P1.3).
                     let head = client.pull_lane(&ws.store, &remote.repo_id, lane)?;
                     if *materialize {
+                        // Materializing a lane that has diverged from
+                        // your own head replaces your work in the
+                        // working tree. Batch 22.4 watched that happen
+                        // in silence. `force` already existed for
+                        // pending changes; divergence is the other way
+                        // to lose work, and it was unguarded.
+                        if !*force && let Some(left) = ws.head_left_behind_by(&head)? {
+                            anyhow::bail!(
+                                "lane head {} has diverged from your head {}\n\
+                                 materializing it would replace your work in the working tree.\n\
+                                 your snap is kept either way: `converge restore {}` brings it back.\n\
+                                 to go ahead: converge sync pull --lane {} --materialize --force",
+                                &head[..12.min(head.len())],
+                                &left[..12.min(left.len())],
+                                &left[..12.min(left.len())],
+                                lane
+                            );
+                        }
                         ws.restore_snap(&head, *force)?;
                     }
                     #[derive(Serialize)]

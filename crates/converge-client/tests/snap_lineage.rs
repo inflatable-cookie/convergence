@@ -115,3 +115,57 @@ fn message_edit_does_not_change_identity() -> Result<()> {
     assert_eq!(reloaded.message.as_deref(), Some("added later"));
     Ok(())
 }
+
+/// Adopting a snap must not silently abandon local captures.
+///
+/// Batch 22.4 watched two people edit the same file: one ran
+/// `sync pull --lane <other> --materialize`, and their own committed
+/// snap was replaced in the working tree with no warning and no mention
+/// that a restore would bring it back.
+#[test]
+fn divergence_is_detected_before_a_head_move_discards_work() -> Result<()> {
+    let tmp = tempfile::tempdir()?;
+    let ws = Workspace::init(tmp.path(), false)?;
+
+    fs::write(tmp.path().join("a.txt"), "base")?;
+    let base = ws.create_snap(Some("base".into()))?;
+
+    fs::write(tmp.path().join("a.txt"), "theirs")?;
+    let theirs = ws.create_snap(Some("theirs".into()))?;
+
+    // Standing on an ancestor: adopting it is a fast-forward.
+    ws.restore_snap(&base.id, false)?;
+    assert_eq!(
+        ws.head_left_behind_by(&theirs.id)?,
+        None,
+        "a fast-forward must not be reported as divergence"
+    );
+
+    // Standing on the target itself: nothing to leave behind.
+    ws.restore_snap(&theirs.id, false)?;
+    assert_eq!(ws.head_left_behind_by(&theirs.id)?, None);
+
+    // A capture from the shared base is a second line of work.
+    ws.restore_snap(&base.id, false)?;
+    fs::write(tmp.path().join("a.txt"), "mine")?;
+    let mine = ws.create_snap(Some("mine".into()))?;
+    assert_eq!(
+        ws.head_left_behind_by(&theirs.id)?,
+        Some(mine.id.clone()),
+        "adopting a diverged snap would abandon the local capture"
+    );
+
+    // And the abandoned work is reachable, which is what the refusal
+    // tells the user: the record is kept either way.
+    assert!(ws.store.has_snap(&mine.id));
+    let reachable = ws.lineage_ids(&mine.id)?;
+    assert!(
+        reachable.contains(&base.id),
+        "lineage walk reaches the base"
+    );
+    assert!(
+        !ws.lineage_ids(&theirs.id)?.contains(&mine.id),
+        "the two lines are genuinely separate"
+    );
+    Ok(())
+}

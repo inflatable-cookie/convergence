@@ -566,3 +566,54 @@ fn profile_is_settable_and_reported() -> anyhow::Result<()> {
     assert_eq!(after["profile"], "daw", "the refused set changed nothing");
     Ok(())
 }
+
+/// History marks work that is not on the line you are standing on.
+///
+/// Batch 22.4: after a diverged pull, the user's own newest snap sat
+/// mid-list looking like ordinary old history, because the list is
+/// ordered by lineage and nothing said so. Ordering alone cannot carry
+/// "this is a different line of work".
+#[test]
+fn history_marks_snaps_off_the_current_line() -> anyhow::Result<()> {
+    let tmp = tempfile::tempdir()?;
+    let root = tmp.path();
+    assert!(converge(root, &["init"]).status.success());
+
+    std::fs::write(root.join("a.txt"), "base")?;
+    let base = json_data(&converge(root, &["--json", "snap", "-m", "base"]));
+    let base_id = base["id"].as_str().unwrap().to_string();
+
+    std::fs::write(root.join("a.txt"), "theirs")?;
+    let theirs = json_data(&converge(root, &["--json", "snap", "-m", "theirs"]));
+    let theirs_id = theirs["id"].as_str().unwrap().to_string();
+
+    // Step back and start a second line from the shared base.
+    assert!(converge(root, &["restore", &base_id]).status.success());
+    std::fs::write(root.join("a.txt"), "mine")?;
+    assert!(converge(root, &["snap", "-m", "mine"]).status.success());
+
+    let listed = json_data(&converge(root, &["--json", "history"]));
+    let entries: Vec<(String, bool)> = listed
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|s| {
+            (
+                s["id"].as_str().unwrap().to_string(),
+                s["on_current_line"].as_bool().unwrap(),
+            )
+        })
+        .collect();
+    let theirs_flag = entries.iter().find(|(id, _)| *id == theirs_id).unwrap().1;
+    assert!(!theirs_flag, "the other line was not marked: {entries:?}");
+    let base_flag = entries.iter().find(|(id, _)| *id == base_id).unwrap().1;
+    assert!(base_flag, "the shared base is on both lines");
+
+    let human = converge(root, &["history"]);
+    let text = String::from_utf8_lossy(&human.stdout);
+    assert!(
+        text.contains("[off your current line]"),
+        "history does not say which work is elsewhere: {text}"
+    );
+    Ok(())
+}
