@@ -2371,14 +2371,35 @@ fn latest_snap(ws: &Workspace) -> Result<converge_client::model::SnapRecord> {
 fn serving_check(
     client: &converge_client::remote::RemoteClient,
     remote: &converge_client::model::RemoteConfig,
+    store: &converge_client::store::LocalStore,
 ) -> Check {
-    let head = match client.get_channel_head(&remote.repo_id, "stable") {
-        Ok(record) => record.bundle_id,
-        // No `stable` channel is a normal state, not a fault: say what
-        // was not checked rather than inventing a pass.
-        Err(_) => {
-            return Check::ok("serving", "not checked: no `stable` release to ask about");
-        }
+    // A `stable` release is the best thing to ask about, because it is
+    // what other people fetch. Failing that, the bundle this workspace
+    // last saw: it is local, needs no extra round trip, and is real
+    // published history.
+    //
+    // Batch 22.4 found why the fallback matters. A repo with twelve
+    // snaps and eleven bundles reported `nothing wrong here`, because a
+    // project in active development has not cut a release yet — so the
+    // one check that touches the object store silently did nothing, and
+    // said `ok`. A verification tool that passes when it cannot verify
+    // is worse than one that is absent.
+    //
+    // Whichever it lands on, say which one in every message: a report
+    // that names the wrong subject is a false lead for whoever reads it
+    // at three in the morning.
+    let (subject, head) = match client.get_channel_head(&remote.repo_id, "stable") {
+        Ok(record) => ("the stable release", record.bundle_id),
+        Err(_) => match store.get_last_seen_bundle(remote, &remote.scope, &remote.gate) {
+            Ok(Some(bundle_id)) => ("the last bundle this workspace saw", bundle_id),
+            _ => {
+                return Check::ok(
+                    "serving",
+                    "not checked: no `stable` release, and this workspace has not \
+                     seen a bundle yet",
+                );
+            }
+        },
     };
     let bundle = match client.get_bundle(&head) {
         Ok(bundle) => bundle,
@@ -2386,7 +2407,7 @@ fn serving_check(
             return Check::bad(
                 "serving",
                 format!(
-                    "the stable release names bundle {} which will not load: {err:#}",
+                    "{subject} names bundle {} which will not load: {err:#}",
                     &head[..12.min(head.len())]
                 ),
                 "restore the deployment from a backup that includes its object store",
@@ -2394,7 +2415,7 @@ fn serving_check(
         }
     };
     let Some(root) = bundle.root_manifest else {
-        return Check::ok("serving", "the stable release has an empty tree");
+        return Check::ok("serving", format!("{subject} has an empty tree"));
     };
     let asking = converge_client::model::ObjectSet {
         manifests: vec![root.clone()],
@@ -2404,14 +2425,14 @@ fn serving_check(
         Ok(missing) if missing.manifests.is_empty() => Check::ok(
             "serving",
             format!(
-                "holds the stable release's tree ({})",
+                "holds the tree of {subject} ({})",
                 &head[..12.min(head.len())]
             ),
         ),
         Ok(_) => Check::bad(
             "serving",
             format!(
-                "the server does not hold the root manifest of its own stable release ({})",
+                "the server does not hold the root manifest of {subject} ({})",
                 &head[..12.min(head.len())]
             ),
             "the object store is missing or incomplete — restore from a backup \
@@ -2643,7 +2664,7 @@ fn run_doctor(mode: OutputMode, session: &Session, deep: bool) -> Result<serde_j
                         // check above and can serve nothing (batch
                         // 22.3, found by doing exactly that).
                         if deep && probe.authorized {
-                            checks.push(serving_check(&client, &remote));
+                            checks.push(serving_check(&client, &remote, &ws.store));
                         }
                     }
                     Ok(None) => checks.push(Check::bad(

@@ -194,6 +194,41 @@ impl SqliteMetadataStore {
     }
 }
 
+/// Expand a unique bundle-id prefix to the full id.
+///
+/// The CLI prints shortened bundle ids everywhere it reports one, so a
+/// short id is the form people copy. Batch 22.4 caught the consequence:
+/// `fetch` printed `cb59de7525b6` and then `verify cb59de7525b6` came
+/// back 404, and the "next:" hint beside it spelled out the full id
+/// because whoever wrote the hint already knew short ids did not work.
+///
+/// Resolving here rather than per-handler means every route that takes a
+/// bundle id accepts what was printed. Exact ids skip the extra query.
+/// Ambiguity is an error, never a guess: silently picking one of two
+/// candidates would approve or promote the wrong bundle. The hex check
+/// is load-bearing — it keeps LIKE wildcards out of the pattern.
+fn resolve_bundle_prefix(conn: &rusqlite::Connection, given: &str) -> Result<String> {
+    const SHORTEST: usize = 8;
+    if given.len() >= 64 || given.len() < SHORTEST || !given.chars().all(|c| c.is_ascii_hexdigit())
+    {
+        return Ok(given.to_string());
+    }
+    let mut stmt =
+        conn.prepare("SELECT bundle_id FROM bundles WHERE bundle_id LIKE ?1 || '%' LIMIT 2")?;
+    let found: Vec<String> = stmt
+        .query_map(params![given], |row| row.get(0))?
+        .collect::<std::result::Result<_, _>>()?;
+    match found.as_slice() {
+        [only] => Ok(only.clone()),
+        // Fall through to the caller's own "no bundle" error rather than
+        // inventing a second way to say the same thing.
+        [] => Ok(given.to_string()),
+        _ => Err(anyhow!(
+            "bundle id {given} is ambiguous: it matches more than one bundle, use more characters"
+        )),
+    }
+}
+
 impl MetadataStore for SqliteMetadataStore {
     fn upsert_user(&self, handle: &str) -> Result<()> {
         let conn = self.conn.lock().expect("meta lock");
@@ -842,6 +877,7 @@ impl MetadataStore for SqliteMetadataStore {
 
     fn get_bundle(&self, bundle_id: &str) -> Result<StoredBundle> {
         let conn = self.conn.lock().expect("meta lock");
+        let bundle_id = &resolve_bundle_prefix(&conn, bundle_id)?;
         conn.query_row(
             "SELECT bundle_id, repo_id, scope_id, gate_id, inputs_json, root_manifest,
                     base_bundle_id, window_first, window_last, strategy,

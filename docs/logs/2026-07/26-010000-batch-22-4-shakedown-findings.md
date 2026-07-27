@@ -462,6 +462,90 @@ attempt discovered by truncating at the pane edge. Empty states for
 Releases, Lanes and Gates got the same treatment: `(or not loaded yet)`
 was ambiguous everywhere it appeared.
 
+### 21. `doctor --deep` passed without verifying anything (fixed)
+
+The batch 22.3 operator guide says to prove a restore with `converge
+doctor --deep`. Run against the shakedown repo — twelve snaps, eleven
+bundles, two identities, a resolved conflict — it printed:
+
+```
+ok   serving        not checked: no `stable` release to ask about
+
+nothing wrong here.
+```
+
+The one check that touches the object store asks the server for the tree
+behind the `stable` release. A project in active development has not cut
+a release, so the check did nothing and the report said `ok`. Every
+verification the operator guide describes would have passed against a
+deployment whose object store was empty.
+
+The fallback is the bundle this workspace last saw: local, so no extra
+round trip to find it, and real published history. A release is still
+preferred when there is one, because it is what other people fetch.
+
+The first fix was wrong in a quieter way. It resolved the fallback but
+left five hardcoded messages saying `the stable release`, so a passing
+run reported `holds the stable release's tree` for a repo with no
+release, and a failing one would have sent an operator hunting for a
+release that never existed. The subject is now threaded through every
+message.
+
+Against the restored deployment:
+
+```
+ok   serving        holds the tree of the last bundle this workspace saw (cb59de7525b6)
+```
+
+### 22. The CLI printed ids its own commands rejected (fixed)
+
+`converge fetch` reports success as `fetched bundle cb59de7525b6`. Paste
+that back:
+
+```
+$ converge verify cb59de7525b6
+error: server returned 404 Not Found: {"error":"no bundle cb59de7525b6"}
+```
+
+`bundle` and `show` refused it too. The tell was in the success output
+that produced the id: the `next:` hint beside it spells out all
+sixty-four characters, because whoever wrote the hint already knew short
+ids did not work.
+
+Resolution now happens in the metadata store, so every route that takes
+a bundle id accepts the printed form rather than each handler needing to
+remember. Full ids skip the lookup. Eight characters is the floor.
+Ambiguity is an error and never a guess — silently picking one of two
+candidates would approve or promote the wrong bundle. The hex check is
+load-bearing: it keeps `LIKE` wildcards out of the pattern.
+
+Covered in `backend_conformance`, so both backends answer the same way.
+
+### 23. The restore drill, against history worth keeping
+
+The 22.3 procedure had only ever run against a synthetic fixture. Re-run
+against the live deployment — 904 KB, twelve snaps, two identities, a
+resolved superposition, two encrypted secrets — it holds:
+
+- backup 257 KB, restored into a fresh directory, served at the live address
+- `doctor --deep` green, and now verifying something real (finding 21)
+- `converge verify` replayed the merge and reproduced the recorded bundle
+- `converge fetch` pulled the tree back
+- `converge secret get` decrypted, so sealed values survive a restore
+
+The one thing the drill cannot check is which credentials in
+`~/.converge/tokens` are live: 493 files, nearly all debris from finding
+18's test-suite bug, and nothing distinguishes them without the machine
+key. They are backed up and left in place. A store that only grows and
+cannot be pruned is worth a card of its own.
+
+### 24. `converge run` delivers secrets and nothing else leaks
+
+Two secrets set, then a build probe run under `converge run --secret`:
+present in the child, inherited by its own children as any environment
+variable is, and absent from the parent shell afterwards. Doc 19 §10
+describes this exactly.
+
 ## Measurements
 
 | | |
@@ -479,6 +563,10 @@ was ambiguous everywhere it appeared.
 | Issue 1 (11 failing) | 11 → 6 → 1 local, then 1 escalation |
 | Issue 2 (4 failing), exemplar retrieved | **4 → 1 in one attempt**, then 1 escalation |
 | Exemplar store | 18 → 22 verified solutions |
+| Live deployment | 904 KB, 12 snaps, 11 bundles, 2 identities |
+| Backup archive | 257 KB |
+| Restore → verified replay | bundle reproduced from provenance |
+| Stale tokens in `~/.converge` | 493 |
 
 ## Next Task
 

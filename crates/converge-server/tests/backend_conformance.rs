@@ -221,6 +221,48 @@ fn conform_metadata(meta: &dyn MetadataStore) -> Result<()> {
         1
     );
 
+    // Shortened bundle ids resolve (batch 22.4). The CLI prints ids
+    // truncated to twelve characters, so that is the form people paste
+    // back; before this, `verify <printed id>` answered 404 while the
+    // hint line beside it spelled out all sixty-four characters.
+    let hex = |id: &str| StoredBundle {
+        bundle_id: id.into(),
+        repo_id: "conf".into(),
+        scope_id: scope.into(),
+        gate_id: "g".into(),
+        inputs: vec![],
+        root_manifest: None,
+        base_bundle_id: None,
+        window: (1, 1),
+        strategy: "whole-file".into(),
+        status: converge_model::BundleStatus::Ready { promotable: true },
+        created_at: "2026-07-25T00:00:00Z".into(),
+    };
+    let long = format!("abcdef01{}", "0".repeat(56));
+    let twin = format!("abcdef01{}", "1".repeat(56));
+    meta.apply_batch(&[MetaOp::PutBundle(hex(&long))])?;
+    assert_eq!(
+        meta.get_bundle(&long[..12])?.bundle_id,
+        long,
+        "a unique prefix resolves to the whole id"
+    );
+    assert_eq!(
+        meta.get_bundle(&long)?.bundle_id,
+        long,
+        "full ids still work"
+    );
+    assert!(
+        meta.get_bundle(&long[..4]).is_err(),
+        "too short to be meant seriously"
+    );
+
+    meta.apply_batch(&[MetaOp::PutBundle(hex(&twin))])?;
+    let ambiguous = meta.get_bundle("abcdef01").unwrap_err().to_string();
+    assert!(
+        ambiguous.contains("ambiguous"),
+        "two candidates is an error, never a guess: {ambiguous}"
+    );
+
     // A failed guard rolls back every write in the batch, including ones
     // that already executed before the guard.
     let err = meta
