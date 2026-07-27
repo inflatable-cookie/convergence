@@ -6,6 +6,8 @@ use anyhow::{Context, Result, anyhow};
 use crate::model::{Manifest, ManifestEntry, ManifestEntryKind, ObjectId, SnapStats};
 use crate::store::hash_bytes;
 
+use super::common;
+
 use super::super::chunk_io::chunk_bytes_to_recipe_id;
 use super::super::chunking::ChunkingPolicy;
 use super::common::{
@@ -32,11 +34,15 @@ pub(super) fn build_manifest_in_memory_impl(
         if should_ignore_name(&file_name) {
             continue;
         }
-        if dir == scan_root && root_ignores.contains(&file_name) {
+        let path = child.path();
+        if common::is_ignored(
+            root_ignores,
+            path.strip_prefix(scan_root).unwrap_or(&path),
+            &file_name,
+        ) {
             continue;
         }
 
-        let path = child.path();
         let file_type = child.file_type().context("read file type")?;
 
         let kind = if file_type.is_dir() {

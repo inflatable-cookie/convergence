@@ -175,6 +175,88 @@ for "undated tasks sort last", the model produced
 `None.cmp(&Some(_))` is `Less`, it is dead code. Composition order, not
 comprehension.
 
+### 9. Ignore rules only matched the top level (fixed)
+
+The first publish of real work was **1695 files and 33 MB** for a project
+with about forty real ones. `.convergeignore` listed `target`; the rule
+excluded a root build directory and let `crates/todo-core/target` — 18 MB
+— straight through.
+
+Rules were compared only against entries directly in the workspace root.
+Every Rust workspace with nested crates and every JS monorepo hits that
+on contact, silently.
+
+Now a bare name matches at any depth, as `.gitignore` does, and a rule
+containing a slash stays anchored to the root. Verified on the case that
+found it: 4 files → 2.
+
+**Why it survived until a real project**: there were *three* copies of
+the check — `scan_memory`, `scan_store` and `dirstamp`. Two were fixed,
+the tests still failed, and the third — the one `snap` actually calls —
+was the one that mattered. Three copies of a rule is how a wrong rule
+stays wrong; there is now one shared `is_ignored`.
+
+### 10. A bad publish cannot be reclaimed in a single-gate repo
+
+Cleaning up after finding #9 exercised the whole retention path, and it
+does not reach.
+
+- `converge unsnap --force` undid the local snap cleanly, refusing first
+  and naming the flag — the working tree untouched, `pending` back from
+  1651 to 6. The local half is fine
+- server side, GC reports `287 reachable, swept 0 objects`
+- `retention set --keep-bundles 2` reports "dropped 2 bundles" and still
+  sweeps **zero bytes**, because publications pin the same objects
+  independently. An operator reclaiming space would read that line as
+  progress and get nothing
+- `--keep-publication-days 0` changes nothing either. Publications drop
+  only when `seq <= window_floor`, and **the window advances on
+  promotion**. This repo has one entry gate, so there is nowhere to
+  promote to and the floor never moves
+
+So in a single-gate repo — the shape every new repo starts in, since
+`repo create` provisions exactly one — published objects are pinned
+forever. An accidental 33 MB publish is permanent.
+
+Not fixed here: it is a design question about whether GC should be able
+to reach an unpromoted window, not a bug with an obvious patch. The
+throwaway deployment was rebuilt instead, which is what the situation
+actually allows today.
+
+### 11. A rebuilt server wedged every workspace that had published (fixed)
+
+Rebuilding the deployment to reclaim finding #10's space found this
+immediately:
+
+```
+error: declared base bundle c96dccd7238816e77a29173c9472ad6f4ba3d43c59aba7f8744e46701a702709 is unknown
+```
+
+The workspace still recorded the bundle it last saw from the *old*
+server. Pointing at a fresh one — same URL, same repo name — it declared
+a base the new server had never issued, and every publish was refused.
+A dead end with no documented way out.
+
+It sits squarely on the disaster-recovery path guide 004 §6 documents: a
+restore whose bundle history differs would wedge every client that had
+published before, at exactly the moment things are already going badly.
+
+The recorded base is a claim about what *this* workspace last saw
+(doc 17 §2). A server that never issued it cannot act on the claim
+either way, so the honest state is "I have seen nothing" — which is what
+a fresh clone declares. `publish` now clears the stale base and retries
+without one, saying so:
+
+```
+note: this server does not know the bundle this workspace last saw
+      (c96dccd72388); publishing without a base
+published to intake: bundle c50bef0005d9 (ready to promote, 0 objects uploaded)
+```
+
+Narrow on purpose: only when a base was recorded *and* the server names
+that as the reason. A base the server does know is never discarded,
+because base containment is what decides supersession.
+
 ## Measurements
 
 | | |
@@ -185,7 +267,10 @@ comprehension.
 | Leaf-tier baseline (7B) | 11/12 local, 9 one-shot, 1 deferral |
 | Repo issue, 32B, no types in context | 11 → 6 failing, then compile errors |
 | Repo issue, 32B, types in context | 11 → 6 → 1 failing |
-| Exemplar store | 18 → 20 verified solutions |
+| Exemplar store | 18 → 21 verified solutions |
+| Bad publish (ignores broken) | 1695 files, 33 MB |
+| Same tree, ignores fixed | 44 files, 272 KB |
+| Server objects, before → after rebuild | 15 MB → 436 KB |
 
 ## Next Task
 

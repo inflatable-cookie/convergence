@@ -31,11 +31,19 @@ pub(super) fn build_manifest_store_impl(
         if should_ignore_name(&file_name) {
             continue;
         }
-        if dir == scan_root && root_ignores.contains(&file_name) {
+        let path = child.path();
+        // The same rule the in-memory scan and the dirstamp use
+        // (batch 22.4). Three copies of this check existed and only one
+        // was fixed at first — which is exactly how the root-only
+        // behaviour survived being noticed.
+        if super::common::is_ignored(
+            root_ignores,
+            path.strip_prefix(scan_root).unwrap_or(&path),
+            &file_name,
+        ) {
             continue;
         }
 
-        let path = child.path();
         let file_type = child.file_type().context("read file type")?;
 
         let kind = if file_type.is_dir() {

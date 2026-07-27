@@ -884,16 +884,49 @@ fn run(cli: &Cli, mode: OutputMode, session: &Session) -> Result<serde_json::Val
             let base = ws
                 .store
                 .get_last_seen_bundle(&remote, &remote.scope, &gate)?;
-            let (bundle, stats) = client.publish(
-                &ws.store,
-                &remote.repo_id,
-                &remote.scope,
-                &gate,
-                &snap,
-                base,
-                lane.clone(),
-                message.clone(),
-            )?;
+            let publish_with = |base: Option<String>| {
+                client.publish(
+                    &ws.store,
+                    &remote.repo_id,
+                    &remote.scope,
+                    &gate,
+                    &snap,
+                    base,
+                    lane.clone(),
+                    message.clone(),
+                )
+            };
+            let (bundle, stats) = match publish_with(base.clone()) {
+                Ok(result) => result,
+                // The recorded base is what this workspace last *saw* for
+                // the target (doc 17 §2). A server that has never heard of
+                // it cannot use it either way, so the honest state is "I
+                // have seen nothing" — which is what a fresh clone
+                // declares. Clearing it and retrying turns a dead end into
+                // a recoverable one (batch 22.4).
+                //
+                // Found re-pointing a workspace at a rebuilt server, which
+                // is the disaster-recovery path guide 004 §6 documents: a
+                // restore whose bundle history differs would otherwise
+                // wedge every client that had published before.
+                Err(err) if base.is_some() && format!("{err:#}").contains("base bundle") => {
+                    if mode == OutputMode::Human {
+                        eprintln!(
+                            "note: this server does not know the bundle this workspace last saw \
+                             ({}); publishing without a base",
+                            base.as_deref()
+                                .unwrap_or("")
+                                .chars()
+                                .take(12)
+                                .collect::<String>()
+                        );
+                    }
+                    ws.store
+                        .clear_last_seen_bundle(&remote, &remote.scope, &gate)?;
+                    publish_with(None)?
+                }
+                Err(err) => return Err(err),
+            };
             ws.store
                 .set_last_published(&remote, &remote.scope, &gate, &snap.id)?;
             ws.store

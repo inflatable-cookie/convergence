@@ -3,7 +3,9 @@ use std::path::Path;
 use anyhow::{Context, Result, anyhow};
 
 use super::Workspace;
-use super::manifest_scan::common::{load_root_ignores, read_dir_sorted, should_ignore_name};
+use super::manifest_scan::common::{
+    is_ignored, load_root_ignores, read_dir_sorted, should_ignore_name,
+};
 
 /// Cheap change detector for the working tree (batch 15.3).
 ///
@@ -39,11 +41,18 @@ fn stamp_dir(
         if should_ignore_name(&name) {
             continue;
         }
-        if dir == scan_root && root_ignores.contains(&name) {
+        let path = child.path();
+        // The same rule the scan uses (batch 22.4). A dirstamp that
+        // disagreed with the scan would either miss changes or force a
+        // rescan on every tick — the cache would be worse than none.
+        if is_ignored(
+            root_ignores,
+            path.strip_prefix(scan_root).unwrap_or(&path),
+            &name,
+        ) {
             continue;
         }
 
-        let path = child.path();
         let file_type = child.file_type().context("read file type")?;
         hasher.update(name.as_bytes());
 

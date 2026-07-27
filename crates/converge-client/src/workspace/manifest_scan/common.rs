@@ -25,6 +25,37 @@ pub(in crate::workspace) fn should_ignore_name(name: &str) -> bool {
     matches!(name, ".converge" | ".git")
 }
 
+/// Does `.convergeignore` exclude this entry?
+///
+/// A bare name matches **at any depth**, the way `.gitignore` does. A rule
+/// containing a slash is anchored to the workspace root.
+///
+/// Batch 22.4 found why this matters, on the first real project: rules
+/// were matched only against the top level, so `target` excluded a root
+/// build directory and silently captured `crates/todo-core/target` — 18 MB
+/// and some seventeen hundred files, in a project with about forty real
+/// ones. Every Rust workspace with nested crates and every JS monorepo
+/// hits that immediately.
+pub(in crate::workspace) fn is_ignored(
+    ignores: &std::collections::HashSet<String>,
+    relative: &Path,
+    name: &str,
+) -> bool {
+    if ignores.contains(name) {
+        return true;
+    }
+    // Anchored rules: compare against the path from the workspace root,
+    // with `/` separators so a rule reads the same on every platform.
+    let rel = relative
+        .components()
+        .map(|c| c.as_os_str().to_string_lossy())
+        .collect::<Vec<_>>()
+        .join("/");
+    ignores
+        .iter()
+        .any(|rule| rule.contains('/') && rule == &rel)
+}
+
 pub(in crate::workspace) fn read_dir_sorted(dir: &Path) -> Result<Vec<fs::DirEntry>> {
     let mut entries: Vec<fs::DirEntry> = fs::read_dir(dir)
         .with_context(|| format!("read dir {}", dir.display()))?

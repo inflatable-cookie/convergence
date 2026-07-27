@@ -211,3 +211,64 @@ fn nested_convergeignore_is_captured_not_obeyed() -> Result<()> {
     );
     Ok(())
 }
+
+/// Batch 22.4, from the first real project: ignore rules were matched
+/// only against the top level, so `target` excluded a root build
+/// directory and silently captured `crates/todo-core/target` — 18 MB and
+/// some seventeen hundred files, in a project with about forty real ones.
+/// Every Rust workspace with nested crates hits it immediately.
+#[test]
+fn ignore_rules_match_at_any_depth() -> Result<()> {
+    let dir = tempfile::tempdir()?;
+    let ws = dir.path();
+    assert!(converge(ws, &["init"]).status.success());
+    std::fs::write(ws.join(".convergeignore"), "target\nnode_modules\n")?;
+
+    // A root build directory, and a nested one two levels down.
+    for build in ["target", "crates/todo-core/target", "app/node_modules"] {
+        std::fs::create_dir_all(ws.join(build))?;
+        std::fs::write(ws.join(build).join("artifact.bin"), "build output")?;
+    }
+    // Real content that must survive.
+    std::fs::create_dir_all(ws.join("crates/todo-core/src"))?;
+    std::fs::write(ws.join("crates/todo-core/src/lib.rs"), "pub fn f() {}")?;
+
+    let out = converge(ws, &["--json", "snap", "-m", "with nested build dirs"]);
+    let snap = json_data(&out);
+    let files = snap["files"].as_u64().expect("file count");
+
+    // .convergeignore, .gitignore if any, and the one source file.
+    assert!(
+        files <= 3,
+        "a nested build directory was captured: {files} files in the snap"
+    );
+    assert!(
+        snap["bytes"].as_u64().expect("bytes") < 1024,
+        "build output reached the store: {} bytes",
+        snap["bytes"]
+    );
+    Ok(())
+}
+
+/// A rule with a slash stays anchored to the root, so `docs/build` does
+/// not silently exclude `src/docs/build`.
+#[test]
+fn a_rule_with_a_slash_is_anchored_to_the_root() -> Result<()> {
+    let dir = tempfile::tempdir()?;
+    let ws = dir.path();
+    assert!(converge(ws, &["init"]).status.success());
+    std::fs::write(ws.join(".convergeignore"), "docs/build\n")?;
+
+    std::fs::create_dir_all(ws.join("docs/build"))?;
+    std::fs::write(ws.join("docs/build/out.txt"), "excluded")?;
+    std::fs::create_dir_all(ws.join("src/docs/build"))?;
+    std::fs::write(ws.join("src/docs/build/keep.txt"), "kept")?;
+
+    let snap = json_data(&converge(ws, &["--json", "snap", "-m", "anchored rule"]));
+    let files = snap["files"].as_u64().expect("file count");
+    assert_eq!(
+        files, 2,
+        "expected .convergeignore + src/docs/build/keep.txt, got {files}"
+    );
+    Ok(())
+}
