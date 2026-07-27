@@ -94,7 +94,10 @@ does not run until the operator says so.
 
 ## Next Task
 
-Batch card 22.5 (release) is **gated** and does not start without an
-explicit instruction. The open question before it is finding 33: whether
-gate-graph administration lands first, or the release ships single-gate
-and documents the limit.
+`g02.026` (gate administration), and then batch card 22.5.
+
+The single-gate question is decided (operator, 2026-07-27): gate
+administration lands first. The release pipeline is built and proven as
+far as a laptop allows, and waits — a release mechanism proven early
+costs nothing, and a release rushed to meet a mechanism costs the
+thing itself.

@@ -121,8 +121,21 @@ is a poor trade for a compile check.
 `validate` on purpose: neither is a Rust dependency, and a contributor
 without them should get a note rather than a failing suite.
 
+## Blocked on g02.026
+
+Operator, 2026-07-27: *"Oh definitely build gate administration. We
+don't ship until Convergence works consistently without issues for all
+use cases end to end."*
+
+So the release does not go out with `promote` unreachable. `g02.026`
+lands first; this card resumes after it. The pipeline built here keeps
+until then, which is the right way round — a release mechanism proven
+months before it is used costs nothing, and a release rushed to meet a
+mechanism costs the thing itself.
+
 ## Remaining
 
+- `g02.026`, first
 - push a tag, which is the operator's call
 - one `workflow_dispatch` dry run when minutes are available, chiefly to
   prove the Linux build and the `SHA256SUMS` merge across three

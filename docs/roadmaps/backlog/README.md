@@ -12,19 +12,12 @@ this file no longer duplicates them:
   parked on a design partner
 - **Edge nodes** → [`g02/025-edge-and-scale.md`](../g02/025-edge-and-scale.md),
   parked on measured demand
+- **Gate graph administration** →
+  [`g02/026-gate-administration.md`](../g02/026-gate-administration.md),
+  ready, and blocking the release (opened 2026-07-27 from batch 22.4
+  finding 33)
 
 Still here, unscheduled:
-
-- **Gate graph administration**: `repo create` provisions one `intake`
-  gate and nothing can change the graph afterwards — no CLI verb, and
-  `/api/repos/:repo/gates` is read-only. This is not a trigger-based
-  deferral like the items below it: `promote` is one of the six contract
-  verbs and no user can reach it, so staged review, required approvals
-  and a release-only final gate are all implemented and unusable
-  (batch 22.4, finding 33). The write path is the easy half. Partition
-  state is keyed by gate, windows advance per gate, and publications sit
-  in a gate's open window, so removing or re-parenting a gate with live
-  bundles is a data-migration question first. Wants a roadmap, not a card
 
 - **Manifest paging**: sub-manifest pages for directories over 4096
   entries (doc 16 §1b). Worth stating precisely, because the backlog
