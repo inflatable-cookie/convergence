@@ -18,9 +18,27 @@ use converge_server::{AppState, FsObjectStore, MetadataStore, SqliteMetadataStor
 fn converge(dir: &Path, args: &[&str]) -> Output {
     Command::new(env!("CARGO_BIN_EXE_converge"))
         .current_dir(dir)
+        // Isolate the identity directory (batch 22.4). Without this the
+        // suite writes real token files into the developer's own
+        // `~/.converge` — 493 of them had accumulated before anyone
+        // looked — and `machine_key()` regenerates on an unreadable
+        // read, so a test run could in principle orphan every token the
+        // user actually depends on.
+        //
+        // Outside the workspace, not inside it: an identity directory
+        // under the tree being captured becomes part of the snap, which
+        // breaks the very checkouts these tests assert on. One home per
+        // test binary is isolation enough, since token keys already
+        // include the workspace root.
+        .env("CONVERGE_HOME", test_home())
         .args(args)
         .output()
         .expect("run converge")
+}
+
+/// One identity directory per test binary, outside every workspace.
+fn test_home() -> std::path::PathBuf {
+    std::env::temp_dir().join(format!("converge-test-home-{}", std::process::id()))
 }
 
 fn json_data(out: &Output) -> serde_json::Value {

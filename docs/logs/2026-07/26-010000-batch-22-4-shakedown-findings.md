@@ -380,6 +380,58 @@ Guarded both ways: it never trims when only one variant has text
 variants agree throughout the budget, the difference is past it and the
 head beats nothing).
 
+### 18. The test suite wrote into the developer's real identity directory (fixed)
+
+Driving the TUI against real history found this by accident. The TUI
+reported `offline` and showed no recommendations, and its own agent trace
+said why:
+
+```
+['inbox']  ok=false  stored token for this remote could not be decrypted
+['events'] ok=false  stored token for this remote could not be decrypted
+```
+
+Chasing it turned up **493 token files in `~/.converge/tokens`**, for a
+machine with a handful of workspaces. `resolve_loop_e2e.rs` and
+`onboarding_e2e.rs` run `converge login` and never set `CONVERGE_HOME`,
+so every suite run wrote real encrypted tokens into the developer's own
+identity directory.
+
+The exposure is worse than clutter. `machine_key()` **regenerates and
+overwrites** when it cannot read the existing key, so a test run against
+a home whose key is briefly unreadable would rotate it and orphan every
+token the user actually depends on — silently, and unrecoverably.
+
+Both suites now use one identity directory per test binary, in the temp
+directory. Placing it *inside* each workspace was the obvious first fix
+and the wrong one: the identity directory then becomes part of the tree
+being captured, which broke the checkouts those tests assert on. Token
+keys already include the workspace root, so one home per binary is
+isolation enough.
+
+Verified: a full `cargo nextest run --workspace` now leaves the count at
+493, unchanged.
+
+The other four CLI suites were checked and touch no identity state.
+
+### 19. A debug build could not read a release build's token (observed)
+
+Recorded as observed, without a confident cause, because the fix for #18
+makes it moot for the suite and I did not want to guess in the log.
+
+In `~/.converge`, with one freshly written token, the release binary
+read it and a debug binary of the same commit did not — same workspace,
+same home, same file, same 64-character machine key. In a *fresh* home,
+debug wrote and both builds read it back. So it reproduces only against
+that directory's history, which the 493 files make hard to reason about.
+
+The plausible cause is `age`'s scrypt work factor: encryption picks one
+by timing, and a release build is fast enough to choose a factor a debug
+build's decryptor refuses. Worth confirming before trusting it. Practical
+impact is limited to a developer running `cargo run` beside an installed
+release binary — but that is exactly what happened here, so it is worth a
+proper look rather than a shrug.
+
 ## Measurements
 
 | | |
