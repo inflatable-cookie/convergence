@@ -1,6 +1,6 @@
 # 092 Graph Model And Impact Analysis
 
-Status: ready
+Status: complete
 Updated: 2026-07-27
 Roadmap: `g02.026`
 
@@ -69,6 +69,41 @@ request handler.
 ## Validation
 
 - `effigy validate`
+
+## Outcome
+
+`converge_model::gates`: `validate` returning every fault rather than
+the first, and `impact_of` comparing two graphs against caller-supplied
+occupancy. Both pure, both tested without a server — fifteen tests.
+
+Decisions worth keeping:
+
+- **every fault, not the first.** One round trip per problem is the
+  experience `converge doctor` was built to end, and a graph editor
+  should not reintroduce it
+- **cycle detection is not politeness.** `promote` walks upstreams to
+  decide whether a promotion is legal, so a cycle is an unbounded walk
+  inside a request handler. Reported through a sorted depth-first walk
+  so the same graph always names the same cycle — an error message that
+  varies between runs is a bad bug report, and there is a test that runs
+  validation twenty times to hold that
+- **cycles are only checked once the edges are known to exist**, so a
+  typo'd upstream produces one confusing answer instead of two
+- **a release gate nothing can reach is a fault.** Legal as a graph,
+  useless as a workflow: it looks staged and can never produce a release
+- **upstream order is presentation.** The same parents listed
+  differently is not a re-parenting, and `is_noop` says so
+- **occupancy is supplied, not queried.** The counts come from storage,
+  the judgement does not — which is what keeps the whole thing testable
+
+`gate_occupancy` on the storage trait, in both backends, counts bundles,
+open publications above the window floor, and whether partition state
+exists. Above the floor because those are the publications a fold still
+reads, and therefore the ones a removed gate would strand — the shape of
+finding 34. A missing partition row means a floor of zero rather than an
+error, since a window that has never advanced has nothing below it.
+Pinned in `backend_conformance`, so both backends have to agree on what
+"still open" means.
 
 ## Next Task
 

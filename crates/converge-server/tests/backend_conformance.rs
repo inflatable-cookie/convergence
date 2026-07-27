@@ -239,6 +239,19 @@ fn conform_metadata(meta: &dyn MetadataStore) -> Result<()> {
         1
     );
 
+    // Gate occupancy (batch 26.1): what a graph change would strand.
+    // Counted here rather than by the caller so both backends have to
+    // agree on what "still open" means.
+    let occupancy = meta.gate_occupancy("conf")?;
+    let listed: Vec<&str> = occupancy.iter().map(|o| o.gate_id.as_str()).collect();
+    assert!(listed.contains(&"g"), "gate not reported: {listed:?}");
+    let g_occ = occupancy.iter().find(|o| o.gate_id == "g").unwrap();
+    assert!(g_occ.bundles >= 1, "the published bundle was not counted");
+    assert!(
+        !g_occ.is_empty(),
+        "an occupied gate must not look safe to remove"
+    );
+
     // Shortened bundle ids resolve (batch 22.4). The CLI prints ids
     // truncated to twelve characters, so that is the form people paste
     // back; before this, `verify <printed id>` answered 404 while the

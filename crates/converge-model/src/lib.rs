@@ -2,6 +2,7 @@ mod chunk;
 mod config;
 pub mod encoding;
 pub mod format;
+pub mod gates;
 mod ids;
 mod manifest;
 mod resolution;

@@ -496,6 +496,49 @@ impl MetadataStore for PostgresMetadataStore {
         Ok(())
     }
 
+    fn gate_occupancy(&self, repo_id: &str) -> Result<Vec<converge_model::gates::GateOccupancy>> {
+        let graph = self.get_gate_graph(repo_id)?;
+        let mut c = self.client.lock().expect("pg lock");
+        let mut out = Vec::new();
+        for gate in &graph.gates {
+            let bundles: i64 = c
+                .query_one(
+                    "SELECT COUNT(*) FROM bundles WHERE repo_id = $1 AND gate_id = $2",
+                    &[&repo_id, &gate.gate_id],
+                )?
+                .get(0);
+            // Absent partition row means a floor of zero: a window that
+            // has never advanced has nothing below it.
+            let floor: i64 = c
+                .query_one(
+                    "SELECT COALESCE(MAX(window_floor), 0) FROM partitions
+                     WHERE repo_id = $1 AND gate_id = $2",
+                    &[&repo_id, &gate.gate_id],
+                )?
+                .get(0);
+            let partitions: i64 = c
+                .query_one(
+                    "SELECT COUNT(*) FROM partitions WHERE repo_id = $1 AND gate_id = $2",
+                    &[&repo_id, &gate.gate_id],
+                )?
+                .get(0);
+            let open_publications: i64 = c
+                .query_one(
+                    "SELECT COUNT(*) FROM publications
+                     WHERE repo_id = $1 AND gate_id = $2 AND seq > $3",
+                    &[&repo_id, &gate.gate_id, &floor],
+                )?
+                .get(0);
+            out.push(converge_model::gates::GateOccupancy {
+                gate_id: gate.gate_id.clone(),
+                bundles: bundles as u64,
+                open_publications: open_publications as u64,
+                has_partition_state: partitions > 0,
+            });
+        }
+        Ok(out)
+    }
+
     fn get_gate_graph(&self, repo_id: &str) -> Result<GateGraph> {
         let mut c = self.client.lock().expect("pg lock");
         let row = c

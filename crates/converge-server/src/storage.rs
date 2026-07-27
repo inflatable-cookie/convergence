@@ -225,6 +225,18 @@ pub trait MetadataStore: Send + Sync {
     fn set_gate_graph(&self, repo_id: &str, graph: &GateGraph) -> Result<()>;
     fn get_gate_graph(&self, repo_id: &str) -> Result<GateGraph>;
 
+    /// What lives in each gate of a repo.
+    ///
+    /// One call rather than three round trips per gate, because the
+    /// caller asking is deciding whether a graph change would strand
+    /// work and wants a whole picture, not a series of glimpses of a
+    /// moving one.
+    ///
+    /// Open publications are counted above the partition's window floor:
+    /// those are the ones a fold still reads, and therefore the ones
+    /// that removing a gate would strand (batch 22.4 finding 34).
+    fn gate_occupancy(&self, repo_id: &str) -> Result<Vec<converge_model::gates::GateOccupancy>>;
+
     // scope registry (g02.014 batch 14.3): scopes are declared repo state,
     // so a typo cannot mint a partition and fragment windows.
     fn create_scope(&self, repo_id: &str, scope_id: &str, created_at: &str) -> Result<()>;

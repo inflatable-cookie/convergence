@@ -594,6 +594,47 @@ impl MetadataStore for SqliteMetadataStore {
         Ok(())
     }
 
+    fn gate_occupancy(&self, repo_id: &str) -> Result<Vec<converge_model::gates::GateOccupancy>> {
+        let graph = self.get_gate_graph(repo_id)?;
+        let conn = self.conn.lock().expect("meta lock");
+        let mut out = Vec::new();
+        for gate in &graph.gates {
+            let bundles: u64 = conn.query_row(
+                "SELECT COUNT(*) FROM bundles WHERE repo_id = ?1 AND gate_id = ?2",
+                params![repo_id, gate.gate_id],
+                |row| row.get::<_, i64>(0),
+            )? as u64;
+            // A partition row only exists once a window has advanced, so
+            // its absence means a floor of zero rather than an error.
+            let floor: i64 = conn
+                .query_row(
+                    "SELECT COALESCE(MAX(window_floor), 0) FROM partitions
+                     WHERE repo_id = ?1 AND gate_id = ?2",
+                    params![repo_id, gate.gate_id],
+                    |row| row.get(0),
+                )
+                .unwrap_or(0);
+            let has_partition_state: bool = conn.query_row(
+                "SELECT COUNT(*) FROM partitions WHERE repo_id = ?1 AND gate_id = ?2",
+                params![repo_id, gate.gate_id],
+                |row| row.get::<_, i64>(0),
+            )? > 0;
+            let open_publications: u64 = conn.query_row(
+                "SELECT COUNT(*) FROM publications
+                 WHERE repo_id = ?1 AND gate_id = ?2 AND seq > ?3",
+                params![repo_id, gate.gate_id, floor],
+                |row| row.get::<_, i64>(0),
+            )? as u64;
+            out.push(converge_model::gates::GateOccupancy {
+                gate_id: gate.gate_id.clone(),
+                bundles,
+                open_publications,
+                has_partition_state,
+            });
+        }
+        Ok(out)
+    }
+
     fn get_gate_graph(&self, repo_id: &str) -> Result<GateGraph> {
         let conn = self.conn.lock().expect("meta lock");
         let json: String = conn
