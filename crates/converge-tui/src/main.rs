@@ -283,6 +283,10 @@ fn run(terminal: &mut ratatui::DefaultTerminal, trace: &mut trace::Trace) -> Res
                     WizardKind::Release(id) => Wizard::release(id, app.channel_names()),
                     WizardKind::Promote(id) => Wizard::promote(id, app.gate_names()),
                     WizardKind::Fetch => Wizard::fetch(app.channel_names()),
+                    // Existing gates come from the loaded Gates view, so
+                    // the upstream field offers something real without a
+                    // synchronous probe (17.2).
+                    WizardKind::Gate => Wizard::gate(app.gate_names()),
                 });
             }
             Some(Action::LoadInbox) => {

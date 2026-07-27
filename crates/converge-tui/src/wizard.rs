@@ -70,6 +70,8 @@ pub enum WizardKind {
     Promote(String),
     /// Fetch a bundle or a channel head.
     Fetch,
+    /// Add a gate to the repo's graph (batch 26.3).
+    Gate,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -227,6 +229,57 @@ impl Wizard {
                     "Issue a login token now",
                     FieldKind::Choice {
                         options: vec!["yes".into(), "no".into()],
+                    },
+                ),
+            ],
+        )
+    }
+
+    /// Add a gate (batch 26.3).
+    ///
+    /// Add rather than edit: adding is the change that strands nothing,
+    /// so it is the one that belongs behind a wizard. Removing and
+    /// re-parenting can destroy addressing for work in flight, and those
+    /// stay at the CLI where the impact report is read before the
+    /// `--execute` that follows it.
+    pub fn gate(existing: Vec<String>) -> Self {
+        Self::new(
+            WizardKind::Gate,
+            "Add gate",
+            vec![
+                Field::new(
+                    "gate_id",
+                    "Gate id",
+                    FieldKind::Text {
+                        default: None,
+                        optional: false,
+                    },
+                ),
+                Field {
+                    name: "upstream",
+                    // Blank is meaningful, and the prompt has to say so:
+                    // a gate with no upstream is the entry gate, which is
+                    // where publications land.
+                    prompt: "Accepts promotions from (blank = entry gate)",
+                    kind: FieldKind::Text {
+                        default: existing.first().cloned(),
+                        optional: true,
+                    },
+                    masked: false,
+                },
+                Field::new(
+                    "approvals",
+                    "Approvals required before promotion",
+                    FieldKind::Text {
+                        default: Some("0".into()),
+                        optional: false,
+                    },
+                ),
+                Field::new(
+                    "releasable",
+                    "May bundles here be released to a channel",
+                    FieldKind::Choice {
+                        options: vec!["no".into(), "yes".into()],
                     },
                 ),
             ],
@@ -489,6 +542,27 @@ impl Wizard {
                 if value("issue_token") == "yes" {
                     argv.push("--issue-token".into());
                 }
+                argv
+            }
+            WizardKind::Gate => {
+                let mut argv = vec!["gates".into(), "add".into(), value("gate_id")];
+                let upstream = value("upstream");
+                if !upstream.is_empty() {
+                    argv.push("--upstream".into());
+                    argv.push(upstream);
+                }
+                let approvals = value("approvals");
+                if approvals != "0" && !approvals.is_empty() {
+                    argv.push("--approvals".into());
+                    argv.push(approvals);
+                }
+                if value("releasable") == "yes" {
+                    argv.push("--releasable".into());
+                }
+                // The review step is the confirmation (23.3), so the
+                // command it runs is the real one rather than a report
+                // the person then has to repeat with --execute.
+                argv.push("--execute".into());
                 argv
             }
             WizardKind::Release(bundle_id) => {

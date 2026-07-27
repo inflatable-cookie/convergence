@@ -14,6 +14,12 @@ use anyhow::Result;
 use converge_server::{AppState, FsObjectStore, MetadataStore, SqliteMetadataStore, router};
 
 fn converge(dir: &Path, args: &[&str]) -> Output {
+    converge_in_home(dir, &test_home(dir), args)
+}
+
+/// For the tests that are *about* a shared identity directory, which the
+/// per-workspace default would otherwise make vacuous.
+fn converge_in_home(dir: &Path, home: &Path, args: &[&str]) -> Output {
     Command::new(env!("CARGO_BIN_EXE_converge"))
         .current_dir(dir)
         // Isolate the identity directory (batch 22.4). Without this the
@@ -25,18 +31,32 @@ fn converge(dir: &Path, args: &[&str]) -> Output {
         //
         // Outside the workspace, not inside it: an identity directory
         // under the tree being captured becomes part of the snap, which
-        // breaks the very checkouts these tests assert on. One home per
-        // test binary is isolation enough, since token keys already
-        // include the workspace root.
-        .env("CONVERGE_HOME", test_home())
+        // breaks the very checkouts these tests assert on.
+        .env("CONVERGE_HOME", home)
         .args(args)
         .output()
         .expect("run converge")
 }
 
-/// One identity directory per test binary, outside every workspace.
-fn test_home() -> std::path::PathBuf {
-    std::env::temp_dir().join(format!("converge-test-home-{}", std::process::id()))
+/// One identity directory per workspace, outside every workspace.
+///
+/// Per *binary* was the first attempt, on the reasoning that token keys
+/// already include the workspace root. That is true and not the whole
+/// story: the home also holds `machine.key`, and `cargo test` runs these
+/// as threads in one process, so several `converge` invocations could
+/// create it at once and the losers' tokens would be sealed to a key
+/// that no longer exists. Adding a sixth test to this file was enough to
+/// make it fail. (`cargo nextest`, which the repo actually runs, gives
+/// each test its own process and hid it.)
+fn test_home(dir: &Path) -> std::path::PathBuf {
+    // Cheap and stable; no need for a hash dependency in a test helper.
+    let key: u64 = dir
+        .to_string_lossy()
+        .bytes()
+        .fold(1469598103934665603, |acc, b| {
+            (acc ^ b as u64).wrapping_mul(1099511628211)
+        });
+    std::env::temp_dir().join(format!("converge-test-home-{key:016x}"))
 }
 
 fn json_data(out: &Output) -> serde_json::Value {
@@ -76,8 +96,13 @@ fn start_bare_server(data_dir: &Path) -> Result<(String, String)> {
 }
 
 fn login(dir: &Path, base_url: &str, token: &str, repo: &str) -> Output {
-    converge(
+    login_in_home(dir, &test_home(dir), base_url, token, repo)
+}
+
+fn login_in_home(dir: &Path, home: &Path, base_url: &str, token: &str, repo: &str) -> Output {
+    converge_in_home(
         dir,
+        home,
         &[
             "login", "--url", base_url, "--token", token, "--repo", repo, "--scope", "default",
             "--gate", "intake",
@@ -370,18 +395,32 @@ fn two_workspaces_on_one_machine_keep_separate_logins() -> Result<()> {
     let server_dir = tempfile::tempdir()?;
     let (base_url, admin_token) = start_bare_server(server_dir.path())?;
 
+    // One identity directory for both workspaces, deliberately. This is
+    // the whole subject of the test: batch 21.1 found that moving tokens
+    // to a shared home keyed them by `(url, repo)` alone, so logging in
+    // as a second person replaced the first person's token in *their*
+    // workspace. The default per-workspace home would make this pass for
+    // the wrong reason.
+    let home_dir = tempfile::tempdir()?;
+    let home = home_dir.path();
+
     let admin_dir = tempfile::tempdir()?;
     let admin = admin_dir.path();
-    assert!(converge(admin, &["init"]).status.success());
+    assert!(converge_in_home(admin, home, &["init"]).status.success());
     assert!(
-        login(admin, &base_url, &admin_token, "acme")
+        login_in_home(admin, home, &base_url, &admin_token, "acme")
             .status
             .success()
     );
-    json_data(&converge(admin, &["--json", "repo", "create"]));
-
-    let added = json_data(&converge(
+    json_data(&converge_in_home(
         admin,
+        home,
+        &["--json", "repo", "create"],
+    ));
+
+    let added = json_data(&converge_in_home(
+        admin,
+        home,
         &["--json", "member", "add", "dana", "--issue-token"],
     ));
     let dana_token = added["token"].as_str().expect("token").to_string();
@@ -389,12 +428,16 @@ fn two_workspaces_on_one_machine_keep_separate_logins() -> Result<()> {
     // Same machine, same repo, different person.
     let dana_dir = tempfile::tempdir()?;
     let dana = dana_dir.path();
-    assert!(converge(dana, &["init"]).status.success());
-    assert!(login(dana, &base_url, &dana_token, "acme").status.success());
+    assert!(converge_in_home(dana, home, &["init"]).status.success());
+    assert!(
+        login_in_home(dana, home, &base_url, &dana_token, "acme")
+            .status
+            .success()
+    );
 
     // The admin's workspace still holds the admin's identity: `token
     // list` needs admin, which dana does not have.
-    let still_admin = converge(admin, &["--json", "token", "list"]);
+    let still_admin = converge_in_home(admin, home, &["--json", "token", "list"]);
     assert!(
         still_admin.status.success(),
         "the second login replaced the first workspace's token: {}",
@@ -402,7 +445,7 @@ fn two_workspaces_on_one_machine_keep_separate_logins() -> Result<()> {
     );
 
     // And dana's workspace is still dana: an admin-only verb is refused.
-    let denied = converge(dana, &["--json", "token", "list"]);
+    let denied = converge_in_home(dana, home, &["--json", "token", "list"]);
     assert!(
         !denied.status.success(),
         "dana's workspace is authenticating as somebody else"
@@ -546,6 +589,183 @@ fn a_scoped_token_is_narrower_than_the_person_holding_it() -> Result<()> {
         scoped["capabilities"].as_array().map(Vec::len),
         Some(2),
         "the listing should show the scope: {scoped}"
+    );
+    Ok(())
+}
+
+/// Shaping a repo's gates from the CLI (g02.026 batch 26.3).
+///
+/// Batch 22.4 finding 33: `repo create` made one gate and nothing could
+/// ever make a second, so `promote` was unreachable. This is the verb
+/// that fixes that, driven the way somebody would use it.
+#[test]
+fn a_repo_can_be_given_a_staged_gate_graph_from_the_cli() -> Result<()> {
+    let server = tempfile::tempdir()?;
+    let (base_url, admin_token) = start_bare_server(server.path())?;
+    let ws = tempfile::tempdir()?;
+    assert!(converge(ws.path(), &["init"]).status.success());
+    assert!(
+        converge(
+            ws.path(),
+            &[
+                "login",
+                "--url",
+                &base_url,
+                "--repo",
+                "staged",
+                "--scope",
+                "default",
+                "--gate",
+                "intake",
+                "--token",
+                &admin_token,
+            ],
+        )
+        .status
+        .success()
+    );
+    assert!(converge(ws.path(), &["repo", "create"]).status.success());
+
+    // Report by default, like `gc` and `token prune`.
+    let dry = converge(
+        ws.path(),
+        &["gates", "add", "review", "--upstream", "intake"],
+    );
+    let text = String::from_utf8_lossy(&dry.stdout);
+    assert!(text.contains("add"), "{text}");
+    assert!(
+        text.contains("--execute"),
+        "the dry run did not say how to apply: {text}"
+    );
+    let graph = json_data(&converge(ws.path(), &["--json", "gates"]));
+    assert_eq!(
+        graph["gates"].as_array().unwrap().len(),
+        1,
+        "a report changed the graph"
+    );
+
+    // Apply.
+    assert!(
+        converge(
+            ws.path(),
+            &[
+                "gates",
+                "add",
+                "review",
+                "--upstream",
+                "intake",
+                "--execute"
+            ],
+        )
+        .status
+        .success()
+    );
+    let graph = json_data(&converge(ws.path(), &["--json", "gates"]));
+    assert_eq!(graph["gates"].as_array().unwrap().len(), 2);
+
+    // Edit changes only what was named. `intake` keeps its strategy.
+    assert!(
+        converge(
+            ws.path(),
+            &["gates", "edit", "review", "--approvals", "2", "--execute"],
+        )
+        .status
+        .success()
+    );
+    let graph = json_data(&converge(ws.path(), &["--json", "gates"]));
+    let review = graph["gates"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|g| g["gate_id"] == "review")
+        .unwrap();
+    assert_eq!(review["required_approvals"], 2);
+    assert_eq!(
+        review["strategy"], "whole-file",
+        "an untouched field was reset"
+    );
+    assert_eq!(
+        review["upstreams"].as_array().unwrap().len(),
+        1,
+        "an untouched field was reset"
+    );
+
+    // Removing a gate also drops it from everyone's upstreams, since
+    // otherwise the graph is refused for naming a gate that is gone --
+    // true, but not the answer anybody wants.
+    assert!(
+        converge(ws.path(), &["gates", "rm", "review", "--execute"])
+            .status
+            .success()
+    );
+    let graph = json_data(&converge(ws.path(), &["--json", "gates"]));
+    assert_eq!(graph["gates"].as_array().unwrap().len(), 1);
+
+    // A whole-graph reshape: inserting a stage changes two gates' edges
+    // at once, and no ordering of single edits stays legal throughout.
+    let path = ws.path().join("graph.json");
+    std::fs::write(
+        &path,
+        serde_json::to_vec(&serde_json::json!({
+            "gates": [
+                {"gate_id": "intake", "name": "Intake", "upstreams": [],
+                 "required_approvals": 0, "strategy": "whole-file", "may_release": false},
+                {"gate_id": "review", "name": "Review", "upstreams": ["intake"],
+                 "required_approvals": 1, "strategy": "whole-file", "may_release": false},
+                {"gate_id": "release", "name": "Release", "upstreams": ["review"],
+                 "required_approvals": 0, "strategy": "whole-file", "may_release": true}
+            ]
+        }))?,
+    )?;
+    assert!(
+        converge(
+            ws.path(),
+            &[
+                "gates",
+                "set",
+                "--file",
+                path.to_str().unwrap(),
+                "--execute"
+            ],
+        )
+        .status
+        .success()
+    );
+    let graph = json_data(&converge(ws.path(), &["--json", "gates"]));
+    assert_eq!(graph["gates"].as_array().unwrap().len(), 3);
+
+    // An illegal graph is refused, and the refusal is a sentence rather
+    // than a JSON envelope (26.3).
+    std::fs::write(
+        &path,
+        serde_json::to_vec(&serde_json::json!({
+            "gates": [
+                {"gate_id": "a", "name": "a", "upstreams": ["b"],
+                 "required_approvals": 0, "strategy": "whole-file", "may_release": false},
+                {"gate_id": "b", "name": "b", "upstreams": ["a"],
+                 "required_approvals": 0, "strategy": "whole-file", "may_release": false}
+            ]
+        }))?,
+    )?;
+    let refused = converge(
+        ws.path(),
+        &[
+            "gates",
+            "set",
+            "--file",
+            path.to_str().unwrap(),
+            "--execute",
+        ],
+    );
+    assert!(!refused.status.success());
+    let err = String::from_utf8_lossy(&refused.stderr);
+    assert!(
+        err.contains("cycle") || err.contains("nowhere to publish"),
+        "{err}"
+    );
+    assert!(
+        !err.contains("{\"error\""),
+        "the refusal was printed as a JSON envelope: {err}"
     );
     Ok(())
 }

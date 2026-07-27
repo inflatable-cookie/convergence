@@ -179,6 +179,24 @@ impl RemoteClient {
         }
         let status = response.status();
         let body = response.text().unwrap_or_default();
+        // The server answers errors as `{"error": "...", "ok": false}`.
+        // Printing that envelope at a person makes them read JSON to find
+        // the sentence inside it, and the sentence is the part that was
+        // written for them — batch 26.3 watched a three-fault gate graph
+        // refusal arrive wrapped in braces and quotes.
+        //
+        // Anything that is not that shape is passed through untouched: a
+        // proxy's HTML or an empty body is still better than nothing.
+        // The status stays in the chain rather than the headline: a
+        // person needs the sentence, and callers that genuinely care
+        // whether a refusal was 403 or 404 -- the secret routes answer
+        // both deliberately, since existence is itself privileged --
+        // still find it under `{err:#}`.
+        if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(&body)
+            && let Some(message) = parsed.get("error").and_then(|e| e.as_str())
+        {
+            return Err(anyhow::anyhow!("http {status}")).context(message.to_string());
+        }
         bail!("server returned {status}: {body}")
     }
 

@@ -544,7 +544,8 @@ impl App {
             }
             // Row views act on the selection; `handle_rows_key` runs
             // before this, so naming anything else here would be a lie.
-            view @ (View::Bundles | View::Releases | View::Lanes | View::Gates) => {
+            View::Gates => ("(a add gate)".into(), Action::Enter(View::Gates)),
+            view @ (View::Bundles | View::Releases | View::Lanes) => {
                 ("open selected".into(), Action::Enter(view))
             }
             // Enter does nothing here on purpose: every action on a
@@ -707,6 +708,14 @@ impl App {
                     *selected = (*selected + 1).min(len - 1);
                 }
                 Some(None)
+            }
+            // Adding a gate is the one graph change that strands
+            // nothing, so it is the one that belongs on a keystroke.
+            // Removing and re-parenting stay at the CLI, where the
+            // impact report is read before the `--execute` after it
+            // (batch 26.3).
+            KeyCode::Char('a') if view == View::Gates => {
+                Some(Some(Action::StartWizard(WizardKind::Gate)))
             }
             KeyCode::Char('r' | 'u') if view == View::Secrets => {
                 let row = self.rows.get(&view)?.get(*selected)?.clone();
@@ -1387,6 +1396,35 @@ mod tests {
     /// answer "history" because the answer came from a mode rather than
     /// from the screen.
     #[test]
+    fn adding_a_gate_is_a_keystroke_and_removing_one_is_not() {
+        // The asymmetry is the point (batch 26.3). Adding a gate strands
+        // nothing. Removing or re-parenting one can make bundles and
+        // open publications unaddressable, which is batch 22.4 finding
+        // 34's shape, so those stay at the CLI where the impact report
+        // is read before the `--execute` that follows it.
+        let mut app = App {
+            frames: vec![View::Root, View::Gates],
+            ..Default::default()
+        };
+        app.rows
+            .insert(View::Gates, vec![serde_json::json!({"gate_id": "intake"})]);
+
+        let action = app.handle_key(key(KeyCode::Char('a')));
+        assert!(
+            matches!(action, Some(Action::StartWizard(WizardKind::Gate))),
+            "`a` did not open the gate wizard: {action:?}"
+        );
+
+        for code in [KeyCode::Char('d'), KeyCode::Char('x')] {
+            let action = app.handle_key(key(code));
+            assert!(
+                !matches!(action, Some(Action::StartWizard(_))),
+                "{code:?} opened a wizard on the gate screen"
+            );
+        }
+    }
+
+    #[test]
     fn every_screen_names_its_own_primary_action() {
         let mut app = App::default();
         for (view, expected) in [
@@ -1396,7 +1434,10 @@ mod tests {
             (View::Bundles, "open selected"),
             (View::Releases, "open selected"),
             (View::Lanes, "open selected"),
-            (View::Gates, "open selected"),
+            // Gates is not a "open the selected row" screen: entering a
+            // gate shows nothing the list does not, and the useful act
+            // there is adding one (batch 26.3).
+            (View::Gates, "(a add gate)"),
             (View::Help, "back"),
         ] {
             app.frames = vec![View::Root, view];

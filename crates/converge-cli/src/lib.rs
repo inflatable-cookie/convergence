@@ -300,8 +300,13 @@ enum Command {
     },
     /// List the repo's releases.
     Releases,
-    /// Show the repo's gate graph.
-    Gates,
+    /// Show the repo's gate graph, or change it.
+    Gates {
+        /// Omitted, this shows the graph — which is all it could do
+        /// before batch 26.3.
+        #[command(subcommand)]
+        command: Option<GateCommand>,
+    },
     /// Replay a bundle from provenance and prove its identity.
     Verify {
         /// Bundle id, or omit with --release to name a channel head.
@@ -483,6 +488,71 @@ enum ScopeCommand {
     Create { scope_id: String },
     /// List the repo's registered scopes.
     List,
+}
+
+#[derive(Subcommand)]
+enum GateCommand {
+    /// Add a gate.
+    Add {
+        gate_id: String,
+        /// A gate it accepts promotions from; repeatable. None makes it
+        /// an entry gate, which is where publications land.
+        #[arg(long = "upstream", value_name = "GATE")]
+        upstreams: Vec<String>,
+        #[arg(long)]
+        name: Option<String>,
+        #[arg(long, default_value_t = 0)]
+        approvals: u32,
+        #[arg(long, default_value = "whole-file")]
+        strategy: String,
+        /// Bundles from this gate may be released to a channel.
+        #[arg(long)]
+        releasable: bool,
+        #[arg(long)]
+        execute: bool,
+    },
+    /// Change a gate. Only the flags you pass are altered.
+    Edit {
+        gate_id: String,
+        /// Replaces the whole upstream list; repeatable.
+        #[arg(long = "upstream", value_name = "GATE")]
+        upstreams: Option<Vec<String>>,
+        #[arg(long)]
+        name: Option<String>,
+        #[arg(long)]
+        approvals: Option<u32>,
+        #[arg(long)]
+        strategy: Option<String>,
+        #[arg(long)]
+        releasable: Option<bool>,
+        #[arg(long)]
+        execute: bool,
+        /// Proceed even though the change would strand work.
+        #[arg(long)]
+        force: bool,
+    },
+    /// Remove a gate.
+    Rm {
+        gate_id: String,
+        #[arg(long)]
+        execute: bool,
+        #[arg(long)]
+        force: bool,
+    },
+    /// Replace the whole graph from a JSON file.
+    ///
+    /// The escape hatch for a reshape that single edits cannot express:
+    /// inserting a review gate between intake and release changes both
+    /// gates' edges at once, and every ordering of two single edits
+    /// passes through a graph validation would reject.
+    Set {
+        #[arg(long)]
+        file: std::path::PathBuf,
+        #[arg(long)]
+        execute: bool,
+        #[arg(long)]
+        force: bool,
+    },
 }
 
 #[derive(Subcommand)]
@@ -1022,9 +1092,12 @@ fn run(cli: &Cli, mode: OutputMode, session: &Session) -> Result<serde_json::Val
                 println!("released {} to channel {}", r.bundle_id, r.channel);
             })
         }
-        Command::Gates => {
+        Command::Gates { command } => {
             let ws = session.workspace()?;
             let (client, remote) = remote_client(session, &ws, mode)?;
+            if let Some(command) = command {
+                return run_gate_change(mode, &client, &remote.repo_id, command);
+            }
             let graph = client.get_gate_graph(&remote.repo_id)?;
             emit(mode, graph, |g| {
                 for gate in &g.gates {
@@ -2476,6 +2549,155 @@ fn latest_snap(ws: &Workspace) -> Result<converge_client::model::SnapRecord> {
 /// itself immediately — the first version of the staleness test looked
 /// for `.converge/.converge/config.json` and called the one live
 /// credential on the machine dead.
+/// Apply a gate-graph change, reporting by default.
+///
+/// `gc` and `token prune` are dry unless `--execute`, and both caught a
+/// real defect because of it — the first staleness check in `token
+/// prune` classified the one live credential on the machine as dead. A
+/// gate edit is at least as consequential, so it reads the same way.
+///
+/// Every edit is expressed as a whole graph on the wire. The server
+/// validates and diffs one submission, which is what lets a reshape that
+/// changes two gates at once be legal at every moment somebody can
+/// observe it.
+fn run_gate_change(
+    mode: OutputMode,
+    client: &converge_client::remote::RemoteClient,
+    repo_id: &str,
+    command: &GateCommand,
+) -> Result<serde_json::Value> {
+    use converge_client::model::GateNode;
+
+    let current = client.get_gate_graph(repo_id)?;
+    let mut gates = current.gates.clone();
+
+    let (execute, force) = match command {
+        GateCommand::Add { execute, .. } => (*execute, false),
+        GateCommand::Edit { execute, force, .. }
+        | GateCommand::Rm { execute, force, .. }
+        | GateCommand::Set { execute, force, .. } => (*execute, *force),
+    };
+
+    match command {
+        GateCommand::Add {
+            gate_id,
+            upstreams,
+            name,
+            approvals,
+            strategy,
+            releasable,
+            ..
+        } => {
+            if gates.iter().any(|g| &g.gate_id == gate_id) {
+                anyhow::bail!("gate {gate_id} already exists; use `converge gates edit {gate_id}`");
+            }
+            gates.push(GateNode {
+                gate_id: gate_id.clone(),
+                name: name.clone().unwrap_or_else(|| gate_id.clone()),
+                upstreams: upstreams.clone(),
+                required_approvals: *approvals,
+                strategy: strategy.clone(),
+                may_release: *releasable,
+            });
+        }
+        GateCommand::Edit {
+            gate_id,
+            upstreams,
+            name,
+            approvals,
+            strategy,
+            releasable,
+            ..
+        } => {
+            let gate = gates
+                .iter_mut()
+                .find(|g| &g.gate_id == gate_id)
+                .with_context(|| format!("no gate {gate_id} in this repo"))?;
+            // Only what was passed: an edit that silently reset the
+            // fields you did not mention would be a footgun on a verb
+            // people reach for to change one number.
+            if let Some(upstreams) = upstreams {
+                gate.upstreams = upstreams.clone();
+            }
+            if let Some(name) = name {
+                gate.name = name.clone();
+            }
+            if let Some(approvals) = approvals {
+                gate.required_approvals = *approvals;
+            }
+            if let Some(strategy) = strategy {
+                gate.strategy = strategy.clone();
+            }
+            if let Some(releasable) = releasable {
+                gate.may_release = *releasable;
+            }
+        }
+        GateCommand::Rm { gate_id, .. } => {
+            if !gates.iter().any(|g| &g.gate_id == gate_id) {
+                anyhow::bail!("no gate {gate_id} in this repo");
+            }
+            gates.retain(|g| &g.gate_id != gate_id);
+            // A gate that pointed at the removed one would otherwise be
+            // refused for naming an upstream that no longer exists,
+            // which is true but not the answer somebody wants.
+            for gate in &mut gates {
+                gate.upstreams.retain(|u| u != gate_id);
+            }
+        }
+        GateCommand::Set { file, .. } => {
+            let bytes = std::fs::read(file).with_context(|| format!("read {}", file.display()))?;
+            let graph: converge_client::model::GateGraph = serde_json::from_slice(&bytes)
+                .with_context(|| format!("parse {} as a gate graph", file.display()))?;
+            gates = graph.gates;
+        }
+    }
+
+    let response = client.set_gate_graph(repo_id, gates, Some(current), force, !execute)?;
+
+    emit(mode, response, |r| {
+        let impact = &r.impact;
+        if impact.is_noop() {
+            println!("no change.");
+            return;
+        }
+        for id in &impact.added {
+            println!("add     {id}");
+        }
+        for id in &impact.removed {
+            println!("remove  {id}");
+        }
+        for (id, before, after) in &impact.reparented {
+            let show = |list: &Vec<String>| {
+                if list.is_empty() {
+                    "entry".to_string()
+                } else {
+                    list.join(", ")
+                }
+            };
+            println!("move    {id}: {} -> {}", show(before), show(after));
+        }
+        for id in &impact.retuned {
+            println!("adjust  {id}");
+        }
+        for occupancy in impact.occupancy.iter().filter(|o| !o.is_empty()) {
+            println!(
+                "  {} holds {} bundle(s) and {} open publication(s)",
+                occupancy.gate_id, occupancy.bundles, occupancy.open_publications
+            );
+        }
+        if r.applied {
+            println!("applied.");
+            return;
+        }
+        if impact.strands_work() {
+            println!();
+            println!("this would strand work that nothing else addresses.");
+            println!("promote or release it first, or add --force.");
+        }
+        println!("nothing changed. re-run with --execute.");
+    })
+}
+
 fn run_token_prune(
     mode: OutputMode,
     execute: bool,

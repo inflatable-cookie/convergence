@@ -1,6 +1,6 @@
 # 094 Gate CLI And TUI
 
-Status: ready
+Status: complete
 Updated: 2026-07-27
 Roadmap: `g02.026`
 
@@ -72,6 +72,54 @@ confirmation, and its legend names the consequence.
 
 - `effigy validate`
 - `effigy qa:docs`
+
+## Outcome
+
+`converge gates add|edit|rm|set`, reporting by default and applying on
+`--execute`, in `gc`'s idiom. `gates` with no subcommand still shows the
+graph, which is all it could do before.
+
+Every edit goes to the server as a whole graph. The server validates and
+diffs one submission, which is what lets a reshape touching two gates at
+once be legal at every moment anyone can observe it — and it means the
+single-gate verbs and `set --file` share one code path rather than two
+that can disagree.
+
+Details that came from using it:
+
+- **`edit` changes only what was passed.** A verb people reach for to
+  change one number must not silently reset the fields they did not
+  mention, and a test asserts the untouched strategy and upstreams
+  survive
+- **`rm` drops the gate from everyone's upstreams too.** Otherwise the
+  graph is refused for naming a gate that no longer exists — true, and
+  not the answer anybody wants
+- the impact report names what each disturbed gate holds, so the refusal
+  reads `intake holds 8 bundle(s) and 13 open publication(s)` rather than
+  a count of gates
+
+Driving it found a defect older than this batch: **every server error
+reached the user as a raw JSON envelope**, so a three-fault graph refusal
+arrived wrapped in braces and quotes. The client now lifts the message
+out and keeps the status code in the error chain rather than the
+headline — callers that genuinely care whether a refusal was 403 or 404,
+which the secret routes answer deliberately, still find it under
+`{err:#}`. That improves every error in the product, not just this one.
+
+It also exposed a latent fault in the test harness. `CONVERGE_HOME` was
+one directory per test *binary*, on the reasoning that token keys already
+include the workspace root — true, and not the whole story, since the
+home also holds `machine.key`. Adding a sixth test to `onboarding_e2e`
+was enough for parallel `cargo test` threads to race on creating it.
+Homes are now per workspace, and the one test that is *about* a shared
+identity directory takes one explicitly, so it still pins what batch
+21.1 wrote it for instead of passing for the wrong reason.
+
+TUI: `a` on the gate screen opens an add-gate wizard. Adding is the only
+graph change that strands nothing, so it is the only one on a keystroke;
+removing and re-parenting stay at the CLI where the impact report is read
+before the `--execute` after it. The reducer test asserts both halves of
+that asymmetry.
 
 ## Next Task
 
