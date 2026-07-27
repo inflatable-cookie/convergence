@@ -93,11 +93,12 @@ impl LocalStore {
     }
 
     fn write_token_file(&self, key: &str, token: &str) -> Result<()> {
-        let sealed = age::encrypt(
-            &age::scrypt::Recipient::new(machine_key()?),
-            token.as_bytes(),
-        )
-        .map_err(|err| anyhow::anyhow!("encrypt token: {err}"))?;
+        let record = serde_json::to_vec(&TokenRecord {
+            key: key.to_string(),
+            token: token.to_string(),
+        })?;
+        let sealed = age::encrypt(&age::scrypt::Recipient::new(machine_key()?), &record)
+            .map_err(|err| anyhow::anyhow!("encrypt token: {err}"))?;
         let path = token_path(key)?;
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent)
@@ -120,10 +121,126 @@ impl LocalStore {
                      run `converge login` again to replace it"
                 )
             })?;
-        Ok(Some(
-            String::from_utf8(plaintext).context("token is not utf-8")?,
-        ))
+        let plaintext = String::from_utf8(plaintext).context("token is not utf-8")?;
+        match serde_json::from_str::<TokenRecord>(&plaintext) {
+            Ok(record) => Ok(Some(record.token)),
+            // Written before the file recorded what it belonged to. Now
+            // that the key is in hand, rewrite it in the current shape so
+            // ordinary use migrates the store; what stays in the old
+            // shape is what nothing has opened, which is the definition
+            // of the debris `prune` is looking for.
+            Err(_) => {
+                self.write_token_file(key, &plaintext)?;
+                Ok(Some(plaintext))
+            }
+        }
     }
+}
+
+/// What a token file holds.
+///
+/// The token alone was not enough. The filename is
+/// `blake3(url#repo#workspace_root)` — hashed so a directory listing
+/// does not enumerate which servers this machine talks to — which means
+/// a deleted workspace leaves a credential nothing can attribute and
+/// nothing removes. Batch 22.4 found 493 of them on one machine, almost
+/// all from temporary test workspaces, with no way to tell the live one
+/// from the dead.
+///
+/// Storing the key inside the encrypted body keeps the directory
+/// listing as opaque as it was, while making staleness decidable: the
+/// workspace either still exists or it does not.
+#[derive(serde::Serialize, serde::Deserialize)]
+struct TokenRecord {
+    key: String,
+    token: String,
+}
+
+/// A cached login that `prune` can account for.
+pub struct StaleToken {
+    pub path: std::path::PathBuf,
+    /// The workspace it was issued for, when the file says.
+    pub workspace: Option<std::path::PathBuf>,
+}
+
+/// What the token store holds, and what of it is dead.
+///
+/// Deletion is never inferred from a failure to decrypt: a file this
+/// machine's key cannot open is somebody else's problem, not garbage.
+#[derive(Default)]
+pub struct TokenStoreSurvey {
+    pub live: usize,
+    /// Workspaces that no longer exist on disk.
+    pub stale: Vec<StaleToken>,
+    /// Written before files recorded their key, and not opened since.
+    pub unattributable: Vec<StaleToken>,
+}
+
+/// Survey the cached logins on this machine.
+pub fn survey_token_store() -> Result<TokenStoreSurvey> {
+    let dir = crate::identity::converge_home()?.join("tokens");
+    let mut survey = TokenStoreSurvey::default();
+    let entries = match std::fs::read_dir(&dir) {
+        Ok(entries) => entries,
+        Err(_) => return Ok(survey),
+    };
+    let key = machine_key()?;
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.extension().and_then(|e| e.to_str()) != Some("age") {
+            continue;
+        }
+        let Ok(sealed) = std::fs::read(&path) else {
+            continue;
+        };
+        let Ok(plaintext) = age::decrypt(&age::scrypt::Identity::new(key.clone()), &sealed) else {
+            // Not ours to judge, so not ours to delete.
+            survey.live += 1;
+            continue;
+        };
+        let Ok(text) = String::from_utf8(plaintext) else {
+            survey.live += 1;
+            continue;
+        };
+        match serde_json::from_str::<TokenRecord>(&text) {
+            Ok(record) => {
+                // `url#repo#root`, and only the root may itself contain
+                // a `#`, so it is the remainder rather than a field.
+                let root = record
+                    .key
+                    .splitn(3, '#')
+                    .nth(2)
+                    .map(std::path::PathBuf::from);
+                // The key holds `root_dir()`, which is the `.converge`
+                // directory itself and not the workspace above it. The
+                // first version of this check appended `.converge` a
+                // second time, classified the one live credential on the
+                // machine as stale, and would have deleted it — which is
+                // why this command reports before it removes.
+                let gone = root
+                    .as_ref()
+                    .is_some_and(|r| !r.join("config.json").exists());
+                if gone {
+                    survey.stale.push(StaleToken {
+                        path,
+                        // Report the workspace, not the `.converge`
+                        // directory inside it: the former is what
+                        // somebody recognises.
+                        workspace: root.map(|r| r.parent().map(|p| p.to_path_buf()).unwrap_or(r)),
+                    });
+                } else {
+                    survey.live += 1;
+                }
+            }
+            Err(_) => survey.unattributable.push(StaleToken {
+                path,
+                workspace: None,
+            }),
+        }
+    }
+    survey.stale.sort_by(|a, b| a.path.cmp(&b.path));
+    survey.unattributable.sort_by(|a, b| a.path.cmp(&b.path));
+    Ok(survey)
 }
 
 /// Hashed, so a directory listing does not enumerate which servers this

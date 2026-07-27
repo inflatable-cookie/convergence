@@ -533,11 +533,9 @@ resolved superposition, two encrypted secrets — it holds:
 - `converge fetch` pulled the tree back
 - `converge secret get` decrypted, so sealed values survive a restore
 
-The one thing the drill cannot check is which credentials in
-`~/.converge/tokens` are live: 493 files, nearly all debris from finding
-18's test-suite bug, and nothing distinguishes them without the machine
-key. They are backed up and left in place. A store that only grows and
-cannot be pruned is worth a card of its own.
+The one thing the drill could not check was which credentials in
+`~/.converge/tokens` were live: 493 files, nearly all debris from
+finding 18's test-suite bug, and nothing distinguished them. Finding 25.
 
 ### 24. `converge run` delivers secrets and nothing else leaks
 
@@ -545,6 +543,48 @@ Two secrets set, then a build probe run under `converge run --secret`:
 present in the child, inherited by its own children as any environment
 variable is, and absent from the parent shell afterwards. Doc 19 §10
 describes this exactly.
+
+### 25. A cached login outlived its workspace, unaccountably (fixed)
+
+493 files under `~/.converge/tokens`, and no way to tell the one live
+credential from 492 dead ones.
+
+The cause is in the naming. A token file is
+`blake3(url#repo#workspace_root).age` — hashed so a directory listing
+does not enumerate which servers this machine talks to, which is worth
+keeping — and it held the bare token and nothing else. Delete a
+workspace and its credential is orphaned: nothing removes it, and
+nothing can even say which workspace it was for. Every temporary test
+workspace left one behind.
+
+The file now holds the key alongside the token, inside the encrypted
+body. The listing stays as opaque as it was; staleness becomes decidable,
+because the workspace either exists or it does not. Reading a legacy file
+rewrites it in the new shape, so ordinary use migrates the store and what
+stays unattributable is precisely what nothing has opened.
+
+`converge token prune` reports by default and deletes only with
+`--execute`, following `gc`. It sits under `token` because that is where
+someone will look, though it is the only verb there that needs neither a
+workspace nor a server — which is exactly the situation it exists for.
+
+The dry-run default paid for itself within a minute. `root_dir()` is the
+`.converge` directory, not the workspace above it, so the first
+staleness test looked for `.converge/.converge/config.json`, found
+nothing, and classified the one live credential on this machine as dead.
+With `--execute` wired straight through, that would have been a working
+login deleted during its own verification.
+
+Unattributable files need `--forget-unattributable` on top, because
+removing one costs a re-login and no evidence says it is dead — only
+that nothing has used it lately.
+
+On this machine, after migrating the live workspace by using it: 1 live,
+492 unattributable, 1 stale from a workspace deleted as a drill. Swept to
+1. The live credential still authenticates.
+
+Four tests cover it, including one that forges a legacy file with the
+machine key so the migration path is exercised rather than assumed.
 
 ## Measurements
 
@@ -566,7 +606,7 @@ describes this exactly.
 | Live deployment | 904 KB, 12 snaps, 11 bundles, 2 identities |
 | Backup archive | 257 KB |
 | Restore → verified replay | bundle reproduced from provenance |
-| Stale tokens in `~/.converge` | 493 |
+| Stale tokens in `~/.converge` | 493 → 1 |
 
 ## Next Task
 

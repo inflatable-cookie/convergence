@@ -10,6 +10,7 @@ mod core_setup;
 mod object_crud;
 mod snap_resolution;
 mod state_meta;
+pub use state_meta::{StaleToken, TokenStoreSurvey, survey_token_store};
 
 #[derive(Clone)]
 pub struct LocalStore {

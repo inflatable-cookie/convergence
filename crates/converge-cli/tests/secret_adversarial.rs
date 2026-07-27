@@ -296,3 +296,162 @@ fn a_legacy_plaintext_token_is_migrated_and_erased() -> Result<()> {
     );
     Ok(())
 }
+
+/// A cached login outlives the workspace it was issued for, and nothing
+/// used to be able to tell. Batch 22.4 found 493 such files on one
+/// machine, nearly all from temporary test workspaces.
+#[test]
+fn pruning_drops_cached_logins_whose_workspace_is_gone() -> Result<()> {
+    let server_dir = tempfile::tempdir()?;
+    let base_url = start_server(server_dir.path())?;
+    let (ws, home) = logged_in(&base_url)?;
+    let keep = tempfile::tempdir()?;
+
+    // Reading the token is what records which workspace it belongs to.
+    assert!(
+        converge(ws.path(), home.path(), &["--json", "secret", "list"])
+            .status
+            .success()
+    );
+    assert_eq!(walkdir(&home.path().join("tokens")).len(), 1);
+
+    // A live workspace is never a candidate.
+    let survey = converge(keep.path(), home.path(), &["--json", "token", "prune"]);
+    let json: serde_json::Value = serde_json::from_slice(&survey.stdout)?;
+    let body = json.get("data").unwrap_or(&json);
+    assert_eq!(
+        body["live"], 1,
+        "the live workspace was not recognised: {json}"
+    );
+    assert_eq!(body["stale"], 0);
+    assert_eq!(body["removed"], 0, "a dry run must not delete anything");
+    assert_eq!(
+        walkdir(&home.path().join("tokens")).len(),
+        1,
+        "a dry run deleted a file"
+    );
+
+    // Once the workspace is gone, its credential is accountable garbage.
+    let ws_path = ws.path().to_path_buf();
+    ws.close()?;
+    assert!(!ws_path.exists());
+    let out = converge(
+        keep.path(),
+        home.path(),
+        &["--json", "token", "prune", "--execute"],
+    );
+    let json: serde_json::Value = serde_json::from_slice(&out.stdout)?;
+    let body = json.get("data").unwrap_or(&json);
+    assert_eq!(
+        body["stale"], 1,
+        "the dead workspace was not spotted: {json}"
+    );
+    assert_eq!(body["removed"], 1);
+    assert!(
+        walkdir(&home.path().join("tokens")).is_empty(),
+        "the stale credential is still on disk"
+    );
+    Ok(())
+}
+
+/// Files written before they recorded a workspace cannot be attributed,
+/// so they are never swept by accident: removing one costs a re-login.
+/// Batch 22.4 met 492 of these on one machine.
+#[test]
+fn unattributable_cached_logins_need_asking_for() -> Result<()> {
+    let server_dir = tempfile::tempdir()?;
+    let base_url = start_server(server_dir.path())?;
+    let (ws, home) = logged_in(&base_url)?;
+
+    // Rewrite the stored file the way the older binary did: the bare
+    // token, with nothing saying what it belongs to.
+    let tokens = walkdir(&home.path().join("tokens"));
+    assert_eq!(tokens.len(), 1);
+    let machine_key = std::fs::read_to_string(home.path().join("machine.key"))?;
+    let sealed = age::encrypt(
+        &age::scrypt::Recipient::new(age::secrecy::SecretString::from(
+            machine_key.trim().to_string(),
+        )),
+        b"token-a",
+    )
+    .map_err(|err| anyhow::anyhow!("{err}"))?;
+    std::fs::write(&tokens[0], &sealed)?;
+
+    let out = converge(ws.path(), home.path(), &["--json", "token", "prune"]);
+    let json: serde_json::Value = serde_json::from_slice(&out.stdout)?;
+    let body = json.get("data").unwrap_or(&json);
+    assert_eq!(
+        body["unattributable"], 1,
+        "a file with no recorded workspace should not look attributable: {json}"
+    );
+    assert_eq!(body["stale"], 0, "unattributable is not the same as dead");
+
+    // Even --execute leaves it, because it was not asked for.
+    let out = converge(
+        ws.path(),
+        home.path(),
+        &["--json", "token", "prune", "--execute"],
+    );
+    let json: serde_json::Value = serde_json::from_slice(&out.stdout)?;
+    let body = json.get("data").unwrap_or(&json);
+    assert_eq!(
+        body["removed"], 0,
+        "--execute alone swept a file it could not account for"
+    );
+    assert_eq!(walkdir(&home.path().join("tokens")).len(), 1);
+
+    let out = converge(
+        ws.path(),
+        home.path(),
+        &[
+            "--json",
+            "token",
+            "prune",
+            "--execute",
+            "--forget-unattributable",
+        ],
+    );
+    let json: serde_json::Value = serde_json::from_slice(&out.stdout)?;
+    let body = json.get("data").unwrap_or(&json);
+    assert_eq!(body["removed"], 1);
+    assert!(walkdir(&home.path().join("tokens")).is_empty());
+    Ok(())
+}
+
+/// Reading a legacy file records what it belongs to, so ordinary use
+/// migrates the store and what stays unattributable is what nothing
+/// opened — which is what makes the sweep safe to offer at all.
+#[test]
+fn using_a_legacy_cached_login_makes_it_accountable() -> Result<()> {
+    let server_dir = tempfile::tempdir()?;
+    let base_url = start_server(server_dir.path())?;
+    let (ws, home) = logged_in(&base_url)?;
+
+    let tokens = walkdir(&home.path().join("tokens"));
+    let machine_key = std::fs::read_to_string(home.path().join("machine.key"))?;
+    let sealed = age::encrypt(
+        &age::scrypt::Recipient::new(age::secrecy::SecretString::from(
+            machine_key.trim().to_string(),
+        )),
+        b"token-a",
+    )
+    .map_err(|err| anyhow::anyhow!("{err}"))?;
+    std::fs::write(&tokens[0], &sealed)?;
+
+    // Any remote command reads it, and the read records the key.
+    assert!(
+        converge(ws.path(), home.path(), &["--json", "secret", "list"])
+            .status
+            .success()
+    );
+
+    let out = converge(ws.path(), home.path(), &["--json", "token", "prune"]);
+    let json: serde_json::Value = serde_json::from_slice(&out.stdout)?;
+    let body = json.get("data").unwrap_or(&json);
+    assert_eq!(
+        body["unattributable"], 0,
+        "using the credential did not make it accountable: {json}"
+    );
+    assert_eq!(body["live"], 1);
+    Ok(())
+}

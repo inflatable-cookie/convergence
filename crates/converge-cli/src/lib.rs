@@ -508,6 +508,21 @@ enum TokenCommand {
         #[arg(short, long)]
         reason: String,
     },
+    /// Drop cached logins for workspaces that no longer exist.
+    ///
+    /// Unlike its siblings this is purely local and needs no server:
+    /// it tidies the credentials this machine has cached, not the
+    /// tokens the repo has issued.
+    Prune {
+        /// Actually delete. Without it, this only reports.
+        #[arg(long)]
+        execute: bool,
+        /// Also drop files written before they recorded which
+        /// workspace they belonged to, and not opened since. Any that
+        /// are still in use need `converge login` again.
+        #[arg(long)]
+        forget_unattributable: bool,
+    },
 }
 
 #[derive(Subcommand)]
@@ -1902,6 +1917,16 @@ fn run(cli: &Cli, mode: OutputMode, session: &Session) -> Result<serde_json::Val
             }
         }
         Command::Token { command } => {
+            // Before the workspace and the server: the whole point of
+            // pruning is to tidy credentials left behind by workspaces
+            // that are gone, which is exactly when neither is available.
+            if let TokenCommand::Prune {
+                execute,
+                forget_unattributable,
+            } = command
+            {
+                return run_token_prune(mode, *execute, *forget_unattributable);
+            }
             let ws = session.workspace()?;
             let (client, remote) = remote_client(session, &ws, mode)?;
             match command {
@@ -1963,6 +1988,8 @@ fn run(cli: &Cli, mode: OutputMode, session: &Session) -> Result<serde_json::Val
                         }
                     })
                 }
+                // Handled above, before the workspace was needed.
+                TokenCommand::Prune { .. } => unreachable!(),
                 TokenCommand::Revoke { token_id, reason } => {
                     let record = client.revoke_token(&remote.repo_id, token_id, reason)?;
                     emit(mode, record, |r| {
@@ -2368,6 +2395,102 @@ fn latest_snap(ws: &Workspace) -> Result<converge_client::model::SnapRecord> {
 /// `fetch` from a workspace that fetched before is served out of the
 /// local store and proves nothing about the server; batch 22.3 watched
 /// that happen.
+/// Drop cached logins whose workspace is gone.
+///
+/// Dry by default, like `gc`: this deletes credentials, and a store
+/// nobody can read by eye is a bad place to guess. That default earned
+/// itself immediately — the first version of the staleness test looked
+/// for `.converge/.converge/config.json` and called the one live
+/// credential on the machine dead.
+fn run_token_prune(
+    mode: OutputMode,
+    execute: bool,
+    forget_unattributable: bool,
+) -> Result<serde_json::Value> {
+    let survey = converge_client::store::survey_token_store()?;
+    let total = survey.live + survey.stale.len() + survey.unattributable.len();
+
+    let mut targets: Vec<std::path::PathBuf> =
+        survey.stale.iter().map(|s| s.path.clone()).collect();
+    if forget_unattributable {
+        targets.extend(survey.unattributable.iter().map(|s| s.path.clone()));
+    }
+
+    let mut removed = 0;
+    if execute {
+        for path in &targets {
+            std::fs::remove_file(path).with_context(|| format!("remove {}", path.display()))?;
+            removed += 1;
+        }
+    }
+
+    let gone: Vec<String> = survey
+        .stale
+        .iter()
+        .map(|s| match &s.workspace {
+            Some(root) => root.display().to_string(),
+            None => s.path.display().to_string(),
+        })
+        .collect();
+
+    emit(
+        mode,
+        serde_json::json!({
+            "total": total,
+            "live": survey.live,
+            "stale": survey.stale.len(),
+            "unattributable": survey.unattributable.len(),
+            "removed": removed,
+            "workspaces_gone": gone,
+        }),
+        |data| {
+            if total == 0 {
+                println!("no cached logins on this machine.");
+                return;
+            }
+            for root in data["workspaces_gone"].as_array().into_iter().flatten() {
+                println!(
+                    "stale  {} (workspace gone)",
+                    root.as_str().unwrap_or_default()
+                );
+            }
+            if !survey.unattributable.is_empty() {
+                println!(
+                    "{} file(s) predate recording which workspace they belong to, \
+                     and nothing has opened them since.",
+                    survey.unattributable.len()
+                );
+            }
+            if execute {
+                println!(
+                    "removed {removed} cached login(s); {} left.",
+                    total - removed
+                );
+                return;
+            }
+            println!(
+                "\n{} cached login(s): {} live, {} stale, {} unattributable.",
+                total,
+                survey.live,
+                survey.stale.len(),
+                survey.unattributable.len()
+            );
+            if targets.is_empty() {
+                println!("nothing to remove.");
+            } else {
+                println!("would remove {}. re-run with --execute.", targets.len());
+            }
+            if !forget_unattributable && !survey.unattributable.is_empty() {
+                println!(
+                    "add --forget-unattributable to include the other {}; \
+                     any still in use need `converge login` again.",
+                    survey.unattributable.len()
+                );
+            }
+        },
+    )
+}
+
 fn serving_check(
     client: &converge_client::remote::RemoteClient,
     remote: &converge_client::model::RemoteConfig,
@@ -2561,6 +2684,25 @@ fn run_doctor(mode: OutputMode, session: &Session, deep: bool) -> Result<serde_j
             format!("{err:#}"),
             "set CONVERGE_HOME, or make your home directory readable",
         )),
+    }
+
+    // Reported because nobody goes looking inside a credential cache
+    // they cannot read by eye. Debris here is untidiness, not a fault,
+    // so it stays `ok` — a stale file breaks nothing, and making
+    // `doctor` exit non-zero over it would train people to ignore it.
+    if let Ok(survey) = converge_client::store::survey_token_store() {
+        let dead = survey.stale.len() + survey.unattributable.len();
+        checks.push(Check::ok(
+            "cached logins",
+            if dead == 0 {
+                format!("{} live", survey.live)
+            } else {
+                format!(
+                    "{} live, {dead} for workspaces that are gone — converge token prune",
+                    survey.live
+                )
+            },
+        ));
     }
 
     if let Ok(ws) = &workspace {

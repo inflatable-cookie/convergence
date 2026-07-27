@@ -9,6 +9,7 @@ use super::{LocalStore, write_atomic};
 mod lane_sync;
 mod publishing;
 mod remote_tokens;
+pub use remote_tokens::{StaleToken, TokenStoreSurvey, survey_token_store};
 
 impl LocalStore {
     pub fn read_state(&self) -> Result<WorkspaceState> {
