@@ -352,7 +352,27 @@ pub trait MetadataStore: Send + Sync {
     fn pin_object(&self, repo_id: &str, kind: ObjectKind, id: &ObjectId) -> Result<()>;
     fn unpin_object(&self, repo_id: &str, kind: ObjectKind, id: &ObjectId) -> Result<()>;
     /// Is this object pinned by any repo? (shared store → global check).
-    fn is_object_pinned(&self, kind: ObjectKind, id: &ObjectId) -> Result<bool>;
+    /// Is this object pinned by an upload no older than `cutoff`?
+    ///
+    /// The cutoff is what makes the pin expire. Asking here rather than
+    /// deleting first means a dry run and a real run reach the same
+    /// answer without a dry run mutating anything.
+    fn is_object_pinned(&self, kind: ObjectKind, id: &ObjectId, cutoff: i64) -> Result<bool>;
+
+    /// Drop pins older than `cutoff` (unix seconds), returning how many.
+    ///
+    /// A pin protects an object that has been uploaded but is not yet
+    /// referenced by anything. It is released when the tree it belongs
+    /// to is published — and if that publish never happens, batch 22.4
+    /// found the pin simply stayed, forever, with no timestamp on it to
+    /// tell a three-second-old upload from a three-month-old abandoned
+    /// one. GC would report the object unreachable and decline to sweep
+    /// it on every run for the life of the deployment.
+    ///
+    /// Expiring the pin does not delete anything by itself: the object
+    /// falls back to ordinary reachability, so one that turned out to be
+    /// referenced survives regardless.
+    fn sweep_stale_pins(&self, cutoff: i64) -> Result<u64>;
 }
 
 /// Does a grant's `scope_pattern` cover `scope_id`? The accepted syntax is

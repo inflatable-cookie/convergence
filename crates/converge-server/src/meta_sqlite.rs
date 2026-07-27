@@ -185,11 +185,27 @@ impl SqliteMetadataStore {
                 repo_id TEXT NOT NULL,
                 kind TEXT NOT NULL,
                 object_id TEXT NOT NULL,
+                pinned_at INTEGER NOT NULL DEFAULT 0,
                 PRIMARY KEY (repo_id, kind, object_id)
             );
             ",
         )
         .context("init metadata schema")?;
+
+        // A deployment created before pins could expire has the table
+        // without the column. Existing rows default to the epoch and so
+        // are stale immediately, which is the right answer for them:
+        // they are precisely the abandoned pins this exists to clear.
+        let has_column = conn
+            .prepare("SELECT pinned_at FROM object_pins LIMIT 1")
+            .is_ok();
+        if !has_column {
+            conn.execute(
+                "ALTER TABLE object_pins ADD COLUMN pinned_at INTEGER NOT NULL DEFAULT 0",
+                [],
+            )
+            .context("add object_pins.pinned_at")?;
+        }
         Ok(())
     }
 }
@@ -1259,8 +1275,9 @@ impl MetadataStore for SqliteMetadataStore {
     ) -> Result<()> {
         let conn = self.conn.lock().expect("meta lock");
         conn.execute(
-            "INSERT OR IGNORE INTO object_pins (repo_id, kind, object_id) VALUES (?1, ?2, ?3)",
-            params![repo_id, kind.dir(), id.as_str()],
+            "INSERT OR IGNORE INTO object_pins (repo_id, kind, object_id, pinned_at)
+             VALUES (?1, ?2, ?3, ?4)",
+            params![repo_id, kind.dir(), id.as_str(), crate::gc::unix_now()],
         )?;
         Ok(())
     }
@@ -1279,11 +1296,26 @@ impl MetadataStore for SqliteMetadataStore {
         Ok(())
     }
 
-    fn is_object_pinned(&self, kind: crate::storage::ObjectKind, id: &ObjectId) -> Result<bool> {
+    fn sweep_stale_pins(&self, cutoff: i64) -> Result<u64> {
+        let conn = self.conn.lock().expect("meta lock");
+        let dropped = conn.execute(
+            "DELETE FROM object_pins WHERE pinned_at < ?1",
+            params![cutoff],
+        )?;
+        Ok(dropped as u64)
+    }
+
+    fn is_object_pinned(
+        &self,
+        kind: crate::storage::ObjectKind,
+        id: &ObjectId,
+        cutoff: i64,
+    ) -> Result<bool> {
         let conn = self.conn.lock().expect("meta lock");
         let n: u32 = conn.query_row(
-            "SELECT COUNT(*) FROM object_pins WHERE kind = ?1 AND object_id = ?2",
-            params![kind.dir(), id.as_str()],
+            "SELECT COUNT(*) FROM object_pins
+             WHERE kind = ?1 AND object_id = ?2 AND pinned_at >= ?3",
+            params![kind.dir(), id.as_str(), cutoff],
             |row| row.get(0),
         )?;
         Ok(n > 0)

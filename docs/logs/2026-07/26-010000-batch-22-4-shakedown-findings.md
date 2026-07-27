@@ -586,6 +586,63 @@ On this machine, after migrating the live workspace by using it: 1 live,
 Four tests cover it, including one that forges a legacy file with the
 machine key so the migration path is exercised rather than assumed.
 
+### 26. The release cycle on real history, and half of finding 22 still live
+
+A release cycle the repo had never run: `release cb59de7525b6 --channel
+stable`, then consume it from a genuinely clean workspace with a
+read-scoped token — the 22.3 lesson being that a workspace which has
+fetched before can fake success from its own local store. 44 files
+landed, byte-identical to the source tree apart from `.git`, `.DS_Store`
+and one file newer than the release. `doctor --deep` now prefers the
+release over the last-seen bundle, as intended.
+
+The release verb took a shortened id, because finding 22 fixed the
+server. `converge show <12-char snap id>` still answered "neither a
+local snap nor a reachable bundle" — the local lookup is a filename, and
+a prefix is not one. Resolved the same way, in `get_snap`, so every
+caller benefits: exact ids skip the directory read, ambiguity names the
+candidates rather than guessing, because `restore` and `unsnap` take
+these and the wrong one is somebody's work.
+
+Noted and not fixed: `history` prints full 64-character snap ids while
+the TUI and message text shorten to twelve. Both are now accepted
+everywhere, so this is width, not a dead end.
+
+### 27. Every aborted publish leaked storage that GC could never reclaim (fixed)
+
+The real deployment held 109 objects. GC marked 108 reachable and swept
+none, on every run, for as long as the deployment existed.
+
+The odd object was pinned. Pins exist because batch 12.2 fixed the
+opposite bug — GC sweeping an upload that had not been published yet —
+and the sweep comment says so plainly: pins "are the real protection for
+not-yet-referenced objects", with the mtime grace covering only the
+sub-millisecond gap between writing the object and writing its pin.
+
+A pin is released by walking the tree of a *publication*. If the publish
+never happens — an abort, a crash, a killed run, all of which this
+shakedown produced — nothing ever releases it. The table had no
+timestamp at all, so nothing could tell a three-second-old upload from a
+three-month-old abandoned one. The fix for over-collection had become a
+permanent leak.
+
+`object_pins` gained `pinned_at`, and the pin predicate takes a cutoff.
+Asking at the predicate rather than deleting first is what lets a dry run
+and a real run reach the same answer without the dry run mutating
+anything; clearing expired rows is pure tidying and is skipped on a dry
+run. The grace is a day, against an upload-to-publish gap measured in
+seconds — deliberately loose, because expiring early costs a failed
+publish and expiring late costs a day of disk.
+
+Existing deployments migrate on open, their rows defaulting to the epoch
+and so stale at once. That is the right answer for them: they are
+precisely the abandoned pins. The narrow risk is an upload in flight
+across the upgrade, which a restart would have failed anyway.
+
+On the live deployment: 9 pins, 109 objects → 0 pins, 108 objects. The
+release still replays from provenance and still fetches cold into a
+clean workspace.
+
 ## Measurements
 
 | | |
@@ -607,6 +664,8 @@ machine key so the migration path is exercised rather than assumed.
 | Backup archive | 257 KB |
 | Restore → verified replay | bundle reproduced from provenance |
 | Stale tokens in `~/.converge` | 493 → 1 |
+| Release consumed cold, read-only token | 44 files, byte-identical |
+| Server objects / pins before → after | 109 / 9 → 108 / 0 |
 
 ## Next Task
 

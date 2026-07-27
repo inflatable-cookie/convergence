@@ -125,6 +125,11 @@ impl PostgresMetadataStore {
                 repo_id TEXT NOT NULL, kind TEXT NOT NULL,
                 object_id TEXT NOT NULL,
                 PRIMARY KEY (repo_id, kind, object_id));
+            -- Pre-22.4 deployments have the table without the column;
+            -- existing rows default to the epoch, which makes them stale
+            -- at once. That is right: they are the abandoned pins.
+            ALTER TABLE object_pins
+                ADD COLUMN IF NOT EXISTS pinned_at BIGINT NOT NULL DEFAULT 0;
             ",
             )
             .context("init postgres schema")?;
@@ -955,7 +960,7 @@ impl MetadataStore for PostgresMetadataStore {
         let mut c = self.client.lock().expect("pg lock");
         c.execute(
             "DELETE FROM object_repos WHERE kind = $1 AND object_id = $2",
-            &[&kind.dir(), &id.as_str()],
+            &[&kind.dir(), &id.as_str(), &cutoff],
         )?;
         Ok(())
     }
@@ -968,9 +973,9 @@ impl MetadataStore for PostgresMetadataStore {
     ) -> Result<()> {
         let mut c = self.client.lock().expect("pg lock");
         c.execute(
-            "INSERT INTO object_pins (repo_id, kind, object_id)
-             VALUES ($1, $2, $3) ON CONFLICT DO NOTHING",
-            &[&repo_id, &kind.dir(), &id.as_str()],
+            "INSERT INTO object_pins (repo_id, kind, object_id, pinned_at)
+             VALUES ($1, $2, $3, $4) ON CONFLICT DO NOTHING",
+            &[&repo_id, &kind.dir(), &id.as_str(), &crate::gc::unix_now()],
         )?;
         Ok(())
     }
@@ -989,10 +994,21 @@ impl MetadataStore for PostgresMetadataStore {
         Ok(())
     }
 
-    fn is_object_pinned(&self, kind: crate::storage::ObjectKind, id: &ObjectId) -> Result<bool> {
+    fn sweep_stale_pins(&self, cutoff: i64) -> Result<u64> {
+        let mut c = self.client.lock().expect("pg lock");
+        Ok(c.execute("DELETE FROM object_pins WHERE pinned_at < $1", &[&cutoff])?)
+    }
+
+    fn is_object_pinned(
+        &self,
+        kind: crate::storage::ObjectKind,
+        id: &ObjectId,
+        cutoff: i64,
+    ) -> Result<bool> {
         let mut c = self.client.lock().expect("pg lock");
         let row = c.query_one(
-            "SELECT COUNT(*) FROM object_pins WHERE kind = $1 AND object_id = $2",
+            "SELECT COUNT(*) FROM object_pins
+             WHERE kind = $1 AND object_id = $2 AND pinned_at >= $3",
             &[&kind.dir(), &id.as_str()],
         )?;
         let n: i64 = row.get(0);

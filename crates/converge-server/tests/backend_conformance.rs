@@ -121,19 +121,37 @@ fn conform_metadata(meta: &dyn MetadataStore) -> Result<()> {
     meta.remove_object_associations(ObjectKind::Blob, &oid)?;
     assert!(!meta.object_in_repo("conf", ObjectKind::Blob, &oid)?);
 
-    // upload pins (batch 12.2)
+    // upload pins (batch 12.2). Cutoff 0 means "any pin counts".
     let pid = ObjectId("bb".repeat(32));
-    assert!(!meta.is_object_pinned(ObjectKind::Blob, &pid)?);
+    assert!(!meta.is_object_pinned(ObjectKind::Blob, &pid, 0)?);
     meta.pin_object("conf", ObjectKind::Blob, &pid)?;
     meta.pin_object("conf", ObjectKind::Blob, &pid)?; // idempotent
-    assert!(meta.is_object_pinned(ObjectKind::Blob, &pid)?);
-    assert!(!meta.is_object_pinned(ObjectKind::Manifest, &pid)?);
+    assert!(meta.is_object_pinned(ObjectKind::Blob, &pid, 0)?);
+    assert!(!meta.is_object_pinned(ObjectKind::Manifest, &pid, 0)?);
     // A second repo's pin keeps the object protected until both release.
     meta.pin_object("other", ObjectKind::Blob, &pid)?;
     meta.unpin_object("conf", ObjectKind::Blob, &pid)?;
-    assert!(meta.is_object_pinned(ObjectKind::Blob, &pid)?);
+    assert!(meta.is_object_pinned(ObjectKind::Blob, &pid, 0)?);
     meta.unpin_object("other", ObjectKind::Blob, &pid)?;
-    assert!(!meta.is_object_pinned(ObjectKind::Blob, &pid)?);
+    assert!(!meta.is_object_pinned(ObjectKind::Blob, &pid, 0)?);
+
+    // Pins expire (batch 22.4). A pin only counts if it is no older than
+    // the cutoff, which is what stops an upload that never got published
+    // from protecting its objects for the life of the deployment.
+    let stale = ObjectId("cc".repeat(32));
+    meta.pin_object("conf", ObjectKind::Blob, &stale)?;
+    let future = converge_server::gc::unix_now() + 60;
+    assert!(
+        !meta.is_object_pinned(ObjectKind::Blob, &stale, future)?,
+        "a pin older than the cutoff still counted"
+    );
+    assert!(
+        meta.is_object_pinned(ObjectKind::Blob, &stale, 0)?,
+        "the pin should still exist until it is swept"
+    );
+    assert_eq!(meta.sweep_stale_pins(0)?, 0, "nothing is older than 0");
+    assert!(meta.sweep_stale_pins(future)? >= 1, "stale pin not cleared");
+    assert!(!meta.is_object_pinned(ObjectKind::Blob, &stale, 0)?);
 
     // release deletion matches the bundle_id field, not a JSON substring
     // (batch 13.4, audit M1): ids sharing a prefix must not cascade.

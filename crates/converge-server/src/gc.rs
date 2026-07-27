@@ -28,6 +28,26 @@ pub struct GcReport {
     pub reachable_objects: u64,
     pub swept_objects: u64,
     pub swept_bytes: u64,
+    /// Abandoned upload pins cleared. Reported so a deployment that has
+    /// been leaking them can see it stop.
+    pub expired_pins: u64,
+}
+
+/// How long an uploaded-but-unpublished object keeps its pin.
+///
+/// Upload and publish are seconds apart in the same command, so a day is
+/// generous by orders of magnitude. It is deliberately not tight: the
+/// cost of expiring too early is a failed publish, and the cost of
+/// expiring too late is some disk for a day.
+const PIN_GRACE_SECS: i64 = 24 * 60 * 60;
+
+/// Seconds since the epoch, saturating rather than panicking on a clock
+/// set before 1970.
+pub fn unix_now() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs() as i64)
+        .unwrap_or(0)
 }
 
 impl Engine<'_> {
@@ -155,6 +175,7 @@ impl Engine<'_> {
         report.reachable_objects = marked.len() as u64;
 
         // --- sweep with grace window ---
+        let pin_cutoff = unix_now() - PIN_GRACE_SECS;
         let cutoff = std::time::SystemTime::now()
             .checked_sub(grace)
             .unwrap_or(std::time::SystemTime::UNIX_EPOCH);
@@ -166,7 +187,16 @@ impl Engine<'_> {
                 // Upload pins are the real protection for not-yet-referenced
                 // objects (batch 12.2); the grace window only covers the
                 // sub-millisecond store-write → pin-write gap.
-                if self.meta.is_object_pinned(kind, &id)? {
+                //
+                // A pin is released when the tree it belongs to is
+                // published. Batch 22.4 found that when that publish
+                // never happens the pin stayed for the life of the
+                // deployment — the table had no timestamp, so nothing
+                // could tell a three-second-old upload from a
+                // three-month-old abandoned one, and every aborted
+                // publish leaked storage GC reported as unreachable and
+                // declined to sweep on every run.
+                if self.meta.is_object_pinned(kind, &id, pin_cutoff)? {
                     continue;
                 }
                 if mtime > cutoff {
@@ -179,6 +209,15 @@ impl Engine<'_> {
                     self.meta.remove_object_associations(kind, &id)?;
                 }
             }
+        }
+
+        // Tidying only: the sweep above already ignored these, so this
+        // changes no decision. It keeps the table from growing without
+        // bound on a busy server, and it is skipped on a dry run
+        // because a dry run must leave the deployment exactly as it
+        // found it.
+        if !dry_run {
+            report.expired_pins = self.meta.sweep_stale_pins(pin_cutoff)?;
         }
         Ok(report)
     }
