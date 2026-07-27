@@ -502,3 +502,79 @@ fn previews_are_bounded_and_say_why_when_there_is_no_text() -> Result<()> {
     }
     Ok(())
 }
+
+/// Batch 22.4, from the first real conflict: two rewrites of the same
+/// Rust file shared a nine-line header, so a preview from line 1 spent
+/// its whole budget on identical text and truncated exactly where the
+/// disagreement began.
+#[test]
+fn a_preview_skips_what_every_variant_agrees_on() -> Result<()> {
+    let server_dir = tempfile::tempdir()?;
+    let base_url = start_server(server_dir.path())?;
+
+    // A file whose head is boilerplate and whose difference is deep.
+    let header = "//! A module.\n//!\n//! Several lines of doc comment.\n\npub fn f() {\n";
+    let a_dir = tempfile::tempdir()?;
+    let a = a_dir.path();
+    assert!(converge(a, &["init"]).status.success());
+    login(a, &base_url, "token-a", "alice");
+    std::fs::write(a.join("m.rs"), format!("{header}    let x = 1;\n}}\n"))?;
+    converge(a, &["snap", "-m", "alice"]);
+    assert!(
+        converge(a, &["publish", "--lane", "lane-a"])
+            .status
+            .success()
+    );
+
+    let b_dir = tempfile::tempdir()?;
+    let b = b_dir.path();
+    assert!(converge(b, &["init"]).status.success());
+    login(b, &base_url, "token-b", "bob");
+    std::fs::write(b.join("m.rs"), format!("{header}    let x = 2;\n}}\n"))?;
+    converge(b, &["snap", "-m", "bob"]);
+    assert!(
+        converge(b, &["publish", "--lane", "lane-b"])
+            .status
+            .success()
+    );
+
+    let inbox = json_data(&converge(a, &["--json", "inbox"]));
+    let bundle_id = converge_cli::inbox_actions(&inbox)
+        .iter()
+        .find_map(|action| {
+            action
+                .argv
+                .as_ref()
+                .filter(|argv| argv.first().map(String::as_str) == Some("resolve"))
+                .map(|argv| argv[2].clone())
+        })
+        .expect("a superposed bundle");
+
+    let previewed = json_data(&converge(
+        a,
+        &["--json", "resolve", "list", &bundle_id, "--preview"],
+    ));
+    let variants = previewed["m.rs"].as_array().expect("variants");
+    assert_eq!(variants.len(), 2);
+
+    for variant in variants {
+        let skipped = variant["skipped_common_lines"].as_u64().unwrap_or(0);
+        assert!(
+            skipped >= 4,
+            "the shared header should be skipped: {variant}"
+        );
+        let text = variant["preview"].as_str().unwrap_or("");
+        assert!(
+            !text.contains("Several lines of doc comment"),
+            "the preview still leads with text every variant shares: {text}"
+        );
+        assert!(
+            text.contains("let x ="),
+            "the preview should start at the disagreement: {text}"
+        );
+    }
+
+    // The two previews must actually differ, or the trim went too far.
+    assert_ne!(variants[0]["preview"], variants[1]["preview"]);
+    Ok(())
+}

@@ -333,6 +333,53 @@ handing a tree to an editing tool.** I had not, which is why the repair
 was by hand rather than `converge restore`. Now snapped before each
 handoff.
 
+### 16. The conflict cycle works end to end on real code
+
+The first genuine superposition, from two identities rather than a
+fixture. Two workspaces (`tom` as admin, `monkey` with `read, publish`
+and no `secret`) checked out the same bundle and rewrote the same
+function incompatibly — one to a lookup table, one to extended match
+arms — each green in isolation.
+
+Everything held: the second publish reported "ready, **blocked by
+superpositions**"; the inbox named the bundle and printed the command to
+run; `resolve list` found the contested path; the preview showed both
+variants; `resolve apply` landed the choice as a snap and named the next
+step; the republish came back "ready to promote". Publisher attribution
+was right too — `monkey`'s publication is recorded against
+`personal/monkey`, which I checked rather than assumed.
+
+Worth stating because it is the design rather than a gap: resolving
+**picks a variant, it does not merge**. Choosing one lane's rewrite
+discarded the other's `next week`, which I then re-applied by hand. That
+is conflicts-as-data working as intended, and it is a real cost a user
+pays per conflict.
+
+### 17. A variant preview spent its whole budget on the file header (fixed)
+
+Batch 23.5's preview shows the first twelve lines of each variant. On the
+two-line fixture it was built against, that was the whole file. On a real
+Rust source file, **eleven of the twelve lines were the module doc
+comment** — identical in both variants — and the preview truncated
+exactly where the disagreement began. The feature that exists so nobody
+chooses blind was showing the licence header.
+
+The preview now drops the lines every variant shares and says how many:
+
+```
+[personal/monkey]
+    … 9 line(s) identical in every variant
+        const WORDS: &[(&str, i64)] = &[
+[personal/tom]
+    … 9 line(s) identical in every variant
+        match text.as_str() {
+```
+
+Guarded both ways: it never trims when only one variant has text
+(nothing to compare against), and never trims the entire preview (if the
+variants agree throughout the budget, the difference is past it and the
+head beats nothing).
+
 ## Measurements
 
 | | |

@@ -2724,16 +2724,29 @@ fn run_resolve(
             // a caller can read either form the same way.
             let mut previewed = serde_json::Map::new();
             for (path, vs) in variants {
-                let rendered: Vec<serde_json::Value> = vs
+                let keys: Vec<_> = vs.iter().map(|v| v.key()).collect();
+                let mut previews: Vec<VariantPreview> = keys
                     .iter()
-                    .map(|variant| {
-                        let key = variant.key();
-                        let preview = variant_preview(&ws.store, &key);
+                    .map(|key| variant_preview(&ws.store, key))
+                    .collect();
+                // Skip what every variant agrees on (batch 22.4). A
+                // source file opens with a licence header and doc
+                // comments, so a preview from line 1 spends its whole
+                // budget on text that is identical in every variant and
+                // truncates exactly where the disagreement starts —
+                // observed on the first real conflict, where eleven of
+                // twelve shown lines were the header.
+                let skipped = trim_common_prefix(&mut previews);
+                let rendered: Vec<serde_json::Value> = keys
+                    .iter()
+                    .zip(previews)
+                    .map(|(key, preview)| {
                         serde_json::json!({
                             "key": key,
                             "source": key.source,
                             "preview": preview.text,
                             "elided": preview.elided,
+                            "skipped_common_lines": skipped,
                             "why": preview.why,
                         })
                     })
@@ -2745,6 +2758,11 @@ fn run_resolve(
                     println!("{path}");
                     for variant in variants.as_array().into_iter().flatten() {
                         println!("  [{}]", variant["source"].as_str().unwrap_or("?"));
+                        if let Some(n) = variant["skipped_common_lines"].as_u64()
+                            && n > 0
+                        {
+                            println!("    … {n} line(s) identical in every variant");
+                        }
                         match variant["preview"].as_str() {
                             Some(text) if !text.is_empty() => {
                                 for line in text.lines() {
@@ -3478,6 +3496,48 @@ const PREVIEW_LINES: usize = 12;
 /// preview exists so somebody can tell two versions apart, and an
 /// honest "these are both binaries, 4.1 MB and 4.3 MB" does that better
 /// than two screens of replacement characters.
+/// Drop the leading lines every variant shares, and report how many.
+///
+/// Only applies when more than one variant has text: with a single
+/// readable variant there is nothing to compare against, and trimming
+/// would hide the start of the only thing on offer.
+fn trim_common_prefix(previews: &mut [VariantPreview]) -> usize {
+    let textual: Vec<usize> = previews
+        .iter()
+        .enumerate()
+        .filter(|(_, p)| !p.text.is_empty())
+        .map(|(i, _)| i)
+        .collect();
+    if textual.len() < 2 {
+        return 0;
+    }
+    let lines: Vec<Vec<&str>> = textual
+        .iter()
+        .map(|i| previews[*i].text.lines().collect())
+        .collect();
+    let shortest = lines.iter().map(Vec::len).min().unwrap_or(0);
+    // Never trim everything: if the variants agree over the whole
+    // preview, the difference is past the budget and showing the head is
+    // better than showing nothing.
+    let mut common = 0;
+    while common < shortest.saturating_sub(1) && lines.iter().all(|l| l[common] == lines[0][common])
+    {
+        common += 1;
+    }
+    if common == 0 {
+        return 0;
+    }
+    for i in textual {
+        previews[i].text = previews[i]
+            .text
+            .lines()
+            .skip(common)
+            .collect::<Vec<_>>()
+            .join("\n");
+    }
+    common
+}
+
 fn variant_preview(
     store: &converge_client::store::LocalStore,
     key: &converge_client::model::VariantKey,
