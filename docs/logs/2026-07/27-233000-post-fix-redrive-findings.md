@@ -65,6 +65,54 @@ The row rendered it as the bundle's location, so work two stages along
 still read `@ intake`. Rows now show where the work has reached, falling
 back to the producing gate when it has not moved.
 
+## 4. The TUI showed you the state before your change (fixed)
+
+Added a gate through the wizard, was returned to the gate screen, and
+saw the graph as it had been. The command had worked — the CLI listed
+the new gate — but the screen was the last thing to know.
+
+`Intent::Command` refreshes status and history, which is what Root and
+History read, and nothing else. Every list view — gates, bundles,
+releases, lanes, secrets — kept whatever it had loaded on entry. So the
+verb most likely to change what you are looking at is the one whose
+result you could not see, and the obvious reading of that screen is
+"it did not work".
+
+The current view now reloads after a command that completed, which is
+one line and covers every list view at once.
+
+**Coverage note, stated rather than glossed:** this fix lives in the
+event loop, not the reducer, so no unit test covers it. What caught it
+was driving the binary in a pty, and that is what would catch a
+regression. The reducer and render tests remain the wrong shape for
+"the screen did not reload".
+
+## 5. An empty choice was called ambiguous (fixed)
+
+Pressing Enter on a wizard's choice field with nothing typed:
+
+```
+'' is ambiguous: no, yes
+```
+
+Prefix matching treats an empty string as matching every option. Empty
+input is not unclear, it is absent, and telling somebody their answer
+was ambiguous when they have not given one sends them looking for the
+wrong problem. Now `releasable is required: pick one of no, yes`.
+
+Shared by every wizard with a choice field, so it was not new; the gate
+wizard is just where somebody finally pressed Enter on one.
+
+## Observed, not fixed
+
+The gate wizard defaults the upstream field to the first known gate, and
+"known" means the gate list the TUI has loaded. Open the wizard before
+that arrives and the default is empty, which makes the new gate a second
+*entry* gate rather than a stage. Legal, visible on the review step
+(`upstream:` is blank), and still a surprise waiting for somebody in a
+hurry. Worth a proper answer — probably refusing to guess rather than
+guessing from a race — rather than a patch at the end of a drive.
+
 ## What held
 
 Everything else driven in this pass behaved:
@@ -77,6 +125,13 @@ Everything else driven in this pass behaved:
 - a bundle with nowhere left to go leaves the queue rather than nagging
 - the error unwrapping from 26.3 holds: every refusal in this pass was a
   sentence
+- the TUI dashboard picked up the new `promote` recommendation and its
+  ranking without changing a line of dashboard code, because 23.4 put the
+  ordering inside `inbox_actions` rather than in the view
+- the gate wizard's review step says `Enter: run` rather than naming a
+  consequence, which is correct: `confirmation_prompt` names consequences
+  for verbs that are hard to walk back, and adding a gate strands nothing
+  and is undone by `gates rm`. Checked rather than assumed
 
 ## Next Task
 

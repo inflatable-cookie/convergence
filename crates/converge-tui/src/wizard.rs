@@ -429,6 +429,21 @@ impl Wizard {
                         }
                     }
                     FieldKind::Choice { options } => {
+                        // Empty is not ambiguous, it is absent. Prefix
+                        // matching treats "" as matching everything, so
+                        // pressing Enter with nothing typed used to
+                        // answer `'' is ambiguous: no, yes` — which
+                        // tells somebody their input was unclear when
+                        // they have not given any (batch 26.5, found
+                        // driving the gate wizard).
+                        if raw.is_empty() {
+                            self.error = Some(format!(
+                                "{} is required: pick one of {}",
+                                field.name,
+                                options.join(", ")
+                            ));
+                            return WizardEvent::Continue;
+                        }
                         let matches: Vec<&String> =
                             options.iter().filter(|o| o.starts_with(&raw)).collect();
                         match matches.as_slice() {
@@ -684,6 +699,56 @@ mod tests {
         assert_eq!(w.step, WizardStep::Review);
         w.back();
         assert_eq!(w.step, WizardStep::Field(2));
+    }
+
+    /// Empty is absent, not ambiguous.
+    ///
+    /// Prefix matching treats "" as matching every option, so pressing
+    /// Enter with nothing typed used to answer `'' is ambiguous: no,
+    /// yes` — telling somebody their input was unclear when they had
+    /// given none. Found in batch 26.5 by walking the gate wizard in a
+    /// real terminal.
+    #[test]
+    fn an_empty_choice_says_what_to_type() {
+        let mut w = Wizard::gate(vec!["intake".into()]);
+        type_and_submit(&mut w, "hotfix"); // gate_id
+        type_and_submit(&mut w, ""); // upstream is optional
+        type_and_submit(&mut w, "0"); // approvals
+        let event = type_and_submit(&mut w, "");
+        assert!(matches!(event, WizardEvent::Continue));
+        let error = w.error.as_deref().unwrap();
+        assert!(error.contains("required"), "{error}");
+        assert!(error.contains("no, yes"), "{error}");
+        assert!(!error.contains("ambiguous"), "{error}");
+    }
+
+    /// Adding a gate is the graph change that strands nothing, so it is
+    /// the one behind a wizard — and it must produce a command that
+    /// applies rather than a report the person has to repeat.
+    #[test]
+    fn the_gate_wizard_builds_an_applying_command() {
+        let mut w = Wizard::gate(vec!["intake".into()]);
+        type_and_submit(&mut w, "review");
+        type_and_submit(&mut w, "intake");
+        type_and_submit(&mut w, "2");
+        type_and_submit(&mut w, "yes");
+        let WizardEvent::Execute(argv) = w.submit() else {
+            panic!("the review step did not run");
+        };
+        assert_eq!(
+            argv,
+            vec![
+                "gates",
+                "add",
+                "review",
+                "--upstream",
+                "intake",
+                "--approvals",
+                "2",
+                "--releasable",
+                "--execute",
+            ]
+        );
     }
 
     #[test]

@@ -217,6 +217,18 @@ fn run(terminal: &mut ratatui::DefaultTerminal, trace: &mut trace::Trace) -> Res
                     app.record_result_for(&argv, result);
                     spawn_refresh(&tx, &session);
                     last_refresh_started = std::time::Instant::now();
+                    // `spawn_refresh` brings back status and history,
+                    // which is what the Root and History screens read —
+                    // and nothing else. So a command that changed what
+                    // the *current* list view is showing left it stale:
+                    // batch 26.5 added a gate through the wizard, was
+                    // returned to the gate screen, and saw the graph it
+                    // had before. The command had worked; the screen was
+                    // the last thing to know.
+                    let view = app.current_view();
+                    if let Some(argv) = view.loader() {
+                        spawn_verb(&mut app, &tx, &session, argv, Intent::Rows(view));
+                    }
                 }
             }
         }
