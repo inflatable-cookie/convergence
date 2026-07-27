@@ -908,10 +908,29 @@ fn render(frame: &mut Frame, app: &App) {
                 })
                 .collect();
             if items.is_empty() {
-                items.push(ListItem::new(format!(
-                    "no {} (or not loaded yet)",
-                    view.title().to_lowercase()
-                )));
+                // Say what empty *means* (batch 22.4). Driving a repo
+                // with eleven bundles in it, this pane read "no bundles
+                // (or not loaded yet)" — because the Bundles view is fed
+                // by `inbox`, which reports only what needs attention,
+                // and every bundle was ready to promote with no
+                // approvals required. The name promises a list; the
+                // source is an action queue, and the empty state was the
+                // only place that difference showed.
+                // A list item does not wrap, so long copy is split by
+                // hand rather than silently truncated at the pane edge.
+                for line in match view {
+                    View::Bundles => &[
+                        "nothing needs attention here.",
+                        "this view lists bundles waiting on you — an approval, or a",
+                        "superposition to resolve — not every bundle in the repo.",
+                    ][..],
+                    View::Releases => &["no releases yet.", "  release <bundle> --channel <name>"],
+                    View::Lanes => &["no lanes yet."],
+                    View::Gates => &["no gate graph loaded."],
+                    _ => &["nothing here yet."],
+                } {
+                    items.push(ListItem::new(*line));
+                }
             }
             frame.render_widget(List::new(items).block(view_block(app)), body);
         }
@@ -1559,6 +1578,25 @@ mod screen_tests {
         assert!(
             text.contains("▸ 2 lane-b"),
             "the pick should be visible where the variants are: {text}"
+        );
+    }
+    /// Batch 22.4: driving a repo with eleven bundles, the Bundles pane
+    /// read "no bundles" — because it is fed by `inbox`, which reports
+    /// only what needs attention. The empty state was the one place that
+    /// difference showed, and it said the wrong thing.
+    #[test]
+    fn an_empty_bundles_view_explains_what_it_lists() {
+        let mut app = App::default();
+        app.frames.push(View::Bundles);
+        app.rows.insert(View::Bundles, Vec::new());
+        let text = screen(&app, 100, 20).join("\n");
+        assert!(
+            text.contains("nothing needs attention"),
+            "an empty action queue is not an empty repo: {text}"
+        );
+        assert!(
+            !text.contains("no bundles"),
+            "the old message claimed the repo had none: {text}"
         );
     }
 }

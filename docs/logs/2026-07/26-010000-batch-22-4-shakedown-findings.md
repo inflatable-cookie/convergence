@@ -432,6 +432,36 @@ impact is limited to a developer running `cargo run` beside an installed
 release binary — but that is exactly what happened here, so it is worth a
 proper look rather than a shrug.
 
+### 20. The TUI on real history: mostly good, one misleading empty state (fixed)
+
+First time the TUI has seen a repo with twelve snaps, two lanes, eleven
+bundles and a resolved superposition rather than a four-file fixture.
+
+What held up: History is genuinely readable — short ids, trimmed
+timestamps, messages visible at the right edge, which is exactly what
+batch 23.1 fixed and this is the first data set wide enough to prove it.
+Lanes lists both actors with owners. The dashboard ranks correctly and
+names them: `8 publications in an open window (tom, monkey)`.
+
+**The Bundles view said "no bundles" with eleven in the repo.** It is fed
+by `inbox`, which reports only what needs *attention*, and every bundle
+was ready to promote with no approvals required. The view's name promises
+a list; its source is an action queue, and the empty state was the single
+place that difference became visible — where it said the wrong thing.
+
+Now it says what it lists:
+
+```
+nothing needs attention here.
+this view lists bundles waiting on you — an approval, or a
+superposition to resolve — not every bundle in the repo.
+```
+
+Copy split by hand because a `ListItem` does not wrap, which the first
+attempt discovered by truncating at the pane edge. Empty states for
+Releases, Lanes and Gates got the same treatment: `(or not loaded yet)`
+was ambiguous everywhere it appeared.
+
 ## Measurements
 
 | | |
