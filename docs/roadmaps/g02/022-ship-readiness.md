@@ -1,6 +1,6 @@
 # 022 Ship Readiness
 
-Status: in progress (22.1-22.3 complete)
+Status: in progress (22.1-22.4 complete; 22.5 gated)
 Owner: repo maintainers
 Updated: 2026-07-25
 
@@ -67,10 +67,14 @@ does not run until the operator says so.
   **verify a restore** — including the secrets case, where a lost object
   store is unrecoverable by design and the backup is the only
   mitigation. Written against a real local deployment, not from memory
-- **22.4 Real workspace shakedown** (card 090): use Convergence for real
-  work on a real project, record everything that breaks, fix what that
-  surfaces. The operator drives; this batch's job is to make that
-  possible and to act on what comes back
+- **22.4 Real workspace shakedown** (complete, card 090): 34 findings
+  over a working day of real use — a Tauri todo app, two identities, a
+  resolved superposition, a release consumed cold, a backup restored.
+  Everything cheap and clear fixed; gate-graph administration went to
+  the backlog. Six of the findings would have cost a real user real
+  work, and no test suite had seen any of them. The verdict on the card:
+  ready for others with one stated limit — `promote` is unreachable
+  until the gate graph can be changed (finding 33)
 - **22.5 Release** (card 091, **gated**): tagged release workflow,
   binaries for macOS and Linux, checksums, one-command install. Does not
   start until the operator says the shakedown is done. Touches
@@ -90,4 +94,7 @@ does not run until the operator says so.
 
 ## Next Task
 
-Batch card 22.4 (real workspace shakedown) — operator-driven.
+Batch card 22.5 (release) is **gated** and does not start without an
+explicit instruction. The open question before it is finding 33: whether
+gate-graph administration lands first, or the release ships single-gate
+and documents the limit.

@@ -886,7 +886,35 @@ not work, and leads with the success.
 | Diverged materialize | head replaced silently, 0 warnings |
 | `retention set` + `gc --execute` | gate wedged permanently, 6 publications orphaned |
 
+## Closing
+
+34 findings. Everything cheap and clear is fixed and pinned by a test;
+gate-graph administration (33) went to the backlog wanting a roadmap,
+and per-snap authorship (29) is recorded where it bites.
+
+What the exercise was worth: six of the findings would have cost a real
+user real work, and no suite in the repo had seen any of them — `snap`
+outside a workspace capturing a home directory, ignore rules matching
+only the top level, `doctor --deep` passing without verifying,
+unreclaimable storage from every aborted publish, a pull that silently
+replaced a colleague's committed work, and a retention policy that
+wedged a gate with no way back.
+
+What it did not find is any argument with the design. The failures were
+in reach, in reporting, and in what the product told people to type.
+Base-aware merge, supersession by base containment, provenance replay,
+the secret substrate and the capability model each did what their docs
+said, on real history, first time.
+
+Two process notes worth keeping. A regression test that passes before
+the fix proves nothing — the retention test did exactly that on its
+first draft, and only stashing the fix exposed it. And targeted test
+runs hid a cross-cutting regression that the full suite caught
+immediately: the GC change quietly made a gate graph mandatory and broke
+three unrelated tests.
+
 ## Next Task
 
-Continue the shakedown. Nothing here publishes anything; `22.5` stays
-gated.
+Batch 22.4 is closed. `22.5` remains **gated** and does not start without
+an explicit instruction. The open question in front of it is finding 33:
+gate administration first, or ship single-gate and document the limit.
