@@ -747,6 +747,42 @@ line]`, and the help says what the order actually is. The moment this
 matters is precisely the moment above: your work has just been moved
 aside, and the list gives you no way to see which entry is yours.
 
+### 32. The departure path holds; what it tells you to type does not (fixed)
+
+The whole secrets-and-membership sequence on the real repo, with the
+second person on their own identity home — the first attempt shared
+`~/.converge` between both, which would have let "alex" decrypt with
+tom's key and proved nothing. Worth recording as a trap for anyone
+testing this: on one machine the crypto boundary is only real if the
+homes are separate.
+
+What holds, all of it:
+
+- a secret sealed to alex but with no `secret` capability is refused by
+  the server — recipiency and capability are separate gates, and both bite
+- `member remove` lists every secret still sealed to the leaver, avoids
+  the word revoke, and says they keep what they already read
+- the removed member's next `secret get` is refused
+- rotating without unsharing first warns that the value is being re-sealed
+  to someone who left — the 20.4 trap, firing correctly on real data
+- `secret unshare` then clears it, `audit` goes quiet, and the next
+  rotation warns about nothing
+
+What does not hold is the copy-and-paste. `member remove` printed the
+list of secrets still sealed to alex and then, directly underneath,
+`converge secret unshare <name> --from alex`. The rotation warning named
+the secret and the person in its first sentence, then said
+`converge secret unshare <name> --from <subject>` in its second. Both
+now print one runnable line per secret. This product has spent whole
+batches making its output paste-able — inbox recommendations, doctor
+fixes, `member add`'s "they run:" — and these two were the exception.
+
+`secret audit` also reported `stale recipient alex` twice, because
+staleness is recorded per registered key and alex had two. One person
+with a laptop and a desktop is one stale recipient. Deduplicated on the
+rendered line, so reasons that are genuinely key-specific still show
+separately — they name the key.
+
 ## Measurements
 
 | | |

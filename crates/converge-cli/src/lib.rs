@@ -1857,14 +1857,24 @@ fn run(cli: &Cli, mode: OutputMode, session: &Session) -> Result<serde_json::Val
                                 row["value_updated_at"].as_str().unwrap_or("unknown"),
                                 row["value_version"]
                             );
+                            // One line per person, not per key. Staleness
+                            // reported per registered key meant somebody
+                            // with a laptop and a desktop produced the
+                            // same sentence twice (batch 22.4); reasons
+                            // that are genuinely key-specific still
+                            // differ, because they name the key.
+                            let mut said = std::collections::BTreeSet::new();
                             for stale in row["stale"].as_array().into_iter().flatten() {
-                                println!(
+                                let line = format!(
                                     "  stale recipient {}: {}",
                                     stale["subject"]
                                         .as_str()
                                         .unwrap_or(stale["key_id"].as_str().unwrap_or("?")),
                                     stale["why"].as_str().unwrap_or("")
                                 );
+                                if said.insert(line.clone()) {
+                                    println!("{line}");
+                                }
                             }
                         }
                         if rows
@@ -2238,10 +2248,19 @@ fn run(cli: &Cli, mode: OutputMode, session: &Session) -> Result<serde_json::Val
                         }
                         println!();
                         println!("They can no longer reach this server, and they still hold");
-                        println!("whatever they already decrypted. For each secret above, the");
-                        println!("owner should:");
-                        println!("  converge secret unshare <name> --from {}", r.subject);
-                        println!("  rotate the credential at its source, then store the new value");
+                        println!("whatever they already decrypted. The owner should run:");
+                        // Runnable, per secret. Batch 22.4 found a
+                        // literal `<name>` here, printed directly under
+                        // the list of names it could have used.
+                        for secret in &r.still_sealed {
+                            println!(
+                                "  converge secret unshare {} --from {}",
+                                secret.name, r.subject
+                            );
+                        }
+                        println!(
+                            "then rotate each credential at its source and store the new value"
+                        );
                     })
                 }
                 MemberCommand::List => {
@@ -3219,7 +3238,7 @@ fn write_value(
     // cannot fetch it while their grants are gone; re-adding them later
     // would hand them everything rotated in between. Say so here, where
     // the person can act on it.
-    warn_about_departed_recipients(client, repo_id, &key_ids)?;
+    warn_about_departed_recipients(client, repo_id, name, &key_ids)?;
 
     let ciphertext = converge_client::identity::seal(&recipients, value.as_bytes())?;
     // Read-modify-write against the version guard from 19.2: if someone
@@ -3238,6 +3257,7 @@ fn write_value(
 fn warn_about_departed_recipients(
     client: &converge_client::remote::RemoteClient,
     repo_id: &str,
+    name: &str,
     key_ids: &[String],
 ) -> Result<()> {
     let members = client.list_members(repo_id)?;
@@ -3258,7 +3278,13 @@ fn warn_about_departed_recipients(
         departed.join(", ")
     );
     eprintln!("  They cannot reach the server now, but would regain this value if");
-    eprintln!("  re-added. To close that: converge secret unshare <name> --from <subject>");
+    // Both the secret and the people are known here -- batch 22.4 found
+    // this printing `<name>` and `<subject>` at a person who had just
+    // been told exactly which secret and exactly who.
+    eprintln!("  re-added. To close that:");
+    for subject in &departed {
+        eprintln!("    converge secret unshare {name} --from {subject}");
+    }
     Ok(())
 }
 

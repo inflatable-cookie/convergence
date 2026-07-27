@@ -1108,3 +1108,129 @@ fn concurrent_share_and_rotate_cannot_lose_a_recipient() -> Result<()> {
     );
     Ok(())
 }
+
+/// What the product tells you to type must be typeable.
+///
+/// Batch 22.4 drove the whole departure path on a real repo and found
+/// two places printing literal placeholders directly underneath the
+/// values they could have used: `member remove` listed the secrets still
+/// sealed to the leaver and then said `converge secret unshare <name>`,
+/// and the rotation warning named the secret and the person in its first
+/// line before saying `<name>` and `<subject>` in its second.
+#[test]
+fn the_remedy_it_prints_is_the_command_you_run() -> Result<()> {
+    let server_dir = tempfile::tempdir()?;
+    let base_url = start_server(server_dir.path())?;
+    let (alice_ws, alice_home) = member(&base_url, "token-a")?;
+    let (_bob_ws, _bob_home) = member(&base_url, "token-b")?;
+
+    converge_with_stdin(
+        alice_ws.path(),
+        alice_home.path(),
+        &["secret", "set", "deploy-key"],
+        Some("v1"),
+    );
+    converge(
+        alice_ws.path(),
+        alice_home.path(),
+        &["secret", "share", "deploy-key", "--with", "bob"],
+    );
+
+    let removed = converge(
+        alice_ws.path(),
+        alice_home.path(),
+        &["member", "remove", "bob"],
+    );
+    let text = String::from_utf8_lossy(&removed.stdout);
+    assert!(
+        text.contains("converge secret unshare deploy-key --from bob"),
+        "member remove did not print a runnable remedy: {text}"
+    );
+    assert!(
+        !text.contains("<name>") && !text.contains("<subject>"),
+        "member remove printed a placeholder it could have filled: {text}"
+    );
+
+    let rotated = converge_with_stdin(
+        alice_ws.path(),
+        alice_home.path(),
+        &["secret", "rotate", "deploy-key"],
+        Some("rotated"),
+    );
+    // The warning goes to stderr so --json stays parseable (20.4).
+    let warning = String::from_utf8_lossy(&rotated.stderr);
+    assert!(
+        warning.contains("converge secret unshare deploy-key --from bob"),
+        "the rotation warning did not name what it was warning about: {warning}"
+    );
+    assert!(
+        !warning.contains("<name>") && !warning.contains("<subject>"),
+        "the rotation warning printed a placeholder: {warning}"
+    );
+
+    // And running exactly that clears it.
+    converge(
+        alice_ws.path(),
+        alice_home.path(),
+        &["secret", "unshare", "deploy-key", "--from", "bob"],
+    );
+    let after = converge_with_stdin(
+        alice_ws.path(),
+        alice_home.path(),
+        &["secret", "rotate", "deploy-key"],
+        Some("again"),
+    );
+    assert!(
+        !String::from_utf8_lossy(&after.stderr).contains("left the repo"),
+        "the warning survived the remedy it recommended"
+    );
+    Ok(())
+}
+
+/// A person with two machines is one stale recipient, not two.
+///
+/// Staleness is recorded per registered key, so batch 22.4 saw the same
+/// sentence printed twice for one departed member who had registered a
+/// second key.
+#[test]
+fn a_departed_member_with_two_keys_is_reported_once() -> Result<()> {
+    let server_dir = tempfile::tempdir()?;
+    let base_url = start_server(server_dir.path())?;
+    let (alice_ws, alice_home) = member(&base_url, "token-a")?;
+    let (bob_ws, bob_home) = member(&base_url, "token-b")?;
+
+    // Bob's second machine. Rotation keeps the old key registered (19.1),
+    // which is exactly how one person comes to hold two.
+    assert!(
+        converge(bob_ws.path(), bob_home.path(), &["key", "rotate"])
+            .status
+            .success()
+    );
+
+    converge_with_stdin(
+        alice_ws.path(),
+        alice_home.path(),
+        &["secret", "set", "deploy-key"],
+        Some("v1"),
+    );
+    converge(
+        alice_ws.path(),
+        alice_home.path(),
+        &["secret", "share", "deploy-key", "--with", "bob"],
+    );
+    converge(
+        alice_ws.path(),
+        alice_home.path(),
+        &["member", "remove", "bob"],
+    );
+
+    let audit = converge(alice_ws.path(), alice_home.path(), &["secret", "audit"]);
+    let text = String::from_utf8_lossy(&audit.stdout);
+    assert_eq!(
+        text.matches("stale recipient bob: no longer a member")
+            .count(),
+        1,
+        "one departed person produced more than one line: {text}"
+    );
+    Ok(())
+}
