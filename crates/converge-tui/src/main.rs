@@ -297,7 +297,16 @@ fn run(terminal: &mut ratatui::DefaultTerminal, trace: &mut trace::Trace) -> Res
                     WizardKind::Fetch => Wizard::fetch(app.channel_names()),
                     // Existing gates come from the loaded Gates view, so
                     // the upstream field offers something real without a
-                    // synchronous probe (17.2).
+                    // synchronous probe (17.2). Every repo has at least
+                    // one gate, so an empty list means the view has not
+                    // answered yet — and a graph edit should not be built
+                    // on a list nobody has seen.
+                    WizardKind::Gate if app.gate_names().is_empty() => {
+                        app.say(app::LastLine::Output(
+                            "gates are still loading — try again in a moment".into(),
+                        ));
+                        continue;
+                    }
                     WizardKind::Gate => Wizard::gate(app.gate_names()),
                 });
             }

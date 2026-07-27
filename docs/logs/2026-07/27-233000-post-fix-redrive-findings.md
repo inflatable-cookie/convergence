@@ -103,15 +103,32 @@ wrong problem. Now `releasable is required: pick one of no, yes`.
 Shared by every wizard with a choice field, so it was not new; the gate
 wizard is just where somebody finally pressed Enter on one.
 
-## Observed, not fixed
+## 6. A wizard default that came from a race (fixed)
 
-The gate wizard defaults the upstream field to the first known gate, and
-"known" means the gate list the TUI has loaded. Open the wizard before
-that arrives and the default is empty, which makes the new gate a second
-*entry* gate rather than a stage. Legal, visible on the review step
-(`upstream:` is blank), and still a surprise waiting for somebody in a
-hurry. Worth a proper answer — probably refusing to guess rather than
-guessing from a race — rather than a patch at the end of a drive.
+The gate wizard defaulted its upstream field to the first known gate,
+and "known" meant whatever the Gates view had loaded. Open the wizard
+before that arrived and the default was empty — which is not "no
+answer", it is *entry gate*. The new gate silently became a second
+place publications land rather than a stage in the pipeline. Legal,
+visible on the review step, and entirely a surprise.
+
+Two changes, because the default was the smaller half of the problem:
+
+- **upstream is a choice, not free text with a default.** The options are
+  the real gates plus `none`. An entry gate is a legitimate thing to add
+  — just not by accident, so `none` has to be said out loud
+- **the wizard will not open on a list nobody has seen.** Every repo has
+  at least one gate, so an empty list means the view has not answered
+  yet, and the keystroke now says `gates are still loading — try again in
+  a moment` instead of guessing
+
+Both verified against the real binary: racing the view load produces the
+refusal, and an empty upstream is rejected with the options named.
+
+The general lesson is worth keeping separately from the fix. A default
+computed from asynchronously-loaded state is a race whatever the
+subject, and the safe reading is that absence means "not yet", never
+"the empty answer".
 
 ## What held
 

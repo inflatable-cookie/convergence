@@ -257,13 +257,24 @@ impl Wizard {
                 ),
                 Field {
                     name: "upstream",
-                    // Blank is meaningful, and the prompt has to say so:
-                    // a gate with no upstream is the entry gate, which is
-                    // where publications land.
-                    prompt: "Accepts promotions from (blank = entry gate)",
-                    kind: FieldKind::Text {
-                        default: existing.first().cloned(),
-                        optional: true,
+                    prompt: "Accepts promotions from",
+                    // A choice, not free text with a default. The default
+                    // used to be "the first gate we know about", and what
+                    // we know about is whatever the Gates view has
+                    // loaded — so opening the wizard a moment early made
+                    // the default empty and the new gate a second *entry*
+                    // gate rather than a stage (batch 26.5). Silently
+                    // depending on a race is worse than asking.
+                    //
+                    // `none` is the explicit way to say entry gate. It
+                    // has to be sayable: an entry gate is a legitimate
+                    // thing to add, just not by accident.
+                    kind: FieldKind::Choice {
+                        options: existing
+                            .iter()
+                            .cloned()
+                            .chain(std::iter::once("none".to_string()))
+                            .collect(),
                     },
                     masked: false,
                 },
@@ -562,7 +573,7 @@ impl Wizard {
             WizardKind::Gate => {
                 let mut argv = vec!["gates".into(), "add".into(), value("gate_id")];
                 let upstream = value("upstream");
-                if !upstream.is_empty() {
+                if !upstream.is_empty() && upstream != "none" {
                     argv.push("--upstream".into());
                     argv.push(upstream);
                 }
@@ -712,7 +723,14 @@ mod tests {
     fn an_empty_choice_says_what_to_type() {
         let mut w = Wizard::gate(vec!["intake".into()]);
         type_and_submit(&mut w, "hotfix"); // gate_id
-        type_and_submit(&mut w, ""); // upstream is optional
+
+        // Upstream is a choice now, so an empty answer is refused rather
+        // than quietly producing a second entry gate.
+        let event = type_and_submit(&mut w, "");
+        assert!(matches!(event, WizardEvent::Continue));
+        assert!(w.error.as_deref().unwrap().contains("required"));
+        type_and_submit(&mut w, "intake");
+
         type_and_submit(&mut w, "0"); // approvals
         let event = type_and_submit(&mut w, "");
         assert!(matches!(event, WizardEvent::Continue));
@@ -725,6 +743,25 @@ mod tests {
     /// Adding a gate is the graph change that strands nothing, so it is
     /// the one behind a wizard — and it must produce a command that
     /// applies rather than a report the person has to repeat.
+    /// An entry gate is a legitimate thing to add — just not by
+    /// accident. `none` is how you say so out loud.
+    #[test]
+    fn an_entry_gate_has_to_be_asked_for() {
+        let mut w = Wizard::gate(vec!["intake".into()]);
+        type_and_submit(&mut w, "hotfix");
+        type_and_submit(&mut w, "none");
+        type_and_submit(&mut w, "0");
+        type_and_submit(&mut w, "no");
+        let WizardEvent::Execute(argv) = w.submit() else {
+            panic!("the review step did not run");
+        };
+        assert_eq!(argv, vec!["gates", "add", "hotfix", "--execute"]);
+        assert!(
+            !argv.iter().any(|a| a == "--upstream"),
+            "an entry gate was given an upstream: {argv:?}"
+        );
+    }
+
     #[test]
     fn the_gate_wizard_builds_an_applying_command() {
         let mut w = Wizard::gate(vec!["intake".into()]);
