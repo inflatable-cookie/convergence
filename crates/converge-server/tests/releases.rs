@@ -89,11 +89,19 @@ fn release_policy_channel_heads_and_fetch() -> Result<()> {
         &ws.store, "repo", "scope", "intake", &snap, None, None, None,
     )?;
 
-    // Intake may not release.
+    // Intake may not release, and the bundle has reached nowhere else.
+    // The refusal names the whole path rather than one gate (batch
+    // 26.4), because in a staged graph the interesting question is which
+    // of the gates it has been through may release, not which one built
+    // it.
     let err = alice
         .release(&bundle.bundle_id, "repo", "scope", "stable", None)
         .unwrap_err();
-    assert!(err.to_string().contains("may not release"));
+    let text = err.to_string();
+    assert!(
+        text.contains("may release") && text.contains("intake"),
+        "{text}"
+    );
 
     // Promote to main, then release.
     alice.promote(&bundle.bundle_id, "repo", "scope", "main")?;

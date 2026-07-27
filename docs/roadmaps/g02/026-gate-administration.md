@@ -1,6 +1,6 @@
 # 026 Gate Administration
 
-Status: ready
+Status: complete
 Owner: repo maintainers
 Updated: 2026-07-27
 
@@ -118,6 +118,26 @@ Three, taken from what the last two batches proved:
 - the guides describe the multi-gate flow, because until now nobody
   could follow them
 
+## Outcome
+
+All four batches complete. A repo can be given a staged gate graph after
+creation and changed again later; `promote` works end to end with
+`required_approvals` enforced and `may_release` respected; no graph
+change can strand a partition, a bundle or a publication without saying
+so first and being asked twice.
+
+The batch that mattered was the last one. 26.1 to 26.3 built the surface
+and found ordinary things. 26.4 drove it and found four defects that no
+test could have seen, because no repo had ever had a second gate — three
+of them the same assumption in different clothes, that a bundle is only
+ever at the gate that produced it. A staged pipeline could be described
+and never walked.
+
+The measurement is in the 26.4 log: before any promotion the window floor
+is 0, so no publication is eligible for collection whatever the retention
+policy says. Gate administration is what unblocks findings 10 and 34, and
+that is now a number rather than an argument.
+
 ## Next Task
 
-Batch card 26.1 (graph model and impact analysis).
+`22.5` (release) becomes the operator's call again.

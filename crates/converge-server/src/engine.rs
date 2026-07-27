@@ -615,6 +615,14 @@ impl Engine<'_> {
         require(&authz, Capability::Approve)?;
         let bundle = self.meta.get_bundle(bundle_id)?;
         ensure_partition(&authz, &bundle)?;
+        // The caller may have given a prefix (batch 22.4), and
+        // `get_bundle` resolved it — so from here the *resolved* id is
+        // the only one to use. Batch 26.4 found the alternative: promote
+        // compared the partition's stored base against the short string
+        // the user typed, decided a bundle was not the current window,
+        // and wrote a truncated id into the promotions table that
+        // referenced no real bundle.
+        let bundle_id = bundle.bundle_id.as_str();
         self.meta.add_approval(bundle_id, authz.subject())?;
         self.meta.count_approvals(bundle_id)
     }
@@ -690,14 +698,32 @@ impl Engine<'_> {
             }
             other => bail!("bundle {bundle_id} is not ready: {other:?}"),
         }
+        // Resolved id from here (batch 26.4): see `promote`.
+        let bundle_id = bundle.bundle_id.as_str();
         let graph = self.meta.get_gate_graph(authz.repo_id())?;
-        let gate = graph
+
+        // Releasable where it has *reached*, not where it was built. The
+        // same assumption that made a staged graph untraversable also
+        // meant a bundle promoted into a release gate could not be
+        // released from it, because the check read `may_release` off the
+        // gate that produced it — which in a staged graph is the entry
+        // gate, and an entry gate that may release is not a staged graph.
+        let mut reached = vec![bundle.gate_id.clone()];
+        reached.extend(
+            self.meta
+                .list_promotions(bundle_id)?
+                .into_iter()
+                .map(|(_, to, _)| to),
+        );
+        if !graph
             .gates
             .iter()
-            .find(|g| g.gate_id == bundle.gate_id)
-            .ok_or_else(|| anyhow::anyhow!("unknown producing gate {}", bundle.gate_id))?;
-        if !gate.may_release {
-            bail!("gate {} may not release", bundle.gate_id);
+            .any(|g| g.may_release && reached.contains(&g.gate_id))
+        {
+            bail!(
+                "no gate this bundle has reached may release: {}",
+                reached.join(", ")
+            );
         }
         let release = ReleaseRecord {
             channel: channel.to_string(),
@@ -721,6 +747,14 @@ impl Engine<'_> {
         require(&authz, Capability::Promote)?;
         let bundle = self.meta.get_bundle(bundle_id)?;
         ensure_partition(&authz, &bundle)?;
+        // The caller may have given a prefix (batch 22.4), and
+        // `get_bundle` resolved it — so from here the *resolved* id is
+        // the only one to use. Batch 26.4 found the alternative: promote
+        // compared the partition's stored base against the short string
+        // the user typed, decided a bundle was not the current window,
+        // and wrote a truncated id into the promotions table that
+        // referenced no real bundle.
+        let bundle_id = bundle.bundle_id.as_str();
 
         match &bundle.status {
             BundleStatus::Ready { promotable: true } => {}
@@ -736,17 +770,48 @@ impl Engine<'_> {
             .iter()
             .find(|g| g.gate_id == to_gate)
             .ok_or_else(|| anyhow::anyhow!("unknown target gate {to_gate}"))?;
-        if !target.upstreams.contains(&bundle.gate_id) {
+        // Where the bundle has *got to*, not merely where it was built.
+        //
+        // A bundle keeps the gate that produced it for ever, and doc 14
+        // §3 has always said re-promoting it "to a further downstream
+        // gate records the promotion" — but this check only ever looked
+        // at the producing gate, so a chain was impossible. Batch 26.4
+        // drove intake -> review -> release, the first staged graph that
+        // has ever existed, and the second hop was refused with "gate
+        // release does not accept promotions from intake". Any gate
+        // whose upstream was not an entry gate was unreachable.
+        //
+        // The reached set is the producing gate plus every gate a
+        // recorded promotion delivered it to. Fan-out to siblings still
+        // works, and skipping a stage is still refused: promoting
+        // straight from intake to release fails until the bundle has
+        // actually reached review.
+        let mut reached = vec![bundle.gate_id.clone()];
+        reached.extend(
+            self.meta
+                .list_promotions(bundle_id)?
+                .into_iter()
+                .map(|(_, to, _)| to),
+        );
+        let Some(from_gate) = reached
+            .iter()
+            .find(|gate| target.upstreams.contains(gate))
+            .cloned()
+        else {
             bail!(
                 "gate {to_gate} does not accept promotions from {}",
-                bundle.gate_id
+                reached.join(", ")
             );
-        }
+        };
+        // The approval policy that applies is the one on the gate being
+        // promoted *out of*. Reading it off the producing gate meant a
+        // review stage's `required_approvals` was never enforced on the
+        // hop that leaves it — the setting existed and did nothing.
         let producing = graph
             .gates
             .iter()
-            .find(|g| g.gate_id == bundle.gate_id)
-            .ok_or_else(|| anyhow::anyhow!("unknown producing gate {}", bundle.gate_id))?;
+            .find(|g| g.gate_id == from_gate)
+            .ok_or_else(|| anyhow::anyhow!("unknown gate {from_gate}"))?;
         let approvals = self.meta.count_approvals(bundle_id)?;
         if approvals < producing.required_approvals {
             bail!(

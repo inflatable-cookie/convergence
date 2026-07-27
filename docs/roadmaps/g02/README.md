@@ -68,8 +68,9 @@ it and removes things before anything new is added.
 - [`023-tui-completion.md`](./023-tui-completion.md) — complete
 - [`024-workflow-profiles.md`](./024-workflow-profiles.md) — parked (needs a design partner)
 - [`025-edge-and-scale.md`](./025-edge-and-scale.md) — parked (needs a measured ceiling)
-- [`026-gate-administration.md`](./026-gate-administration.md) — ready, and blocks the release
+- [`026-gate-administration.md`](./026-gate-administration.md) — complete
 
 ## Next Task
 
-Batch card 26.1 (graph model and impact analysis) under `g02.026`.
+`g02.022` batch 22.5 (release) — the operator's call. `g02.026` closed
+the gap that was blocking it.

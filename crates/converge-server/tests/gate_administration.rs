@@ -320,3 +320,123 @@ fn an_admins_read_scoped_token_still_cannot_reshape_the_graph() -> Result<()> {
     );
     Ok(())
 }
+
+/// The staged flow, which had never run before batch 26.4: a bundle
+/// travelling intake -> review -> release and being released there.
+///
+/// Three defects made this impossible, all from one assumption — that a
+/// bundle is only ever at the gate that produced it:
+///
+/// - promotion checked the target's upstreams against the *producing*
+///   gate, so any gate whose upstream was not an entry gate was
+///   unreachable
+/// - `required_approvals` was read off the producing gate, so a review
+///   stage's approval count was never enforced on the hop that leaves it
+/// - `release` read `may_release` off the producing gate, which in a
+///   staged graph is the entry gate
+#[test]
+fn a_bundle_travels_the_whole_staged_graph() -> Result<()> {
+    let server_dir = tempfile::tempdir()?;
+    let base_url = start_server(server_dir.path())?;
+    admin(server_dir.path())?;
+    let alice = RemoteClient::new(&base_url, "token-a");
+
+    let mut review = gate("review", &["intake"]);
+    review.required_approvals = 1;
+    let mut release = gate("release", &["review"]);
+    release.may_release = true;
+    let mut intake = gate("intake", &[]);
+    intake.may_release = false;
+    alice.set_gate_graph("repo", vec![intake, review, release], None, false, false)?;
+
+    let ws_dir = tempfile::tempdir()?;
+    let ws = Workspace::init(ws_dir.path(), false)?;
+    std::fs::write(ws_dir.path().join("a.txt"), "staged")?;
+    let snap = ws.create_snap(Some("staged".into()))?;
+    let (bundle, _) = alice.publish(
+        &ws.store, "repo", "scope", "intake", &snap, None, None, None,
+    )?;
+    let id = bundle.bundle_id.clone();
+
+    // Skipping a stage is still refused: release accepts only review.
+    let err = alice.promote(&id, "repo", "scope", "release").unwrap_err();
+    assert!(
+        format!("{err:#}").contains("does not accept promotions"),
+        "a stage was skippable: {err:#}"
+    );
+
+    // Leaving intake needs no approval; leaving review needs one.
+    alice.promote(&id, "repo", "scope", "review")?;
+    let err = alice.promote(&id, "repo", "scope", "release").unwrap_err();
+    assert!(
+        format!("{err:#}").contains("required approvals"),
+        "the review gate's approval count was not enforced: {err:#}"
+    );
+
+    alice.approve(&id, "repo", "scope")?;
+    alice.promote(&id, "repo", "scope", "release")?;
+
+    // And it can be released from the gate it reached, not the one that
+    // built it.
+    alice.release(&id, "repo", "scope", "stable", None)?;
+    assert_eq!(alice.get_channel_head("repo", "stable")?.bundle_id, id);
+    Ok(())
+}
+
+/// An id given as a prefix must be stored resolved.
+///
+/// Batch 22.4 taught the server to accept shortened bundle ids, because
+/// the CLI prints them. Batch 26.4 found what that cost: every verb that
+/// *records* an id wrote back whatever the caller typed, so approvals,
+/// promotions and releases all held twelve-character ids referencing no
+/// real bundle. The promotion then failed to match the partition's base
+/// and reported the bundle stale; worse, GC protects released bundles by
+/// comparing ids, and a truncated id never matches.
+#[test]
+fn a_prefix_is_recorded_as_the_id_it_resolved_to() -> Result<()> {
+    let server_dir = tempfile::tempdir()?;
+    let base_url = start_server(server_dir.path())?;
+    admin(server_dir.path())?;
+    let alice = RemoteClient::new(&base_url, "token-a");
+
+    let mut release = gate("release", &["intake"]);
+    release.may_release = true;
+    let mut intake = gate("intake", &[]);
+    intake.may_release = false;
+    alice.set_gate_graph("repo", vec![intake, release], None, false, false)?;
+
+    let ws_dir = tempfile::tempdir()?;
+    let ws = Workspace::init(ws_dir.path(), false)?;
+    std::fs::write(ws_dir.path().join("a.txt"), "prefix")?;
+    let snap = ws.create_snap(Some("prefix".into()))?;
+    let (bundle, _) = alice.publish(
+        &ws.store, "repo", "scope", "intake", &snap, None, None, None,
+    )?;
+    let full = bundle.bundle_id.clone();
+    let short = &full[..12];
+
+    // Everything driven by the short form, the way a person would after
+    // copying it out of `converge publish`.
+    alice.approve(short, "repo", "scope")?;
+    alice.promote(short, "repo", "scope", "release")?;
+    alice.release(short, "repo", "scope", "stable", None)?;
+
+    let meta = SqliteMetadataStore::open(&server_dir.path().join("meta.sqlite"))?;
+    assert_eq!(
+        meta.count_approvals(&full)?,
+        1,
+        "the approval was filed under the short id"
+    );
+    let promotions = meta.list_promotions(&full)?;
+    assert_eq!(
+        promotions.len(),
+        1,
+        "the promotion was filed under the short id"
+    );
+    let head = alice.get_channel_head("repo", "stable")?;
+    assert_eq!(
+        head.bundle_id, full,
+        "the release recorded a truncated id, which GC would not match"
+    );
+    Ok(())
+}
