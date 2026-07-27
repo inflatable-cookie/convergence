@@ -14,9 +14,14 @@ A tag `vX.Y.Z` pushed to `main`. That triggers
 
 | Target | Runner |
 | --- | --- |
-| `aarch64-apple-darwin` | macos-14 |
-| `x86_64-apple-darwin` | macos-13 |
-| `x86_64-unknown-linux-gnu` | ubuntu-latest |
+| `aarch64-apple-darwin` | macos-15 |
+| `x86_64-apple-darwin` | macos-15-intel |
+| `x86_64-unknown-linux-gnu` | ubuntu-22.04 |
+
+The Linux runner is pinned older than `ubuntu-latest` on purpose: a
+dynamically linked binary needs a glibc at least as new as the one it
+was built against, so building on the oldest supported image is what
+makes it run on the widest range of distributions.
 
 Each is a `.tar.gz`, and the release carries a single `SHA256SUMS`
 covering all of them.

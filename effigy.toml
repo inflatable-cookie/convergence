@@ -28,6 +28,20 @@ backends = [
   { task = "backends:up" },
   { task = "backends:test" },
 ]
+# Workflow and shell linting (batch 22.5). Kept out of `validate` on
+# purpose: neither tool is a Rust dependency, and a contributor without
+# them should not have the whole suite refuse to run. Skipped with a
+# note when absent, so it is honest about what it did not check.
+#
+# It earned its place immediately: `macos-13` had been retired, and the
+# first release run would have failed on a runner label. That is exactly
+# the class of mistake worth catching without spending Actions minutes
+# to find it.
+"qa:workflows" = """
+if command -v actionlint > /dev/null 2>&1; then actionlint; else echo 'actionlint not installed -- workflows unchecked (brew install actionlint)'; fi
+if command -v shellcheck > /dev/null 2>&1; then shellcheck scripts/*.sh; else echo 'shellcheck not installed -- scripts unchecked (brew install shellcheck)'; fi
+"""
+
 health = [
   { task = "fmt:check" },
   { task = "check" },
@@ -40,6 +54,7 @@ validate = [
 qa = [
   { task = "validate" },
   { task = "qa:docs" },
+  { task = "qa:workflows" },
 ]
 "qa:docs:links" = "effigy docs check links"
 "qa:docs:agent-defaults" = "effigy docs check forbidden AGENTS.md README.md docs/README.md --forbid '--repo .'"

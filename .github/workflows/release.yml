@@ -66,11 +66,17 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - runner: macos-14
+          - runner: macos-15
             target: aarch64-apple-darwin
-          - runner: macos-13
+          - runner: macos-15-intel
             target: x86_64-apple-darwin
-          - runner: ubuntu-latest
+          # Pinned, and deliberately older than `ubuntu-latest`: a
+          # dynamically linked binary needs a glibc at least as new as
+          # the one it was built against, so building on the oldest
+          # supported image is what makes it run on the widest range of
+          # distributions. Building on `latest` would quietly narrow
+          # that every time the image rolls forward.
+          - runner: ubuntu-22.04
             target: x86_64-unknown-linux-gnu
     runs-on: ${{ matrix.runner }}
     steps:

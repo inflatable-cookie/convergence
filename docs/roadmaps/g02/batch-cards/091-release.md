@@ -91,11 +91,42 @@ artifact:
 - `converge-server --help` answered `unknown argument --help`. It is a
   shipped binary and that is the first thing anyone types
 
+## Verification without Actions minutes
+
+The operator ran out of GitHub Actions minutes for the month before the
+dry run could happen (2026-07-27), so the pipeline was verified as far
+as it can be from a laptop. What that covers, precisely:
+
+| | |
+| --- | --- |
+| `aarch64-apple-darwin` | built and run natively |
+| `x86_64-apple-darwin` | cross-built, and run under Rosetta |
+| `x86_64-unknown-linux-gnu` | **not verified** |
+| Workflow YAML | `actionlint` clean |
+| `scripts/install.sh` | `shellcheck` clean; installed end to end over HTTP, and refused a corrupted archive |
+
+`actionlint` paid for itself on first run: **`macos-13` had been
+retired**, so the release job would have failed on an unknown runner
+label — the exact class of mistake that is expensive to find by spending
+a run on it. Both macOS runners moved to `macos-15` and
+`macos-15-intel`.
+
+The Linux build was left unverified deliberately rather than by
+omission. The only local container runtime is a Colima VM provisioned
+for containerd, and switching it needs `colima delete --data`, which
+would destroy the Postgres and MinIO state the backend lane uses. That
+is a poor trade for a compile check.
+
+`effigy qa:workflows` now runs both linters, and is kept out of
+`validate` on purpose: neither is a Rust dependency, and a contributor
+without them should get a note rather than a failing suite.
+
 ## Remaining
 
 - push a tag, which is the operator's call
-- confirm the three platform builds actually pass on GitHub runners; only
-  the host target has been built locally
+- one `workflow_dispatch` dry run when minutes are available, chiefly to
+  prove the Linux build and the `SHA256SUMS` merge across three
+  uploads — both untested end to end
 - `docs/releases/vX.Y.Z.md` for the first release body
 
 ## Validation
