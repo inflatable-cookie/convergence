@@ -4098,6 +4098,10 @@ pub enum ActionKind {
     Resolve,
     /// A bundle waiting on an approval you can give.
     Approve,
+    /// A bundle that is ready, approved, and has a stage ahead of it.
+    /// Below `Approve`, which unblocks it, and above lane activity,
+    /// because until it moves nothing downstream sees the work.
+    Promote,
     /// Unpublished work in a lane you could pull.
     LanePull,
     /// Something happened. Nobody is waiting on you.
@@ -4121,6 +4125,9 @@ impl ActionKind {
             ActionKind::Approve => {
                 format!("{} waiting on your approval", noun("bundle", "bundles"))
             }
+            ActionKind::Promote => {
+                format!("{} ready for the next stage", noun("bundle", "bundles"))
+            }
             ActionKind::LanePull => format!("{} with work to pull", noun("lane", "lanes")),
             ActionKind::Publication => {
                 format!("{} in an open window", noun("publication", "publications"))
@@ -4139,6 +4146,7 @@ impl ActionKind {
         match self {
             ActionKind::Resolve => "resolve superpositions",
             ActionKind::Approve => "approve",
+            ActionKind::Promote => "promote to the next gate",
             ActionKind::LanePull => "pull lane work",
             ActionKind::Publication => "open inbox",
         }
@@ -4147,7 +4155,7 @@ impl ActionKind {
     /// The view that shows the whole group.
     pub fn view(&self) -> &'static str {
         match self {
-            ActionKind::Resolve | ActionKind::Approve => "bundles",
+            ActionKind::Resolve | ActionKind::Approve | ActionKind::Promote => "bundles",
             ActionKind::LanePull => "lanes",
             ActionKind::Publication => "inbox",
         }
@@ -4268,7 +4276,14 @@ pub fn inbox_actions(report: &serde_json::Value) -> Vec<InboxAction> {
             label: format!(
                 "bundle {} @ {} -> {recommendation} ({}/{})",
                 short(&id),
-                str_at(bundle, "gate_id"),
+                // Where the work has reached, falling back to where it
+                // was built. `gate_id` never changes, so a promoted
+                // bundle kept reporting the entry gate it left two
+                // stages ago (batch 26.5).
+                bundle["from_gate"]
+                    .as_str()
+                    .map(str::to_string)
+                    .unwrap_or_else(|| str_at(bundle, "gate_id")),
                 bundle["approvals"],
                 bundle["required_approvals"]
             ),
@@ -4277,11 +4292,23 @@ pub fn inbox_actions(report: &serde_json::Value) -> Vec<InboxAction> {
                 // Superposed: list the contested paths. `resolve` takes a
                 // bundle id directly now, so this runs as written.
                 "resolve" => Some(vec!["resolve".into(), "list".into(), id.clone()]),
+                // Runnable only when the server named one onward gate;
+                // a fan-out is a choice and gets a label without a
+                // command (batch 23.4's rule, applied to a new verb).
+                "promote" => bundle["next_gate"].as_str().map(|gate| {
+                    vec![
+                        "promote".into(),
+                        id.clone(),
+                        "--to".into(),
+                        gate.to_string(),
+                    ]
+                }),
                 _ => None,
             },
             kind: match recommendation {
                 "resolve" => ActionKind::Resolve,
                 "approve" => ActionKind::Approve,
+                "promote" => ActionKind::Promote,
                 // Anything else about a bundle is news, not a task.
                 _ => ActionKind::Publication,
             },

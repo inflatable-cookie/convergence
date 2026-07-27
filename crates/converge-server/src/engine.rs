@@ -575,16 +575,60 @@ impl Engine<'_> {
             .map(|bundle| (bundle.gate_id.clone(), bundle))
             .collect();
         for (gate_id, bundle) in latest {
+            let approvals = self.meta.count_approvals(&bundle.bundle_id)?;
+
+            // Where this bundle has already got to, so a gate it has
+            // reached is not offered again (26.4 semantics).
+            let mut reached = vec![bundle.gate_id.clone()];
+            reached.extend(
+                self.meta
+                    .list_promotions(&bundle.bundle_id)?
+                    .into_iter()
+                    .map(|(_, to, _)| to),
+            );
+            // Onward gate, paired with the gate it would be promoted out
+            // of — which is the gate whose approval policy applies.
+            let onward: Vec<(String, String)> = graph
+                .gates
+                .iter()
+                .filter_map(|candidate| {
+                    if reached.contains(&candidate.gate_id) {
+                        return None;
+                    }
+                    let from = candidate.upstreams.iter().find(|up| reached.contains(up))?;
+                    Some((candidate.gate_id.clone(), from.clone()))
+                })
+                .collect();
+            let has_somewhere_to_go = !onward.is_empty();
+
+            // Approvals are required by the gate being promoted *out
+            // of*, not the one that produced the bundle. Reading it off
+            // the producing gate is the same mistake batch 26.4 fixed in
+            // `promote` itself, and it survived here one batch longer:
+            // the inbox recommended a promotion out of a review stage as
+            // `(0/0)` and the server then refused it for want of the
+            // approval the inbox had not asked for.
+            let from_gate = onward
+                .first()
+                .map(|(_, from)| from.clone())
+                .unwrap_or_else(|| gate_id.clone());
             let required = graph
                 .gates
                 .iter()
-                .find(|g| g.gate_id == gate_id)
+                .find(|g| g.gate_id == from_gate)
                 .map(|g| g.required_approvals)
                 .unwrap_or(0);
-            let approvals = self.meta.count_approvals(&bundle.bundle_id)?;
+
             let recommendation = match bundle.status {
                 BundleStatus::Ready { promotable: false } => "resolve",
                 BundleStatus::Ready { promotable: true } if approvals < required => "approve",
+                // Ready, approved, and a stage ahead of it. Under a
+                // single gate this state was correctly silent — there was
+                // nowhere to promote to — so the inbox never learned to
+                // report it, and batch 26.5 found a staged repo where the
+                // one thing waiting on a person was the one thing the
+                // action queue did not mention.
+                BundleStatus::Ready { promotable: true } if has_somewhere_to_go => "promote",
                 _ => continue,
             };
             // Who is waiting on this bundle: whoever published into it.
@@ -603,6 +647,13 @@ impl Engine<'_> {
                 bundle_id: bundle.bundle_id,
                 gate_id,
                 recommendation: recommendation.to_string(),
+                // Only when there is one answer. Offering a guess where
+                // a person has to choose is worse than offering nothing.
+                from_gate: onward.first().map(|(_, from)| from.clone()),
+                next_gate: match onward.as_slice() {
+                    [(only, _)] => Some(only.clone()),
+                    _ => None,
+                },
                 approvals,
                 required_approvals: required,
                 contributors,

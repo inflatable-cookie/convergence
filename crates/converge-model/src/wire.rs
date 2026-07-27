@@ -387,8 +387,20 @@ pub struct InboxPublication {
 pub struct InboxBundle {
     pub bundle_id: String,
     pub gate_id: String,
-    /// "resolve" (superposed) or "approve" (short of approvals).
+    /// "resolve" (superposed), "approve" (short of approvals), or
+    /// "promote" (ready, approved, and a stage ahead of it).
     pub recommendation: String,
+    /// The gate this bundle would be promoted *out of*: where the work
+    /// has actually got to, as opposed to `gate_id`, which is where it
+    /// was built and never changes.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub from_gate: Option<String>,
+    /// The gate to promote into, when exactly one accepts this bundle.
+    ///
+    /// `None` when several do — a fan-out is a choice, and the dashboard
+    /// reports rather than picks (batch 23.4).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub next_gate: Option<String>,
     pub approvals: u32,
     pub required_approvals: u32,
     /// Who published into this bundle, deduped — the people actually

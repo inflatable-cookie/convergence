@@ -440,3 +440,86 @@ fn a_prefix_is_recorded_as_the_id_it_resolved_to() -> Result<()> {
     );
     Ok(())
 }
+
+/// The inbox is an action queue, and a staged graph creates an action it
+/// had never had to report: ready, approved, and a stage ahead of it.
+///
+/// Under one gate that state is correctly silent — there is nowhere to
+/// promote to — so the recommendation logic ended at `resolve` and
+/// `approve` and dropped everything else. Batch 26.5 drove a staged repo
+/// and found the one thing waiting on a person was the one thing the
+/// queue did not mention.
+#[test]
+fn the_inbox_recommends_the_next_stage() -> Result<()> {
+    let server_dir = tempfile::tempdir()?;
+    let base_url = start_server(server_dir.path())?;
+    admin(server_dir.path())?;
+    let alice = RemoteClient::new(&base_url, "token-a");
+
+    let mut review = gate("review", &["intake"]);
+    review.required_approvals = 1;
+    let mut release = gate("release", &["review"]);
+    release.may_release = true;
+    let mut intake = gate("intake", &[]);
+    intake.may_release = false;
+    alice.set_gate_graph("repo", vec![intake, review, release], None, false, false)?;
+
+    let ws_dir = tempfile::tempdir()?;
+    let ws = Workspace::init(ws_dir.path(), false)?;
+    std::fs::write(ws_dir.path().join("a.txt"), "staged")?;
+    let snap = ws.create_snap(Some("staged".into()))?;
+    let (bundle, _) = alice.publish(
+        &ws.store, "repo", "scope", "intake", &snap, None, None, None,
+    )?;
+    let id = bundle.bundle_id.clone();
+
+    let row = |report: converge_model::InboxReport| {
+        report
+            .bundles
+            .into_iter()
+            .find(|b| b.bundle_id == id)
+            .expect("the bundle is not in the inbox at all")
+    };
+
+    // At intake: promote, and the one onward gate is named so the row is
+    // a command rather than a hint.
+    let first = row(alice.inbox("repo", "scope", None)?);
+    assert_eq!(first.recommendation, "promote");
+    assert_eq!(first.next_gate.as_deref(), Some("review"));
+    assert_eq!(first.from_gate.as_deref(), Some("intake"));
+    assert_eq!(first.required_approvals, 0, "intake requires none");
+
+    alice.promote(&id, "repo", "scope", "review")?;
+
+    // At review: the approval the *next* hop needs, counted against the
+    // gate being left rather than the one that built it. Getting this
+    // wrong made the inbox recommend a promotion the server then refused.
+    let second = row(alice.inbox("repo", "scope", None)?);
+    assert_eq!(second.recommendation, "approve");
+    assert_eq!(
+        second.required_approvals, 1,
+        "review's approval was not counted"
+    );
+    assert_eq!(
+        second.from_gate.as_deref(),
+        Some("review"),
+        "the row still reported the gate the work left"
+    );
+
+    alice.approve(&id, "repo", "scope")?;
+    let third = row(alice.inbox("repo", "scope", None)?);
+    assert_eq!(third.recommendation, "promote");
+    assert_eq!(third.next_gate.as_deref(), Some("release"));
+
+    // Once it has nowhere left to go it stops being a task.
+    alice.promote(&id, "repo", "scope", "release")?;
+    assert!(
+        alice
+            .inbox("repo", "scope", None)?
+            .bundles
+            .into_iter()
+            .all(|b| b.bundle_id != id),
+        "a bundle with nowhere to go is still nagging"
+    );
+    Ok(())
+}
