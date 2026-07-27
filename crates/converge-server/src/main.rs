@@ -13,6 +13,34 @@ use converge_server::{AppState, FsObjectStore, SqliteMetadataStore, router};
 /// Real onboarding starts with `--bootstrap-admin <handle>`, which mints
 /// the first admin token (batch 16.3); everything after that is done
 /// over the API with `converge repo create` and `converge member add`.
+/// Hand-written because the server takes a dozen flags and no
+/// subcommands; a parser crate here would be more dependency than
+/// argument handling.
+const USAGE: &str = "\
+converge-server -- the Convergence control plane
+
+USAGE:
+    converge-server [OPTIONS]
+
+OPTIONS:
+    --addr <ADDR>                 Listen address (default 127.0.0.1:8080)
+    --data-dir <DIR>              Metadata and objects (default ./converge-data)
+    --metadata <URL>              External metadata backend instead of SQLite
+    --objects <URL>               External object store instead of the filesystem
+    --token <TOKEN=SUBJECT>       A static credential; repeatable
+    --bootstrap-admin <HANDLE>    Create the first admin and print one token
+    --seed-dev                    Seed a development repo
+    --oidc-issuer <URL>           Identity provider to trust
+    --oidc-audience <CLIENT_ID>   Audience the provider must assert
+    --oidc-subject-claim <CLAIM>  Claim to read as the subject
+                                  (default preferred_username)
+    -h, --help                    Print this help
+    -V, --version                 Print the version
+
+Backing up a deployment means the data dir *and* each user's identity
+directory: see docs/guides/004-running-it-locally.md.
+";
+
 fn main() -> Result<()> {
     let mut addr = "127.0.0.1:8080".to_string();
     let mut data_dir = PathBuf::from("./converge-data");
@@ -54,7 +82,18 @@ fn main() -> Result<()> {
             "--oidc-subject-claim" => {
                 oidc_subject_claim = args.next().context("--oidc-subject-claim needs a claim")?
             }
-            other => anyhow::bail!("unknown argument {other}"),
+            // A shipped binary that answers `--help` with "unknown
+            // argument" is one people give up on (batch 22.5, found
+            // while smoke-testing the release artifact).
+            "--help" | "-h" => {
+                print!("{USAGE}");
+                return Ok(());
+            }
+            "--version" | "-V" => {
+                println!("converge-server {}", env!("CARGO_PKG_VERSION"));
+                return Ok(());
+            }
+            other => anyhow::bail!("unknown argument {other}\n\n{USAGE}"),
         }
     }
 

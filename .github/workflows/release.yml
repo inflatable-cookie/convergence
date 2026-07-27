@@ -1,0 +1,194 @@
+name: Release
+
+# Tagged releases with binaries people can install without a toolchain
+# (g02.022 batch 22.5).
+#
+# A release is the first irreversible step in this roadmap: a tag can be
+# deleted but not un-fetched, and a published binary with a defect is a
+# defect in somebody else's hands. Two things follow from that, and both
+# are load-bearing here.
+#
+# First, `workflow_dispatch` builds everything, checksums it, and uploads
+# the result as workflow artifacts *without* creating a release. The
+# whole pipeline can be proven before anything is published, which
+# matters because the alternative is discovering a broken workflow by
+# tagging.
+#
+# Second, the tag must match the version in Cargo.toml. Publishing
+# `v0.2.0` from a tree that calls itself `0.1.0` produces binaries that
+# misreport themselves forever, and nothing downstream can tell.
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Build and checksum, but publish nothing"
+        type: boolean
+        default: true
+
+permissions:
+  contents: write
+
+jobs:
+  # Cheap, and it runs before anything is built: a mismatch found after
+  # four platform builds is the same mismatch, twenty minutes later.
+  check-version:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Tag matches the workspace version
+        id: version
+        run: |
+          set -euo pipefail
+          cargo_version="$(grep -m1 '^version = ' Cargo.toml | cut -d'"' -f2)"
+          echo "version=${cargo_version}" >> "$GITHUB_OUTPUT"
+          if [ "${{ github.event_name }}" != "push" ]; then
+            echo "dispatch build of ${cargo_version}"
+            exit 0
+          fi
+          tag="${GITHUB_REF_NAME#v}"
+          if [ "${tag}" != "${cargo_version}" ]; then
+            echo "tag ${GITHUB_REF_NAME} does not match Cargo.toml ${cargo_version}." >&2
+            echo "Bump the workspace version, or retag." >&2
+            exit 1
+          fi
+
+  build:
+    needs: check-version
+    strategy:
+      # One platform failing should not hide whether the others work.
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-14
+            target: aarch64-apple-darwin
+          - runner: macos-13
+            target: x86_64-apple-darwin
+          - runner: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          # The build stamps itself with `git describe --tags`, which
+          # needs the tags and enough history to reach one. A shallow
+          # checkout stamps every release "unknown" (batch 22.1).
+          fetch-depth: 0
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.target }}
+
+      - name: Build
+        run: cargo build --release --locked --target ${{ matrix.target }}
+
+      - name: Smoke test the binary that will ship
+        run: |
+          set -euo pipefail
+          # Not a substitute for CI: this asks whether the artifact
+          # itself runs on this platform, which a build cannot answer.
+          ./target/${{ matrix.target }}/release/converge --version
+          ./target/${{ matrix.target }}/release/converge doctor --json > /dev/null || true
+
+      - name: Package
+        id: package
+        run: |
+          set -euo pipefail
+          name="converge-${{ needs.check-version.outputs.version }}-${{ matrix.target }}"
+          staging="$(mktemp -d)/${name}"
+          mkdir -p "${staging}"
+          for bin in converge converge-server converge-tui; do
+            cp "target/${{ matrix.target }}/release/${bin}" "${staging}/"
+          done
+          cp README.md LICENSE* "${staging}/" 2>/dev/null || true
+          tar -czf "${name}.tar.gz" -C "$(dirname "${staging}")" "${name}"
+          # BSD and GNU disagree on the tool but not the format.
+          if command -v sha256sum > /dev/null; then
+            sha256sum "${name}.tar.gz" > "${name}.tar.gz.sha256"
+          else
+            shasum -a 256 "${name}.tar.gz" > "${name}.tar.gz.sha256"
+          fi
+          echo "archive=${name}.tar.gz" >> "$GITHUB_OUTPUT"
+
+      - name: Upload
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.package.outputs.archive }}
+          path: |
+            ${{ steps.package.outputs.archive }}
+            ${{ steps.package.outputs.archive }}.sha256
+          if-no-files-found: error
+
+  publish:
+    needs: [check-version, build]
+    # Only a tag publishes. A dispatch stops at the artifacts above,
+    # which is the whole point of having a dispatch.
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Collect the built archives
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: One checksum file for the whole release
+        run: |
+          set -euo pipefail
+          cd dist
+          # Per-archive .sha256 files name a path that was correct on the
+          # runner that made them; this one is the list people actually
+          # verify against, and `sha256sum -c` reads it directly.
+          cat ./*.tar.gz.sha256 | sed 's|.*/||' > SHA256SUMS
+          cat SHA256SUMS
+
+      - name: Release notes
+        id: notes
+        run: |
+          set -euo pipefail
+          # A hand-written note for the tag if there is one -- the batch
+          # logs have been written for a reader all along, so a release
+          # deserves better than a commit list. Failing that, let GitHub
+          # generate one rather than shipping an empty body.
+          if [ -f "docs/releases/${GITHUB_REF_NAME}.md" ]; then
+            echo "file=docs/releases/${GITHUB_REF_NAME}.md" >> "$GITHUB_OUTPUT"
+          else
+            echo "file=" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          # `gh` rather than a third-party action: this repo has spent
+          # eight batches on trust boundaries, and a release job holding
+          # `contents: write` is the last place to add a dependency
+          # nobody has read.
+          if [ -n "${{ steps.notes.outputs.file }}" ]; then
+            gh release create "${GITHUB_REF_NAME}" \
+              --title "${GITHUB_REF_NAME}" \
+              --notes-file "${{ steps.notes.outputs.file }}" \
+              dist/*.tar.gz dist/SHA256SUMS
+          else
+            gh release create "${GITHUB_REF_NAME}" \
+              --title "${GITHUB_REF_NAME}" \
+              --generate-notes \
+              dist/*.tar.gz dist/SHA256SUMS
+          fi

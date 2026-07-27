@@ -11,8 +11,21 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 fn main() {
+    // Only release-shaped tags. Batch 22.5 caught the alternative while
+    // testing the install path: bare `--tags` reached `v0-legacy`, the
+    // archived g01 tree, so every build reported itself as
+    // `v0-legacy-108-geaf2a61` — descended from the very tree the
+    // rebuild abandoned. Unmatched, it falls back to the bare sha,
+    // which says less and claims nothing.
     let describe = Command::new("git")
-        .args(["describe", "--always", "--dirty", "--tags"])
+        .args([
+            "describe",
+            "--always",
+            "--dirty",
+            "--tags",
+            "--match",
+            "v[0-9]*.[0-9]*.[0-9]*",
+        ])
         .output()
         .ok()
         .filter(|out| out.status.success())

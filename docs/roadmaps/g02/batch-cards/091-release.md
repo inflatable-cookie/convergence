@@ -1,22 +1,26 @@
 # 091 Release
 
-Status: **gated — do not start**
-Updated: 2026-07-25
+Status: in progress — pipeline built, **release not cut**
+Updated: 2026-07-27
 Roadmap: `g02.022`
 
 ## Gate
 
-This batch does not start until the operator explicitly says so.
+Partially lifted, 2026-07-27: *"You can set up some CI workflows for
+22.5, then continue."*
 
-Their position, 2026-07-25: *"I'm not ready to release. I need to test
-thoroughly locally first."* Batch 22.4 is that testing. Nothing here
-runs until it is done and the operator says go.
-
-Two independent reasons, both sufficient:
+That authorises the pipeline and the `.github/workflows/` edit. It does
+not authorise cutting a release. Of the two reasons this batch was
+gated —
 
 1. it publishes artifacts, which is theirs to decide
-2. it touches `.github/workflows/`, which `AGENTS.md` already forbids
-   without an explicit instruction
+2. it touches `.github/workflows/`, which `AGENTS.md` forbids without an
+   explicit instruction
+
+— only the second has been lifted. **No tag has been pushed and no
+release exists.** The pipeline is built and proven as far as it can be
+proven without publishing; the irreversible step waits for a separate
+word.
 
 ## Objective
 
@@ -52,6 +56,47 @@ affected is the one who can fix them.
 - a tag produces verifiable binaries for both platforms; install works
   on a machine with no toolchain; the bad-release procedure is written
   before it is needed
+
+## Progress
+
+Built:
+
+- `.github/workflows/release.yml` — tag-triggered, three targets on
+  native runners, smoke-tests each artifact before packaging, one
+  `SHA256SUMS` for the release, published with `gh` rather than a
+  third-party action
+- `workflow_dispatch` with `dry_run` — builds, checksums and uploads
+  artifacts while creating no release, so the pipeline can be proven
+  before the one step that cannot be taken back
+- a `check-version` job refusing a tag that disagrees with the workspace
+  version, before any platform is built
+- `scripts/install.sh` — POSIX sh, curl or wget, **verifies the checksum
+  before installing anything**, and `CONVERGE_BASE_URL` so the installer
+  is testable against a local copy
+- `docs/guides/005-releasing.md` — cutting, verifying, installing, and
+  the bad-release procedure, written while calm
+
+Proven locally, not merely written: the workflow's packaging steps were
+reproduced by hand against a real build, served over HTTP, and installed
+through the script. A deliberately corrupted archive was refused with
+nothing left behind.
+
+Two defects that only appeared because the artifact was handled as an
+artifact:
+
+- `git describe --tags` reached `v0-legacy`, so every build reported
+  itself as `v0-legacy-108-geaf2a61` — descended from the archived g01
+  tree the rebuild abandoned. Now matched to release-shaped tags only,
+  falling back to a bare sha, which says less and claims nothing
+- `converge-server --help` answered `unknown argument --help`. It is a
+  shipped binary and that is the first thing anyone types
+
+## Remaining
+
+- push a tag, which is the operator's call
+- confirm the three platform builds actually pass on GitHub runners; only
+  the host target has been built locally
+- `docs/releases/vX.Y.Z.md` for the first release body
 
 ## Validation
 
