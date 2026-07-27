@@ -420,3 +420,82 @@ fn events_flow_with_increasing_seq_and_cursor_filtering() -> Result<()> {
     assert!(alice.events("repo", tail[0].seq)?.is_empty());
     Ok(())
 }
+
+/// Retention must not drop a bundle a live publication was written
+/// against, or publishing to that gate breaks permanently.
+///
+/// Batch 22.4 did this to a real repo with two ordinary commands:
+/// `retention set --keep-bundles 5` then `gc --execute`. Publication 2
+/// declared a base that GC deleted, so every later fold of the window
+/// failed to load it. Two things made it terminal: publications only
+/// leave a window when it advances, a window only advances on promotion,
+/// and a single-gate repo cannot promote; and the client re-derives its
+/// base and retries, so it never stops asking.
+#[test]
+fn retention_spares_bundles_that_open_publications_declare() -> Result<()> {
+    let server_dir = tempfile::tempdir()?;
+    let base_url = start_server(server_dir.path())?;
+    {
+        let meta = SqliteMetadataStore::open(&server_dir.path().join("meta.sqlite"))?;
+        meta.add_grant("alice", "repo", "*", "admin")?;
+    }
+    let alice = RemoteClient::new(&base_url, "token-a");
+
+    let ws_dir = tempfile::tempdir()?;
+    let ws = Workspace::init(ws_dir.path(), false)?;
+
+    // Enough publications that a tight keep-count wants to drop the
+    // early ones, each declaring the previous bundle as its base.
+    let mut base: Option<String> = None;
+    for round in 0..6 {
+        std::fs::write(ws_dir.path().join("a.txt"), format!("v{round}"))?;
+        let snap = ws.create_snap(Some(format!("v{round}")))?;
+        let (bundle, _) = alice.publish(
+            &ws.store,
+            "repo",
+            "scope",
+            "main",
+            &snap,
+            base.clone(),
+            None,
+            None,
+        )?;
+        assert!(
+            !format!("{:?}", bundle.status).contains("ailed"),
+            "publish {round} failed before retention was even set: {:?}",
+            bundle.status
+        );
+        base = Some(bundle.bundle_id);
+    }
+
+    alice.set_retention(
+        "repo",
+        &converge_model::RetentionPolicy {
+            keep_releases_per_channel: None,
+            keep_bundles_per_gate: Some(2),
+            keep_publication_days: None,
+            keep_events: None,
+        },
+    )?;
+    let _: serde_json::Value = alice.gc("repo", false)?;
+
+    // The next publish must still fold the window.
+    std::fs::write(ws_dir.path().join("a.txt"), "after gc")?;
+    let snap = ws.create_snap(Some("after gc".into()))?;
+    let (bundle, _) = alice.publish(
+        &ws.store,
+        "repo",
+        "scope",
+        "main",
+        &snap,
+        base.clone(),
+        None,
+        None,
+    )?;
+    assert!(
+        !format!("{:?}", bundle.status).contains("ailed"),
+        "retention wedged the gate: {:?}",
+        bundle.status
+    );
+    Ok(())
+}

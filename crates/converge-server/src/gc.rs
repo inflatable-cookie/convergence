@@ -92,6 +92,47 @@ impl Engine<'_> {
                 protected.insert(base.clone());
             }
         }
+
+        // A publication declares the base it was written against, and the
+        // merge re-reads that base every time the window is folded. Drop
+        // the bundle it names and the fold cannot complete: every
+        // subsequent publish to that gate fails, with the same error,
+        // forever.
+        //
+        // Batch 22.4 did exactly this to a live repo by doing nothing
+        // unusual — `retention set --keep-bundles 5` then `gc --execute`.
+        // Two things made it permanent. Publications only leave a window
+        // when it advances, a window only advances on promotion, and a
+        // single-gate repo cannot promote (finding 33); and the client
+        // retries against a base it re-derives, so it never stops asking.
+        //
+        // Enumerated over scopes and gates rather than partitions: a
+        // partition row is only written once a window advances, so a repo
+        // that has never promoted has publications and no partitions at
+        // all — which is precisely the repo this happened to.
+        //
+        // A repo with no declared gate graph or no scopes has no
+        // publications to protect, so absence is empty rather than an
+        // error: making GC *require* a gate graph would fail it on repos
+        // that never had one.
+        let scopes = self.meta.list_scopes(authz.repo_id()).unwrap_or_default();
+        let gates = self
+            .meta
+            .get_gate_graph(authz.repo_id())
+            .unwrap_or(converge_model::GateGraph { gates: Vec::new() });
+        for scope in &scopes {
+            for gate in &gates.gates {
+                for (_, publication) in
+                    self.meta
+                        .list_publications_after(authz.repo_id(), scope, &gate.gate_id, 0)?
+                {
+                    if let Some(base) = &publication.base_bundle_id {
+                        protected.insert(base.clone());
+                    }
+                }
+            }
+        }
+
         let dropped_bundles = retention::bundles_to_drop(&bundles, &policy, &protected);
 
         let mut dropped_publications = Vec::new();

@@ -783,6 +783,80 @@ with a laptop and a desktop is one stale recipient. Deduplicated on the
 rendered line, so reasons that are genuinely key-specific still show
 separately — they name the key.
 
+### 33. The gate graph cannot be changed after the repo is created
+
+`converge repo create` provisions one `intake` gate. There is no verb to
+add a second, no verb to edit approvals or `may_release`, and no write
+route on the server either — `/api/repos/:repo/gates` is `get` only, and
+`set_gate_graph` is called exactly once, at repo creation.
+
+So `promote` — one of the six verbs the contract is built around — cannot
+be reached by any real user. The refusal is correct and clear:
+
+```
+$ converge promote cb59de7525b6 --to intake
+gate intake does not accept promotions from intake
+```
+
+but no downstream gate can ever exist to name instead. Everything the
+multi-gate design describes — staged review, required approvals, a
+release-only final gate — is implemented server-side and unreachable.
+
+Not fixed here, deliberately. A write path is not the hard part; what
+happens to *in-flight state* is. Partition state is keyed by gate, bundle
+windows advance per gate, and publications sit in a gate's open window —
+so removing or re-parenting a gate with live bundles is a data question
+before it is an API question. That needs a card, not an improvisation
+at the end of a shakedown.
+
+### 34. Retention could wedge a gate permanently (fixed)
+
+Two ordinary commands, on a real repo:
+
+```
+converge retention set --keep-bundles 5
+converge gc --execute
+```
+
+After that, every publish failed, identically, forever:
+
+```
+published to intake: bundle 34a5651587f2 (failed: no bundle c50bef0005d9, 6 objects uploaded)
+```
+
+A publication records the base it was written against, and folding the
+window re-reads that base every time. GC protected bundles named by a
+surviving *release*, and bundles named as base by another *bundle* — but
+not bundles named as base by a *publication*. Publication 2 declared
+`c50bef00`; retention dropped it; the fold could no longer complete.
+
+Three things made it terminal rather than annoying:
+
+- publications only leave a window when it advances, a window only
+  advances on promotion, and a single-gate repo cannot promote — finding
+  33, arriving as a consequence rather than a curiosity
+- the client re-derives its base and retries, so it never stops asking
+- GC's publication-dropping loop iterates *partitions*, and a partition
+  row is only written once a window advances — so the repo this happened
+  to had twelve publications and no partition rows at all
+
+There was no way back through the CLI. Repairing the live deployment
+meant editing `meta.sqlite` by hand to null the dangling base references,
+which is not a thing a user can be asked to do.
+
+GC now protects every base declared by a surviving publication,
+enumerated over scopes and gates rather than partitions, for the reason
+above. The regression test publishes six times, sets `keep_bundles: 2`,
+runs GC, and publishes again — and it fails without the fix, which was
+worth checking: the first version of it passed both ways, because each
+bundle happened to record the same base its publication had declared,
+and the existing bundle-base protection covered it.
+
+The output deserves a note too: `published to intake: bundle X (failed:
+...)` reads as a contradiction. It is accurate — the publication landed,
+the bundle build failed — but it announces the id of a bundle that does
+not work, and leads with the success.
+
 ## Measurements
 
 | | |
@@ -810,6 +884,7 @@ separately — they name the key.
 | Git mirror | 14 commits, tree byte-identical |
 | Lane push, changed file | 5 objects |
 | Diverged materialize | head replaced silently, 0 warnings |
+| `retention set` + `gc --execute` | gate wedged permanently, 6 publications orphaned |
 
 ## Next Task
 
