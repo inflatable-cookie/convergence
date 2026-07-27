@@ -257,6 +257,82 @@ Narrow on purpose: only when a base was recorded *and* the server names
 that as the reason. A base the server does know is never discarded,
 because base containment is what decides supersession.
 
+### 12. An exemplar can carry a trick instead of a reason (Monkey)
+
+The most interesting thing the loop has produced, and not a defect.
+
+Issue 1 taught the store a fix for "undated tasks sort last": hoist the
+presence check onto its own rung, because `Option` orders `None` first
+and the rule wanted it last.
+
+Issue 2 was the same trap in a different module. The exemplar was
+retrieved (cos 0.72) and **helped** — the first attempt went from 4
+failing to 1, where issue 1 had needed three attempts to get that far.
+
+Then it misfired. The model wrote `b.at.cmp(&a.at)` — reversing the whole
+comparison. That *does* push `None` last, so it satisfied the test the
+exemplar was teaching, and it also reversed the times, turning
+soonest-first into latest-first.
+
+The worked example taught a **shape** ("presence is its own rung") and
+the model took a **trick** ("reverse it to push `None` down"). It
+generalised the outcome rather than the reasoning, and the trick passes
+precisely the test that motivated the lesson.
+
+That is worth knowing before trusting an exemplar store on real work: a
+stored fix can encode a lesson that is right for its own test and wrong
+next door. Issue 3 was written to test it directly — the same surface
+with the trap **inverted**, where `None` must sort first — and retrieved
+the same family at cos 0.78, the highest similarity yet.
+
+### 13. A blocking escalation shim needs someone in the room
+
+Operational, mine. The shim blocks waiting for an answer, which is what
+makes monkey learn the exemplar. At a 1800-second timeout, one
+escalation blocked for the full half hour against an empty room, timed
+out, and **burned an escalation attempt** — the run had two and spent one
+on nobody.
+
+Now 180 seconds. Failing fast leaves the attempt available for a moment
+when an answer is actually coming.
+
+### 14. Retrieval offers confident irrelevance inside one codebase (Monkey)
+
+Issue 4 was written in a different family — parsing, not sorting — to
+test whether the store knows when to stay quiet. It does not: a
+**sorting** exemplar was offered for a **parsing** task at cos 0.69,
+comfortably above the 0.6 floor.
+
+The cause is that both live in the same crate and share its vocabulary:
+days, dates, records, `None`. The embedding is measuring *domain*
+overlap, not task similarity.
+
+The floor was calibrated on `code-bench`'s embedded tiers, where tasks
+are independent toy problems with genuinely different vocabulary —
+`gcd`, `is_palindrome`, `to_roman`. Inside one real codebase everything
+shares a domain, cosine compresses, and an absolute floor stops
+discriminating. A store that grows inside a single project will
+increasingly offer confident, irrelevant examples.
+
+Recorded, not fixed. The plausible answer is a domain-relative threshold
+rather than an absolute one, and that needs measurement rather than a
+guess.
+
+### 15. A killed run leaves the workspace broken
+
+`run_issue` restores every touched file on its normal exit path, which
+held through a mid-request process kill earlier in this batch. It does
+**not** hold through `pkill` of the run itself: the hallucinated `regex`
+code stayed on disk, and the next run started from a crate that no
+longer compiled — which its log dutifully reported as
+`baseline: 1 compiler error(s) (does not build)`.
+
+For a tool that rewrites your source, that is a real gap. The mitigation
+available today is the one this project exists to test: **snap before
+handing a tree to an editing tool.** I had not, which is why the repair
+was by hand rather than `converge restore`. Now snapped before each
+handoff.
+
 ## Measurements
 
 | | |
@@ -271,6 +347,9 @@ because base containment is what decides supersession.
 | Bad publish (ignores broken) | 1695 files, 33 MB |
 | Same tree, ignores fixed | 44 files, 272 KB |
 | Server objects, before → after rebuild | 15 MB → 436 KB |
+| Issue 1 (11 failing) | 11 → 6 → 1 local, then 1 escalation |
+| Issue 2 (4 failing), exemplar retrieved | **4 → 1 in one attempt**, then 1 escalation |
+| Exemplar store | 18 → 22 verified solutions |
 
 ## Next Task
 
