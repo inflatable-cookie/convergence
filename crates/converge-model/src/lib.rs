@@ -3,6 +3,7 @@ mod config;
 pub mod encoding;
 pub mod format;
 pub mod gates;
+pub mod releases;
 mod ids;
 mod manifest;
 mod resolution;

@@ -652,6 +652,7 @@ dependencies = [
  "blake3",
  "ciborium",
  "fastcdc",
+ "semver",
  "serde",
  "serde_bytes",
  "serde_json",
