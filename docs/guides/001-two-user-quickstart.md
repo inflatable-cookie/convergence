@@ -11,7 +11,7 @@ this file cannot drift from what the binaries do without a test failing.
 ## 1. Start the server and mint the first admin
 
 ```bash
-converge-server --addr 127.0.0.1:8080 --data-dir ./converge-data \
+converge-server --addr 127.0.0.1:2668 --data-dir ./converge-data \
   --bootstrap-admin root
 ```
 
@@ -34,7 +34,7 @@ does not exist yet is the normal path:
 ```bash
 mkdir acme && cd acme
 converge init
-converge login --url http://127.0.0.1:8080 --token 9f1c… \
+converge login --url http://127.0.0.1:2668 --token 9f1c… \
   --repo acme --scope default --gate intake
 converge repo create
 ```
@@ -74,7 +74,7 @@ converge member add contractor --capability read --scope-pattern 'client-a/*'
 ```bash
 mkdir dana-work && cd dana-work
 converge init
-converge login --url http://127.0.0.1:8080 --token <their token> \
+converge login --url http://127.0.0.1:2668 --token <their token> \
   --repo acme --scope default --gate intake
 echo "dana's work" > dana.md
 converge snap -m dana

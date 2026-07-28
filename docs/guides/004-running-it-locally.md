@@ -38,7 +38,8 @@ built.
 ```sh
 mkdir -p ~/convergence-local
 converge-server \
-  --addr 127.0.0.1:8080 \
+  --addr 127.0.0.1:2668 \
+# (in this repo, `effigy server` runs exactly this against ~/convergence-local)
   --data-dir ~/convergence-local \
   --bootstrap-admin "$USER"
 ```
@@ -56,7 +57,7 @@ object store. That directory **is** the deployment — see §6.
 ```sh
 mkdir -p ~/projects/scratch && cd ~/projects/scratch
 converge init
-converge login --url http://127.0.0.1:8080 --token <the token> \
+converge login --url http://127.0.0.1:2668 --token <the token> \
                --repo scratch --scope default --gate intake
 converge repo create
 ```
@@ -81,7 +82,7 @@ thing that failed. Each failure names the command that fixes it.
 ok   workspace      /Users/you/projects/scratch
 FAIL personal key   no key under /Users/you/.converge
      fix: converge key init   (needed for any secret verb)
-ok   remote         scratch/default/intake @ http://127.0.0.1:8080
+ok   remote         scratch/default/intake @ http://127.0.0.1:2668
 ok   server         reachable, credential accepted
 ok   clock          0s from the server
 ```
@@ -180,7 +181,7 @@ Put the directory back and point a server at it:
 ```sh
 mkdir -p ~/convergence-restored
 tar xzf convergence-2026-07-26.tar.gz -C ~/convergence-restored
-converge-server --addr 127.0.0.1:8080 --data-dir ~/convergence-restored
+converge-server --addr 127.0.0.1:2668 --data-dir ~/convergence-restored
 ```
 
 No `--bootstrap-admin` — the users, grants and tokens came back with the
@@ -215,7 +216,7 @@ against a deployment with no `objects/` directory at all.
 ```sh
 cd $(mktemp -d)
 converge init
-converge login --url http://127.0.0.1:8080 --token <token> --repo <repo> \
+converge login --url http://127.0.0.1:2668 --token <token> --repo <repo> \
                --scope default --gate intake
 converge doctor --deep
 ```

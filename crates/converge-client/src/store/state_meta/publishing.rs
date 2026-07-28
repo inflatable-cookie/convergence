@@ -86,3 +86,32 @@ impl LocalStore {
         })
     }
 }
+
+impl LocalStore {
+    /// Rewrite every URL-keyed entry in `state.json` after the server
+    /// moved (`remote set-url`). The values are all still true — the
+    /// same deployment answers at the new address — so dropping them
+    /// would needlessly re-derive publish bases and lane cursors.
+    pub fn rekey_state_urls(&self, old_url: &str, new_url: &str) -> Result<()> {
+        let old_prefix = format!("{old_url}#");
+        let new_prefix = format!("{new_url}#");
+        self.mutate_state(|state| {
+            let rekey = |map: &mut std::collections::HashMap<String, String>| {
+                let moved: Vec<(String, String)> = map
+                    .iter()
+                    .filter(|(k, _)| k.starts_with(&old_prefix))
+                    .map(|(k, v)| (k.clone(), v.clone()))
+                    .collect();
+                for (k, v) in moved {
+                    map.remove(&k);
+                    map.insert(k.replacen(&old_prefix, &new_prefix, 1), v);
+                }
+            };
+            rekey(&mut state.last_seen_bundle);
+            rekey(&mut state.last_published);
+            // lane_sync is keyed by lane id alone, so it survives a URL
+            // change untouched.
+            Ok(())
+        })
+    }
+}

@@ -769,3 +769,50 @@ fn a_repo_can_be_given_a_staged_gate_graph_from_the_cli() -> Result<()> {
     );
     Ok(())
 }
+
+/// The server moved: `remote set-url` follows it without a re-login.
+///
+/// The stored credential is keyed by `url#repo#workspace_root`, so a
+/// URL change used to orphan a perfectly good token — and the person
+/// being told to log in again is exactly the person who no longer has
+/// that token written down anywhere. Driven here as the same live
+/// server under a different URL string, which is the smallest honest
+/// version of "the address changed, the deployment did not".
+#[test]
+fn set_url_follows_a_moved_server_without_relogin() -> Result<()> {
+    let server_dir = tempfile::tempdir()?;
+    let (base_url, admin_token) = start_bare_server(server_dir.path())?;
+    let ws = tempfile::tempdir()?;
+    assert!(converge(ws.path(), &["init"]).status.success());
+    assert!(
+        login(ws.path(), &base_url, &admin_token, "moved")
+            .status
+            .success()
+    );
+    json_data(&converge(ws.path(), &["--json", "repo", "create"]));
+
+    // The same server, addressed differently.
+    let relocated = base_url.replace("127.0.0.1", "localhost");
+    let moved = json_data(&converge(
+        ws.path(),
+        &["--json", "remote", "set-url", &relocated],
+    ));
+    assert_eq!(moved["credential_moved"], true, "{moved}");
+
+    // A remote command works immediately: no login, no token prompt.
+    let status = json_data(&converge(ws.path(), &["--json", "status"]));
+    assert_eq!(
+        status["remote"]["target"]
+            .as_str()
+            .map(|t| t.contains("localhost")),
+        Some(true),
+        "the workspace still points at the old address: {status}"
+    );
+    assert!(
+        converge(ws.path(), &["--json", "token", "list"])
+            .status
+            .success(),
+        "the credential did not follow the URL"
+    );
+    Ok(())
+}

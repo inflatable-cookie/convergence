@@ -42,7 +42,9 @@ directory: see docs/guides/004-running-it-locally.md.
 ";
 
 fn main() -> Result<()> {
-    let mut addr = "127.0.0.1:8080".to_string();
+    // 2668 is CONV on a phone keypad — memorable, and unlike 8080 it is
+    // not the first port every other dev tool on the machine squats on.
+    let mut addr = "127.0.0.1:2668".to_string();
     let mut data_dir = PathBuf::from("./converge-data");
     let mut metadata: Option<String> = None;
     let mut objects_url: Option<String> = None;

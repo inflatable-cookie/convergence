@@ -135,6 +135,31 @@ impl LocalStore {
             }
         }
     }
+
+    /// Follow a server that moved (`remote set-url`).
+    ///
+    /// The stored token is keyed by `url#repo#workspace_root` and its
+    /// encrypted body embeds that key, so a URL change orphans a
+    /// perfectly good credential. This decrypts under the machine key,
+    /// re-encrypts under the new key string, and removes the old file —
+    /// which is exactly what a person would otherwise be told to fix by
+    /// logging in again, with a token they no longer have anywhere.
+    ///
+    /// Returns false when nothing was stored for the old remote.
+    pub fn move_remote_token(&self, old: &RemoteConfig, new: &RemoteConfig) -> Result<bool> {
+        let old_key = self.remote_token_key(old);
+        let Some(token) = self.read_token_file(&old_key)? else {
+            return Ok(false);
+        };
+        let new_key = self.remote_token_key(new);
+        self.write_token_file(&new_key, &token)?;
+        let old_path = token_path(&old_key)?;
+        if old_path.exists() {
+            std::fs::remove_file(&old_path)
+                .with_context(|| format!("remove {}", old_path.display()))?;
+        }
+        Ok(true)
+    }
 }
 
 /// What a token file holds.

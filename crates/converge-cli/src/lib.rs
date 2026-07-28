@@ -400,7 +400,10 @@ enum Command {
         command: Vec<String>,
     },
     /// Show the configured remote for this workspace.
-    Remote,
+    Remote {
+        #[command(subcommand)]
+        command: Option<RemoteCommand>,
+    },
     /// Report the state of this setup and what is wrong with it.
     Doctor {
         /// Also ask the server to prove it can still serve data.
@@ -508,6 +511,18 @@ enum ScopeCommand {
     Create { scope_id: String },
     /// List the repo's registered scopes.
     List,
+}
+
+#[derive(Subcommand)]
+enum RemoteCommand {
+    /// The server moved: point this workspace at its new URL.
+    ///
+    /// Everything follows — the stored credential is re-keyed (it is
+    /// keyed by URL, so a URL change would otherwise orphan it), and
+    /// the workspace's publish-base bookkeeping moves with it. Nothing
+    /// on the server changes; this is the same deployment at a new
+    /// address, which is why no re-login is needed.
+    SetUrl { url: String },
 }
 
 #[derive(Subcommand)]
@@ -1435,8 +1450,38 @@ fn run(cli: &Cli, mode: OutputMode, session: &Session) -> Result<serde_json::Val
             )
         }
         Command::Doctor { deep } => run_doctor(mode, session, *deep),
-        Command::Remote => {
+        Command::Remote { command } => {
             let ws = session.workspace()?;
+            if let Some(RemoteCommand::SetUrl { url }) = command {
+                let mut cfg = ws.store.read_config()?;
+                let Some(old_remote) = cfg.remote.clone() else {
+                    anyhow::bail!("no remote configured; use `converge login` for a first setup");
+                };
+                let url = url.trim_end_matches('/').to_string();
+                let mut new_remote = old_remote.clone();
+                new_remote.base_url = url.clone();
+
+                let moved = ws.store.move_remote_token(&old_remote, &new_remote)?;
+                ws.store.rekey_state_urls(&old_remote.base_url, &url)?;
+                cfg.remote = Some(new_remote);
+                ws.store.write_config(&cfg)?;
+
+                return emit(
+                    mode,
+                    serde_json::json!({ "url": url, "credential_moved": moved }),
+                    |d| {
+                        println!("remote is now {}", d["url"].as_str().unwrap_or(""));
+                        if d["credential_moved"].as_bool() == Some(true) {
+                            println!("stored credential followed; no re-login needed");
+                        } else {
+                            println!(
+                                "no stored credential for the old URL — run `converge login` \
+                                 if the next remote command is refused"
+                            );
+                        }
+                    },
+                );
+            }
             let cfg = ws.store.read_config()?;
             #[derive(Serialize)]
             struct RemoteInfo {
