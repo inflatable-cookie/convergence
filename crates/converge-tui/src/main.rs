@@ -1218,32 +1218,81 @@ fn render(frame: &mut Frame, app: &App) {
         );
     }
 
-    // Input line with prompt and key legend.
-    let legend = if app.quit_confirm {
-        "quit? Enter/y: yes  any other key: no".to_string()
-    } else if let Some((label, _)) = &app.pending_confirm {
-        format!("{label}? Enter/y: yes  any other key: no")
+    // The footer is the navigation surface (batch 27.1). In navigate
+    // mode it lists every destination with the bare key that reaches it
+    // — visible, not learned, because the previous scheme was Alt-only
+    // and stock macOS terminals never deliver Alt, so from 23.1 to 27.1
+    // there was no working navigation at all. In command mode it is the
+    // console with a caret.
+    if app.quit_confirm || app.pending_confirm.is_some() {
+        let legend = if app.quit_confirm {
+            "quit? Enter/y: yes  any other key: no".to_string()
+        } else if let Some((label, _)) = &app.pending_confirm {
+            format!("{label}? Enter/y: yes  any other key: no")
+        } else {
+            String::new()
+        };
+        frame.render_widget(
+            Paragraph::new(Line::from(Span::styled(
+                legend,
+                Style::default()
+                    .fg(Color::Yellow)
+                    .add_modifier(Modifier::BOLD),
+            ))),
+            input,
+        );
+    } else if app.command_mode {
+        // The caret is drawn in the line rather than moved with the
+        // terminal cursor: one render path, and the trace sees what the
+        // user sees.
+        let (before, after) = app.input.split_at(app.cursor.min(app.input.len()));
+        frame.render_widget(
+            Paragraph::new(Line::from(vec![
+                Span::styled(app.prompt(), Style::default().fg(Color::Cyan)),
+                Span::raw(" "),
+                Span::raw(before.to_string()),
+                Span::styled("|", Style::default().fg(Color::Cyan)),
+                Span::raw(after.to_string()),
+                Span::raw("  "),
+                Span::styled(
+                    "Enter: run  Esc: close console  Tab: complete",
+                    Style::default().fg(Color::DarkGray),
+                ),
+            ])),
+            input,
+        );
     } else {
-        format!(
-            "Enter: {}  Esc: back  Tab: complete  q: quit",
-            app.primary_action().0
-        )
-    };
-    // The caret is drawn in the line rather than moved with the terminal
-    // cursor: one render path, and the trace sees what the user sees.
-    let (before, after) = app.input.split_at(app.cursor.min(app.input.len()));
-    frame.render_widget(
-        Paragraph::new(Line::from(vec![
-            Span::styled(app.prompt(), Style::default().fg(Color::Green)),
-            Span::raw(" "),
-            Span::raw(before.to_string()),
-            Span::styled("|", Style::default().fg(Color::Green)),
-            Span::raw(after.to_string()),
-            Span::raw("  "),
-            Span::styled(legend, Style::default().fg(Color::DarkGray)),
-        ])),
-        input,
-    );
+        let key = |k: &'static str| Span::styled(k, Style::default().fg(Color::Yellow));
+        let label = |l: &'static str| Span::styled(l, Style::default().fg(Color::Gray));
+        let mut spans = vec![Span::styled(
+            format!("Enter: {}  ", app.primary_action().0),
+            Style::default()
+                .fg(Color::White)
+                .add_modifier(Modifier::BOLD),
+        )];
+        // Uniform "key word" pairs, one space between pairs: the yellow
+        // letter is the key even where it is not the word's initial
+        // (releases is `e` — `r` is root). Kept compact so the whole
+        // bar survives a 100-column terminal.
+        for (k, l) in [
+            ("h", "history "),
+            ("i", "inbox "),
+            ("b", "bundles "),
+            ("l", "lanes "),
+            ("e", "releases "),
+            ("g", "gates "),
+            ("s", "secrets "),
+            (":", "command "),
+            ("?", "help "),
+            ("Esc", "back "),
+            ("q", "quit"),
+        ] {
+            spans.push(key(k));
+            spans.push(Span::raw(" "));
+            spans.push(label(l));
+        }
+        frame.render_widget(Paragraph::new(Line::from(spans)), input);
+    }
 }
 
 fn view_block(app: &App) -> Block<'static> {

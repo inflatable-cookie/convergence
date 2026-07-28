@@ -426,6 +426,11 @@ pub struct App {
     /// at startup and passed in, so the reducer stays pure.
     pub passphrase_available: bool,
     pub frames: Vec<View>,
+    /// Typing happens only after `:` (batch 27.1). Bare keys navigate,
+    /// which is the only model where a first-time user can press a key
+    /// and watch something happen — the Alt jump layer was the entire
+    /// shortcut set and stock macOS terminals never deliver it.
+    pub command_mode: bool,
     pub input: String,
     pub command_history: Vec<String>,
     pub history_cursor: Option<usize>,
@@ -486,6 +491,7 @@ impl Default for App {
             input: String::new(),
             command_history: Vec::new(),
             history_cursor: None,
+            command_mode: false,
             suggestions: Vec::new(),
             suggestion_index: 0,
             last: Vec::new(),
@@ -865,33 +871,6 @@ impl App {
                 }
             };
         }
-        if self.current_view() == View::Resolution
-            && self.input.is_empty()
-            && let Some(action) = self.handle_resolution_key(key)
-        {
-            return action;
-        }
-        if self.current_view() == View::History
-            && self.input.is_empty()
-            && let Some(action) = self.handle_history_key(key)
-        {
-            return action;
-        }
-        if self.current_view() == View::Inbox
-            && self.input.is_empty()
-            && let Some(action) = self.handle_inbox_key(key)
-        {
-            return action;
-        }
-        if self.input.is_empty()
-            && matches!(
-                self.current_view(),
-                View::Bundles | View::Releases | View::Lanes | View::Gates | View::Secrets
-            )
-            && let Some(action) = self.handle_rows_key(self.current_view(), key)
-        {
-            return action;
-        }
         if self.quit_confirm {
             return match key.code {
                 KeyCode::Enter | KeyCode::Char('y') => Some(Action::Quit),
@@ -902,68 +881,114 @@ impl App {
             };
         }
 
-        // Contextual jump layer (UX spec wart 2 fix, Alt+N template):
-        // works regardless of input state, so it never fights the console.
-        if key.modifiers.contains(crossterm::event::KeyModifiers::ALT) {
-            match key.code {
-                KeyCode::Char('h') => {
-                    if self.current_view() != View::History {
-                        return Some(Action::Enter(View::History));
-                    }
-                    return None;
-                }
-                KeyCode::Char('i') => {
-                    if self.current_view() != View::Inbox {
-                        return Some(Action::LoadInbox);
-                    }
-                    return None;
-                }
-                // Resolution jumps (UX spec §5): next missing, next invalid.
-                KeyCode::Char('n') if self.current_view() == View::Resolution => {
-                    self.jump_resolution(false);
-                    return None;
-                }
-                KeyCode::Char('f') if self.current_view() == View::Resolution => {
-                    self.jump_resolution(true);
-                    return None;
-                }
-                KeyCode::Char('b') => return self.jump(View::Bundles),
-                KeyCode::Char('l') => return self.jump(View::Lanes),
-                KeyCode::Char('e') => return self.jump(View::Releases),
-                KeyCode::Char('g') => return self.jump(View::Gates),
-                KeyCode::Char('s') => return self.jump(View::Secrets),
-                KeyCode::Char('?') => return self.jump(View::Help),
-                KeyCode::Char('r') => {
-                    self.frames.truncate(1);
-                    return None;
-                }
-                _ => {}
-            }
+        // Typing is a mode you enter with `:`, not the default (batch
+        // 27.1, operator's call). Everything below this block is
+        // navigation.
+        if self.command_mode {
+            return self.handle_command_key(key);
         }
 
+        // Per-view keys first, so a screen's own verbs win over the
+        // global jumps on that screen — `e` releases a bundle on the
+        // Bundles screen and jumps to Releases everywhere else. The
+        // handlers fall through (return None) for keys they do not own.
+        if self.current_view() == View::Resolution
+            && let Some(action) = self.handle_resolution_key(key)
+        {
+            return action;
+        }
+        if self.current_view() == View::History
+            && let Some(action) = self.handle_history_key(key)
+        {
+            return action;
+        }
+        if self.current_view() == View::Inbox
+            && let Some(action) = self.handle_inbox_key(key)
+        {
+            return action;
+        }
+        if matches!(
+            self.current_view(),
+            View::Bundles | View::Releases | View::Lanes | View::Gates | View::Secrets
+        ) && let Some(action) = self.handle_rows_key(self.current_view(), key)
+        {
+            return action;
+        }
+
+        // The jump keys, bare. They were Alt-modified — and Alt is the
+        // key stock macOS terminals never deliver, so from batch 23.1
+        // until 27.1 the TUI had no working navigation at all on the
+        // platform the operator uses. Alt still works as an accelerator
+        // for terminals that send it; nothing requires it.
         match key.code {
+            KeyCode::Char(':') | KeyCode::Char('/') => {
+                self.command_mode = true;
+                self.input.clear();
+                self.cursor = 0;
+                self.refresh_suggestions();
+                None
+            }
+            KeyCode::Char('h') => {
+                if self.current_view() != View::History {
+                    return Some(Action::Enter(View::History));
+                }
+                None
+            }
+            KeyCode::Char('i') => {
+                if self.current_view() != View::Inbox {
+                    return Some(Action::LoadInbox);
+                }
+                None
+            }
+            KeyCode::Char('n') if self.current_view() == View::Resolution => {
+                self.jump_resolution(false);
+                None
+            }
+            KeyCode::Char('f') if self.current_view() == View::Resolution => {
+                self.jump_resolution(true);
+                None
+            }
+            KeyCode::Char('b') => self.jump(View::Bundles),
+            KeyCode::Char('l') => self.jump(View::Lanes),
+            KeyCode::Char('e') => self.jump(View::Releases),
+            KeyCode::Char('g') => self.jump(View::Gates),
+            KeyCode::Char('s') => self.jump(View::Secrets),
+            KeyCode::Char('?') => self.jump(View::Help),
+            KeyCode::Char('r') => {
+                self.frames.truncate(1);
+                None
+            }
             KeyCode::Esc => {
-                // UX spec §3 layered back, with the wart fix: quitting from
-                // root requires confirmation instead of a stray-Esc exit.
-                if !self.input.is_empty() {
-                    self.input.clear();
-                    self.cursor = 0;
-                    self.suggestions.clear();
-                } else if self.frames.len() > 1 {
+                // Layered back (UX spec §3): pop a view, or confirm quit
+                // from root rather than exiting on a stray Esc.
+                if self.frames.len() > 1 {
                     self.frames.pop();
                 } else {
                     self.quit_confirm = true;
                 }
                 None
             }
-            KeyCode::Char('q') if self.input.is_empty() => {
+            KeyCode::Char('q') => {
                 self.quit_confirm = true;
                 None
             }
+            KeyCode::Enter => Some(self.primary_action().1),
+            _ => None,
+        }
+    }
+
+    /// Keys while the console is open. Esc closes it; Enter submits and
+    /// closes it; everything else edits.
+    fn handle_command_key(&mut self, key: KeyEvent) -> Option<Action> {
+        match key.code {
+            KeyCode::Esc => {
+                self.command_mode = false;
+                self.input.clear();
+                self.cursor = 0;
+                self.suggestions.clear();
+                None
+            }
             KeyCode::Tab => {
-                // Completion, and nothing else. Tab used to also toggle
-                // a Local/Remote mode when the input was empty, which
-                // made one key mean two things depending on state.
                 if let Some(s) = self.suggestions.get(self.suggestion_index) {
                     self.input = s.clone();
                     self.cursor = self.input.len();
@@ -973,19 +998,20 @@ impl App {
             }
             KeyCode::Enter => {
                 if self.input.is_empty() {
-                    Some(self.primary_action().1)
-                } else {
-                    let line = if let Some(s) = self.suggestions.get(self.suggestion_index) {
-                        if self.suggestions.len() == 1 {
-                            s.clone()
-                        } else {
-                            self.input.clone()
-                        }
+                    self.command_mode = false;
+                    return None;
+                }
+                let line = if let Some(s) = self.suggestions.get(self.suggestion_index) {
+                    if self.suggestions.len() == 1 {
+                        s.clone()
                     } else {
                         self.input.clone()
-                    };
-                    self.submit(line)
-                }
+                    }
+                } else {
+                    self.input.clone()
+                };
+                self.command_mode = false;
+                self.submit(line)
             }
             KeyCode::Up => {
                 if self.input.is_empty() && self.suggestions.is_empty() {
@@ -1363,7 +1389,13 @@ mod tests {
         KeyEvent::new(code, KeyModifiers::NONE)
     }
 
+    /// Type into the console the way a person now does: `:` first
+    /// (batch 27.1 — bare keys navigate). Wizards capture keys before
+    /// the mode split, so they need no prefix.
     fn typed(app: &mut App, text: &str) {
+        if !app.command_mode && app.wizard.is_none() {
+            app.handle_key(key(KeyCode::Char(':')));
+        }
         for c in text.chars() {
             app.handle_key(key(KeyCode::Char(c)));
         }
@@ -2210,6 +2242,9 @@ mod tests {
         app.handle_key(key(KeyCode::Enter));
         assert_eq!(app.cursor, 0, "submitting clears the line and the caret");
 
+        // Submitting leaves the console (batch 27.1), so recalling
+        // history means opening it again first.
+        app.handle_key(key(KeyCode::Char(':')));
         app.handle_key(key(KeyCode::Up));
         assert_eq!(app.input, "status");
         assert_eq!(

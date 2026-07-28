@@ -4208,7 +4208,9 @@ impl ActionKind {
         match self {
             ActionKind::Resolve => "resolve superpositions",
             ActionKind::Approve => "approve",
-            ActionKind::Promote => "promote to the next gate",
+            // Short: this lands in a footer beside eleven nav keys,
+            // and the row it summarises already names the target gate.
+            ActionKind::Promote => "promote",
             ActionKind::LanePull => "pull lane work",
             ActionKind::Publication => "open inbox",
         }

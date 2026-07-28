@@ -1,6 +1,6 @@
 # 096 Frame And Navigation
 
-Status: ready
+Status: complete
 Updated: 2026-07-28
 Roadmap: `g02.027`
 
@@ -96,6 +96,39 @@ never arrives.
 
 - `effigy validate`
 - a pty drive proving each advertised key arrives
+
+## Outcome
+
+Bare keys navigate; `:` opens the console. `handle_key` is now two
+functions — navigation, and `handle_command_key` for everything that
+edits text — so a keypress is never ambiguous about which world it is
+in. Per-view keys run first, which keeps a screen's own verbs winning
+over the global jumps on that screen (`e` releases a bundle on the
+Bundles screen and jumps to Releases everywhere else). `Alt` survives as
+an accelerator for free: crossterm reports Alt+h as `h` with a modifier
+the match ignores, so nothing requires it and nothing breaks with it.
+
+The footer is the navigation surface: every destination with its bare
+key, yellow key against gray label, the primary action first in bold.
+It fits a 100-column terminal, which meant shortening the promote CTA —
+the row it summarises already names the target gate.
+
+Proven the way the card demanded: a pty pressed every advertised key
+and asserted the destination screen arrived. Two keys initially
+reported as dead (`i`, `b`) turned out to be the harness racing the
+async inbox load — worth recording, because the difference between "the
+key does nothing" and "the result is asynchronous" is invisible in a
+single frame and is exactly what a person concludes wrongly.
+
+One deliberate behaviour change beyond the split: submitting a command
+leaves the console, and recalling history means opening it again.
+Typing stays two keystrokes from anywhere; the reducer tests type
+through a helper that presses `:` first, and wizards are unaffected
+because they capture keys before the mode split.
+
+Deferred to 27.2/27.3, not dropped: the five-band frame with the
+guidance panel, and the semantic palette applied beyond the footer.
+This card fixed the blocker — navigation now exists and is visible.
 
 ## Next Task
 
