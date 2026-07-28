@@ -806,97 +806,60 @@ fn render(frame: &mut Frame, app: &App) {
                 top[1],
             );
 
-            // -- What needs doing: numbered, selectable, and the
-            // selected row is what Enter runs. The highlight IS the
-            // explanation of the footer's `Enter:` label.
-            let mut todo: Vec<Line> = Vec::new();
-            if app.recommendations.is_empty() {
-                todo.push(Line::raw("nothing is waiting on you."));
-                todo.push(Line::raw(""));
-                todo.push(Line::styled(
-                    "make a change and `:snap` it, or browse with the keys below.",
-                    Style::default().fg(Color::Gray),
-                ));
-            } else {
-                let selected_index = app
-                    .root_selected
-                    .min(app.recommendations.len().saturating_sub(1));
-                for (i, recommendation) in app.recommendations.iter().enumerate() {
-                    let selected = i == selected_index;
-                    let owners = if recommendation.owners.is_empty() {
-                        String::new()
-                    } else {
-                        format!("  ({})", recommendation.owners.join(", "))
+            // -- The hub: six tiles, each a place to look, the
+            // selected one opened by Enter. The first pass put a
+            // command behind Enter and the operator named the cost:
+            // it removes agency the moment the screen loads.
+            let grid_rows = Layout::default()
+                .direction(Direction::Vertical)
+                .constraints([
+                    Constraint::Ratio(1, 3),
+                    Constraint::Ratio(1, 3),
+                    Constraint::Ratio(1, 3),
+                ])
+                .split(sections[1]);
+            let selected_tile = app.root_selected.min(app::ROOT_TILES.len() - 1);
+            for (row_index, row_area) in grid_rows.iter().enumerate() {
+                let columns = Layout::default()
+                    .direction(Direction::Horizontal)
+                    .constraints([Constraint::Percentage(50), Constraint::Percentage(50)])
+                    .split(*row_area);
+                for (col_index, cell) in columns.iter().enumerate() {
+                    let tile_index = row_index * 2 + col_index;
+                    let Some((view, name)) = app::ROOT_TILES.get(tile_index) else {
+                        continue;
                     };
-                    let marker = if selected { "▶" } else { " " };
-                    let base = if selected {
-                        Style::default()
-                            .bg(Color::DarkGray)
-                            .add_modifier(Modifier::BOLD)
-                    } else {
-                        Style::default()
-                    };
-                    let kind_colour = match recommendation.kind {
-                        converge_cli::ActionKind::Resolve => Color::Red,
-                        converge_cli::ActionKind::Approve | converge_cli::ActionKind::Promote => {
-                            Color::Yellow
-                        }
-                        converge_cli::ActionKind::LanePull => Color::Cyan,
-                        converge_cli::ActionKind::Publication => Color::Gray,
-                    };
-                    todo.push(Line::from(vec![
-                        Span::styled(format!(" {marker} {}. ", i + 1), base),
-                        Span::styled(
-                            format!("{}{owners}", recommendation.headline),
-                            base.fg(kind_colour),
-                        ),
-                    ]));
+                    let selected = tile_index == selected_tile;
+                    let mut lines = root_tile_preview(app, *view);
                     if selected {
-                        let does = match &recommendation.argv {
-                            // Ids shortened for the eye. Honest, not
-                            // cosmetic: every verb resolves unique
-                            // prefixes (batches 22.4/26.4), so the
-                            // displayed command runs as printed too.
-                            Some(argv) => format!(
-                                "Enter runs: converge {}",
-                                argv.iter()
-                                    .map(|a| {
-                                        if a.len() == 64 && a.chars().all(|c| c.is_ascii_hexdigit())
-                                        {
-                                            a[..12].to_string()
-                                        } else {
-                                            a.clone()
-                                        }
-                                    })
-                                    .collect::<Vec<_>>()
-                                    .join(" ")
-                            ),
-                            None => format!(
-                                "Enter opens the {} screen — several need a look",
-                                recommendation.view
-                            ),
-                        };
-                        todo.push(Line::from(vec![
-                            Span::raw("      "),
-                            Span::styled(does, Style::default().fg(Color::Gray)),
-                        ]));
+                        lines.push(Line::raw(""));
+                        lines.push(Line::styled(
+                            format!("Enter opens {name}"),
+                            Style::default().fg(Color::Yellow),
+                        ));
                     }
+                    let border = if selected {
+                        Style::default().fg(Color::Yellow)
+                    } else {
+                        Style::default().fg(Color::DarkGray)
+                    };
+                    let title = format!(
+                        " {} {}. {} ",
+                        if selected { "▶" } else { " " },
+                        tile_index + 1,
+                        name
+                    );
+                    frame.render_widget(
+                        Paragraph::new(lines).block(
+                            Block::default()
+                                .borders(Borders::ALL)
+                                .title(title)
+                                .border_style(border),
+                        ),
+                        *cell,
+                    );
                 }
-                todo.push(Line::raw(""));
-                todo.push(Line::styled(
-                    "↑↓ choose · Enter do it · or press the number",
-                    Style::default().fg(Color::Gray),
-                ));
             }
-            frame.render_widget(
-                Paragraph::new(todo).block(
-                    Block::default()
-                        .borders(Borders::ALL)
-                        .title(" What needs doing ")
-                        .border_style(Style::default().fg(Color::DarkGray)),
-                ),
-                sections[1],
-            );
         }
         View::Resolution => {
             let empty = ResolutionState::default();
@@ -1406,6 +1369,77 @@ fn render(frame: &mut Frame, app: &App) {
     }
 }
 
+/// What a root tile shows before you open it: a preview where data is
+/// in hand, and a plain description of what lives there where it is not
+/// — so every tile teaches what its section is for.
+fn root_tile_preview(app: &App, view: View) -> Vec<Line<'static>> {
+    match view {
+        View::Inbox => {
+            if app.recommendations.is_empty() {
+                return vec![Line::styled(
+                    "nothing is waiting on you",
+                    Style::default().fg(Color::Gray),
+                )];
+            }
+            app.recommendations
+                .iter()
+                .take(3)
+                .map(|r| {
+                    let owners = if r.owners.is_empty() {
+                        String::new()
+                    } else {
+                        format!("  ({})", r.owners.join(", "))
+                    };
+                    let colour = match r.kind {
+                        converge_cli::ActionKind::Resolve => Color::Red,
+                        converge_cli::ActionKind::Approve | converge_cli::ActionKind::Promote => {
+                            Color::Yellow
+                        }
+                        converge_cli::ActionKind::LanePull => Color::Cyan,
+                        converge_cli::ActionKind::Publication => Color::Gray,
+                    };
+                    Line::styled(
+                        format!("· {}{owners}", r.headline),
+                        Style::default().fg(colour),
+                    )
+                })
+                .collect()
+        }
+        View::History => {
+            let snaps = app
+                .status
+                .as_ref()
+                .and_then(|s| s["snaps"]["total"].as_u64())
+                .unwrap_or(0);
+            vec![
+                Line::raw(format!("{snaps} snaps captured")),
+                Line::styled(
+                    "every version of your work, restorable",
+                    Style::default().fg(Color::Gray),
+                ),
+            ]
+        }
+        view => {
+            let loaded = app.rows.get(&view).map(Vec::len);
+            let description = match view {
+                View::Bundles => "work waiting at each gate",
+                View::Lanes => "teammates' unpublished work",
+                View::Releases => "what has shipped, by channel",
+                View::Gates => "the pipeline stages",
+                _ => "",
+            };
+            let mut lines = vec![Line::styled(
+                description.to_string(),
+                Style::default().fg(Color::Gray),
+            )];
+            if let Some(count) = loaded {
+                lines.insert(0, Line::raw(format!("{count} item(s)")));
+            }
+            lines
+        }
+    }
+}
+
 fn view_block(app: &App) -> Block<'static> {
     Block::default()
         .borders(Borders::ALL)
@@ -1641,7 +1675,7 @@ mod screen_tests {
             "bundles": [{"bundle_id": "b2", "gate_id": "intake", "recommendation": "resolve",
                          "approvals": 0, "required_approvals": 0, "contributors": ["carol", "dana"]}]
         }));
-        let text = screen(&app, 100, 24).join("\n");
+        let text = screen(&app, 100, 40).join("\n");
 
         let blocked = text.find("blocked by superpositions").expect("resolve row");
         let lane = text.find("with work to pull").expect("lane row");
@@ -1655,23 +1689,25 @@ mod screen_tests {
             text.contains("(erin)"),
             "a personal lane names its owner: {text}"
         );
-        // The selected row explains what Enter does (batch 27.3) —
-        // which replaced the bare `→ bundles` arrow with a sentence.
+        // The root is a hub (batch 27.3, second pass): the inbox tile
+        // previews the ranked work, the selection is visible on a tile,
+        // and Enter *opens* — it never runs a mutation from here,
+        // because that is what the operator meant by removing agency.
         assert!(
-            text.contains("Enter runs: converge resolve list"),
-            "the selected row does not say what Enter does: {text}"
+            text.contains("▶ 1. inbox"),
+            "the selected tile is not visible: {text}"
         );
         assert!(
-            text.contains("▶ 1."),
-            "the selection is not visible: {text}"
+            text.contains("Enter opens inbox"),
+            "the selected tile does not say what Enter does: {text}"
         );
         assert!(
-            text.contains("↑↓ choose"),
-            "nothing says the list is selectable: {text}"
+            !text.contains("Enter runs: converge"),
+            "the root offers to run a command again: {text}"
         );
         // The 23.1 finding, guarded here too: a 64-character id in a
         // dashboard row pushes everything after it off the edge.
-        for line in screen(&app, 100, 24) {
+        for line in screen(&app, 100, 40) {
             assert!(
                 !line.contains(&"b".repeat(20)),
                 "a full bundle id reached the dashboard: {line}"
@@ -1687,12 +1723,12 @@ mod screen_tests {
         app.load_inbox_entries(&serde_json::json!({
             "lanes": [], "publications": [], "bundles": []
         }));
-        let text = screen(&app, 100, 24).join("\n");
+        let text = screen(&app, 100, 40).join("\n");
         assert!(
-            !text.contains("next"),
-            "nothing to say, so say nothing: {text}"
+            text.contains("nothing is waiting on you"),
+            "a quiet inbox tile should say so: {text}"
         );
-        assert!(text.contains("Enter: history"));
+        assert!(text.contains("Enter: open inbox"));
     }
 
     fn resolution_app() -> App {

@@ -431,10 +431,11 @@ pub struct App {
     /// and watch something happen — the Alt jump layer was the entire
     /// shortcut set and stock macOS terminals never deliver it.
     pub command_mode: bool,
-    /// Which row of the Root to-do list is selected (batch 27.3). The
-    /// screenshot that opened g02.027 shows why this exists: a list you
-    /// cannot select, above an `Enter: promote` that names no target,
-    /// is a promise about something invisible.
+    /// Which tile of the Root hub is selected (batch 27.3, second
+    /// pass). The first pass made Enter *run a command* from the root,
+    /// and the operator named the cost precisely: it removes agency.
+    /// The root is now a hub of places to look — Enter opens the
+    /// selected section, and acting happens inside it, after looking.
     pub root_selected: usize,
     pub input: String,
     pub command_history: Vec<String>,
@@ -523,6 +524,17 @@ impl Default for App {
     }
 }
 
+/// The sections of the root hub, in reading order for a two-column
+/// grid. Inbox first because it is where other people's work waits.
+pub const ROOT_TILES: &[(View, &str)] = &[
+    (View::Inbox, "inbox"),
+    (View::Bundles, "bundles"),
+    (View::Lanes, "lanes"),
+    (View::History, "history"),
+    (View::Releases, "releases"),
+    (View::Gates, "gates"),
+];
+
 impl App {
     pub fn current_view(&self) -> View {
         *self.frames.last().expect("root frame always present")
@@ -568,34 +580,21 @@ impl App {
             View::History => ("restore selected".into(), Action::Enter(View::History)),
             View::Help => ("back".into(), Action::Enter(View::Help)),
             View::Root => {
-                // Your own uncaptured work first: it is local, cheap,
-                // and the only thing here that can be lost.
-                if self.pending_changes > 0 {
-                    return ("snap".into(), Action::Run(vec!["snap".into()]));
-                }
-                // Then the *selected* row of the ranked list (batch
-                // 27.3) — Enter acts on the row the highlight is on,
-                // which is what a highlight means. A group with several
-                // runnable members has no argv, so Enter opens its view
-                // instead of picking one of five bundles for you.
-                if let Some(selected) = self.recommendations.get(
-                    self.root_selected
-                        .min(self.recommendations.len().saturating_sub(1)),
-                ) {
-                    return match &selected.argv {
-                        Some(argv) => (
-                            selected.kind.cta().to_string(),
-                            action_for_argv(argv.clone()),
-                        ),
-                        None => (
-                            format!("open {}", selected.view),
-                            Self::view_by_name(selected.view)
-                                .map(Action::Enter)
-                                .unwrap_or(Action::Enter(View::Inbox)),
-                        ),
-                    };
-                }
-                ("history".into(), Action::Enter(View::History))
+                // Enter opens the selected tile, and never runs a
+                // mutation from here. The first 27.3 pass had Enter
+                // execute the top recommendation, and the operator
+                // named the cost precisely: it removes agency the
+                // moment the screen loads. Looking comes first; acting
+                // happens inside the view you chose.
+                let (view, name) = ROOT_TILES[self.root_selected.min(ROOT_TILES.len() - 1)];
+                (
+                    format!("open {name}"),
+                    if view == View::Inbox {
+                        Action::LoadInbox
+                    } else {
+                        Action::Enter(view)
+                    },
+                )
             }
         }
     }
@@ -710,20 +709,6 @@ impl App {
     }
 
     /// Enter a view unless it is already the active one.
-    /// The Recommendation's `view` field is a name, because it crosses
-    /// the CLI boundary as data.
-    fn view_by_name(name: &str) -> Option<View> {
-        Some(match name {
-            "bundles" => View::Bundles,
-            "lanes" => View::Lanes,
-            "inbox" => View::Inbox,
-            "releases" => View::Releases,
-            "gates" => View::Gates,
-            "history" => View::History,
-            _ => return None,
-        })
-    }
-
     fn jump(&self, view: View) -> Option<Action> {
         if self.current_view() == view {
             return None;
@@ -946,24 +931,30 @@ impl App {
             return action;
         }
 
-        // Root's to-do list is selectable (batch 27.3): the highlight
-        // is what Enter acts on, arrows move it, and a number both
-        // selects and acts — the one-keystroke path for the row you can
-        // already see.
-        if self.current_view() == View::Root && !self.recommendations.is_empty() {
+        // The root is a hub of tiles in a two-column grid (batch 27.3):
+        // arrows move the highlight between sections, Enter opens the
+        // highlighted one, a number opens its tile directly. Nothing
+        // here mutates anything — that was the first pass's mistake.
+        if self.current_view() == View::Root {
             match key.code {
                 KeyCode::Up => {
-                    self.root_selected = self.root_selected.saturating_sub(1);
+                    self.root_selected = self.root_selected.saturating_sub(2);
                     return None;
                 }
                 KeyCode::Down => {
-                    self.root_selected =
-                        (self.root_selected + 1).min(self.recommendations.len() - 1);
+                    self.root_selected = (self.root_selected + 2).min(ROOT_TILES.len() - 1);
                     return None;
                 }
-                KeyCode::Char(c @ '1'..='9') => {
-                    let index = (c as usize - '1' as usize).min(self.recommendations.len() - 1);
-                    self.root_selected = index;
+                KeyCode::Left => {
+                    self.root_selected = self.root_selected.saturating_sub(1);
+                    return None;
+                }
+                KeyCode::Right => {
+                    self.root_selected = (self.root_selected + 1).min(ROOT_TILES.len() - 1);
+                    return None;
+                }
+                KeyCode::Char(c @ '1'..='6') => {
+                    self.root_selected = c as usize - '1' as usize;
                     return Some(self.primary_action().1);
                 }
                 _ => {}
@@ -1512,10 +1503,44 @@ mod tests {
     }
 
     #[test]
+    fn the_root_hub_navigates_and_enter_only_opens() {
+        let mut app = App::default();
+        assert_eq!(app.primary_action().0, "open inbox");
+
+        app.handle_key(key(KeyCode::Down));
+        assert_eq!(app.root_selected, 2, "down moves one grid row (+2)");
+        assert_eq!(app.primary_action().0, "open lanes");
+
+        app.handle_key(key(KeyCode::Right));
+        assert_eq!(app.primary_action().0, "open history");
+
+        // Enter opens; it never runs a verb from the hub. That was the
+        // first 27.3 pass, and the operator called it what it was:
+        // removing agency the moment the screen loads.
+        let action = app.handle_key(key(KeyCode::Enter));
+        assert!(
+            matches!(action, Some(Action::Enter(View::History))),
+            "enter did not open the selected tile: {action:?}"
+        );
+        assert!(
+            !matches!(action, Some(Action::Run(_))),
+            "the hub ran a command"
+        );
+
+        // A digit opens its tile directly.
+        let mut app = App::default();
+        let action = app.handle_key(key(KeyCode::Char('2')));
+        assert!(
+            matches!(action, Some(Action::Enter(View::Bundles))),
+            "digit did not open its tile: {action:?}"
+        );
+    }
+
+    #[test]
     fn every_screen_names_its_own_primary_action() {
         let mut app = App::default();
         for (view, expected) in [
-            (View::Root, "history"),
+            (View::Root, "open inbox"),
             (View::History, "restore selected"),
             (View::Inbox, "open selected"),
             (View::Bundles, "open selected"),
@@ -1548,20 +1573,18 @@ mod tests {
 
     #[test]
     fn enter_on_empty_input_runs_primary_action() {
+        // The hub model (batch 27.3, second pass): Enter opens the
+        // selected tile whatever the local state. Uncaptured work is
+        // *shown* — in the Your work panel — not seized as Enter's
+        // meaning, because a dashboard that acts the moment it loads is
+        // what the operator called removing agency.
         let mut app = App {
             pending_changes: 2,
             ..App::default()
         };
         let (label, action) = app.primary_action();
-        assert_eq!(label, "snap");
+        assert_eq!(label, "open inbox");
         assert_eq!(app.handle_key(key(KeyCode::Enter)), Some(action));
-
-        app.pending_changes = 0;
-        assert_eq!(
-            app.handle_key(key(KeyCode::Enter)),
-            Some(Action::Enter(View::History)),
-            "clean tree defaults to history"
-        );
     }
 
     #[test]
@@ -1765,6 +1788,10 @@ mod tests {
     /// unrelated has not helped.
     #[test]
     fn enter_on_root_does_the_top_ranked_thing() {
+        // Renamed in spirit by the hub model: the top-ranked thing is
+        // *previewed* on the inbox tile, and Enter opens that tile.
+        // Acting on the ranked row happens inside the Inbox, where the
+        // row is a command you can see before you run it.
         let mut app = App::default();
         app.load_inbox_entries(&serde_json::json!({
             "lanes": [], "publications": [],
@@ -1772,21 +1799,13 @@ mod tests {
                          "approvals": 0, "required_approvals": 0}]
         }));
         let (label, action) = app.primary_action();
-        assert_eq!(
-            action,
-            Action::EnterResolution("b2".into()),
-            "the dashboard's resolve should open the view, not print a path list \
-             into the Last strip"
-        );
-        assert_eq!(
-            label, "resolve superpositions",
-            "the label is the kind; a 64-character id here eats the key legend"
-        );
+        assert_eq!(label, "open inbox");
+        assert_eq!(action, Action::LoadInbox);
 
-        // Uncaptured local work still wins: it is the only thing here
-        // that can be lost.
+        // Uncaptured local work no longer steals Enter: it is shown,
+        // not seized.
         app.pending_changes = 3;
-        assert_eq!(app.primary_action().0, "snap");
+        assert_eq!(app.primary_action().0, "open inbox");
     }
     #[test]
     fn jump_keys_enter_each_view_once() {
