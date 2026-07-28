@@ -1,6 +1,6 @@
 # 097 Guidance
 
-Status: ready
+Status: complete
 Updated: 2026-07-28
 Roadmap: `g02.027`
 
@@ -33,6 +33,25 @@ state.
   what each does
 - the operator's verdict, which is 27.4's job to collect
 
+## Outcome
+
+`COMMANDS` carries a one-line purpose per verb — the data the rebuild
+dropped. Opening the console with `:` shows the whole menu immediately,
+because the empty state is exactly when somebody needs it; typing
+filters; the window scrolls with the highlight, since 37 verbs in nine
+rows otherwise strand the selection off-screen. The Help screen lists
+one verb per line with its purpose instead of a packed name grid.
+
+One interaction settled on the way: the always-on menu stole bare Up
+from history recall, so the rule is now *what you have typed* decides —
+empty line recalls history, a part-typed verb moves the menu. A test
+asserts every verb has help, so no row can render blank.
+
+List-view interiors (bundles/lanes rows showing state) moved to 27.4's
+drive: what those rows are missing is best named by the person reading
+them cold.
+
 ## Next Task
 
-Batch card 27.4 (somebody else drives it).
+Batch card 27.4 (somebody else drives it) — the operator, on a repo they
+have not been walked through.

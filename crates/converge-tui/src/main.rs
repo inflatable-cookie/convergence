@@ -1035,8 +1035,13 @@ fn render(frame: &mut Frame, app: &App) {
                     Style::default().add_modifier(Modifier::BOLD),
                 ),
             ];
-            for chunk in app::COMMANDS.chunks(8) {
-                lines.push(Line::raw(format!("  {}", chunk.join("  "))));
+            // One verb per line with what it does (batch 27.2) — the
+            // packed name grid told a reader nothing they could act on.
+            for (name, help) in app::COMMANDS {
+                lines.push(Line::from(vec![
+                    Span::styled(format!("  {name:<10}"), Style::default().fg(Color::Yellow)),
+                    Span::styled(*help, Style::default().fg(Color::Gray)),
+                ]));
             }
             lines.push(Line::raw(""));
             let remote = app.status.as_ref().map(|s| s["remote"].clone());
@@ -1120,19 +1125,45 @@ fn render(frame: &mut Frame, app: &App) {
     };
     frame.render_widget(Paragraph::new(latest), last);
 
-    // Suggestions palette.
+    // Suggestions palette: verb in yellow, its help beside it, the
+    // selection reversed — the legacy panel, back (batch 27.2). Visible
+    // the moment the console opens, because the empty state is exactly
+    // when somebody needs the menu.
     if !app.suggestions.is_empty() {
+        // Window around the selection: 37 verbs, nine rows, and a list
+        // that does not follow the highlight strands it off-screen —
+        // the legacy panel scrolled, so this one does.
+        let rows = suggestions.height as usize;
+        let start = app
+            .suggestion_index
+            .saturating_sub(rows.saturating_sub(1))
+            .min(
+                app.suggestions
+                    .len()
+                    .saturating_sub(rows.min(app.suggestions.len())),
+            );
         let items: Vec<ListItem> = app
             .suggestions
             .iter()
             .enumerate()
+            .skip(start)
+            .take(rows.max(1))
             .map(|(i, s)| {
                 let style = if i == app.suggestion_index {
                     Style::default().add_modifier(Modifier::REVERSED)
                 } else {
                     Style::default()
                 };
-                ListItem::new(s.clone()).style(style)
+                ListItem::new(Line::from(vec![
+                    Span::styled(
+                        format!(" {s:<10}"),
+                        style.patch(Style::default().fg(Color::Yellow)),
+                    ),
+                    Span::styled(
+                        App::command_help(s),
+                        style.patch(Style::default().fg(Color::Gray)),
+                    ),
+                ]))
             })
             .collect();
         frame.render_widget(List::new(items), suggestions);

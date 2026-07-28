@@ -158,44 +158,49 @@ pub struct Validation {
 
 /// Commands the console accepts. View-entering commands push a frame;
 /// the rest run through the CLI layer verbatim.
-pub const COMMANDS: &[&str] = &[
-    "annotate",
-    "approve",
-    "bundle",
-    "changes",
-    "diff",
-    "events",
-    "fetch",
-    "gates",
-    "gc",
-    "git",
-    "help",
-    "history",
-    "inbox",
-    "init",
-    "key",
-    "lane",
-    "login",
-    "member",
-    "profile",
-    "promote",
-    "publish",
-    "releases",
-    "release",
-    "remote",
-    "repo",
-    "resolve",
-    "restore",
-    "retention",
-    "scope",
-    "secret",
-    "show",
-    "snap",
-    "status",
-    "sync",
-    "unsnap",
-    "verify",
-    "watch",
+/// Verb and what it does, one line each — the help restored from the
+/// legacy shell (batch 27.2). The rebuild kept bare names, which told a
+/// person what could be typed and never what any of it was for; the
+/// data that made the console guiding rather than a quiz was the first
+/// thing g02.027 was opened about.
+pub const COMMANDS: &[(&str, &str)] = &[
+    ("annotate", "set or replace a snap's message"),
+    ("approve", "approve a bundle so it can be promoted"),
+    ("bundle", "show a bundle's record"),
+    ("changes", "what changed since your last snap"),
+    ("diff", "compare two snaps"),
+    ("events", "poll the repo's event feed"),
+    ("fetch", "pull a bundle or release here"),
+    ("gates", "show or reshape the pipeline stages"),
+    ("gc", "reclaim server storage (dry-run by default)"),
+    ("git", "mirror history to or from git"),
+    ("help", "open the help screen"),
+    ("history", "list snaps, newest of your line first"),
+    ("inbox", "what needs your attention"),
+    ("init", "make this directory a workspace"),
+    ("key", "your personal encryption key"),
+    ("lane", "share unpublished work with teammates"),
+    ("login", "connect this workspace to a server"),
+    ("member", "who can do what in this repo"),
+    ("profile", "workflow profile (shapes guidance)"),
+    ("promote", "move a bundle to the next gate"),
+    ("publish", "send your snaps to the server"),
+    ("releases", "list releases by version"),
+    ("release", "cut a release: <bundle> --as 1.2.0"),
+    ("remote", "show the configured server"),
+    ("repo", "repo administration"),
+    ("resolve", "settle a superposition, path by path"),
+    ("restore", "put an old snap back in the tree"),
+    ("retention", "what the server keeps, and how long"),
+    ("scope", "scope registry operations"),
+    ("secret", "encrypted values only you can read"),
+    ("show", "browse a snap or bundle read-only"),
+    ("snap", "capture the workspace as it is now"),
+    ("status", "workspace state at a glance"),
+    ("sync", "push or pull lane work"),
+    ("unsnap", "undo the last capture, keep the files"),
+    ("verify", "replay a bundle and prove its identity"),
+    ("watch", "auto-snap on quiet periods"),
 ];
 
 /// Commands that hit the network run on the async worker so the event loop
@@ -780,16 +785,25 @@ impl App {
 
     fn refresh_suggestions(&mut self) {
         let needle = self.input.trim().to_lowercase();
-        self.suggestions = if needle.is_empty() {
-            Vec::new()
-        } else {
-            COMMANDS
-                .iter()
-                .filter(|c| c.contains(&needle))
-                .map(|c| c.to_string())
-                .collect()
-        };
+        // An open console with nothing typed shows every verb (batch
+        // 27.2): the empty state is exactly when somebody needs the
+        // menu, and hiding it until they guess a letter made the
+        // console a quiz.
+        self.suggestions = COMMANDS
+            .iter()
+            .filter(|(name, _)| needle.is_empty() || name.contains(&needle))
+            .map(|(name, _)| name.to_string())
+            .collect();
         self.suggestion_index = 0;
+    }
+
+    /// The one-line help for a verb, for the suggestion panel.
+    pub fn command_help(name: &str) -> &'static str {
+        COMMANDS
+            .iter()
+            .find(|(n, _)| *n == name)
+            .map(|(_, help)| *help)
+            .unwrap_or("")
     }
 
     fn submit(&mut self, line: String) -> Option<Action> {
@@ -1038,13 +1052,18 @@ impl App {
                 self.submit(line)
             }
             KeyCode::Up => {
-                if self.input.is_empty() && self.suggestions.is_empty() {
+                // Empty line: recall history. Once typing: move the
+                // menu. The menu now shows on an empty console (27.2),
+                // so "suggestions present" no longer means "the user is
+                // choosing" — what they have typed does.
+                if self.input.is_empty() {
                     let len = self.command_history.len();
                     if len > 0 {
                         let idx = self.history_cursor.map_or(len - 1, |i| i.saturating_sub(1));
                         self.history_cursor = Some(idx);
                         self.input = self.command_history[idx].clone();
                         self.cursor = self.input.len();
+                        self.refresh_suggestions();
                     }
                 } else if !self.suggestions.is_empty() {
                     self.suggestion_index = self.suggestion_index.saturating_sub(1);
@@ -1477,6 +1496,32 @@ mod tests {
                 !matches!(action, Some(Action::StartWizard(_))),
                 "{code:?} opened a wizard on the gate screen"
             );
+        }
+    }
+
+    #[test]
+    fn opening_the_console_shows_the_whole_menu_with_help() {
+        // The legacy's biggest loss, restored (batch 27.2): `:` shows
+        // every verb immediately, because the empty state is exactly
+        // when somebody needs the menu. Typing filters it, and every
+        // verb carries help — a name without a purpose is a quiz.
+        let mut app = App::default();
+        app.handle_key(key(KeyCode::Char(':')));
+        assert_eq!(app.suggestions.len(), COMMANDS.len(), "the menu is hidden");
+
+        typed(&mut app, "sna");
+        assert_eq!(
+            app.suggestions,
+            vec!["snap".to_string(), "unsnap".to_string()]
+        );
+        assert!(
+            !App::command_help("snap").is_empty(),
+            "a verb without help is a quiz"
+        );
+
+        // Every verb has help, so no row can render blank.
+        for (name, help) in COMMANDS {
+            assert!(!help.is_empty(), "{name} has no help text");
         }
     }
 
