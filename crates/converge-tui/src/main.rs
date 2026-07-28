@@ -215,10 +215,17 @@ fn run(terminal: &mut ratatui::DefaultTerminal, trace: &mut trace::Trace) -> Res
     const IDLE_REFRESH: Duration = Duration::from_secs(5);
     let mut last_refresh_started = std::time::Instant::now();
 
+    // Draw only when something changed. The previous loop redrew the
+    // whole screen twenty times a second while idle — every poll
+    // timeout fell through to `terminal.draw` — which is why an idle
+    // dashboard was burning CPU (operator, batch 27.3). Worker results,
+    // key presses and resizes mark the frame dirty; a timeout draws
+    // nothing.
+    let mut dirty = true;
     loop {
-        trace_screen(trace, &app);
         // Deliver finished worker results without blocking.
         while let Ok((argv, intent, quiet, result)) = rx.try_recv() {
+            dirty = true;
             trace.command_result(&argv, &result);
             if intent != Intent::Events {
                 app.finish_in_flight();
@@ -279,16 +286,28 @@ fn run(terminal: &mut ratatui::DefaultTerminal, trace: &mut trace::Trace) -> Res
             last_refresh_started = std::time::Instant::now();
         }
 
-        terminal.draw(|frame| render(frame, &app))?;
-        if !event::poll(Duration::from_millis(50))? {
+        if dirty {
+            trace_screen(trace, &app);
+            terminal.draw(|frame| render(frame, &app))?;
+            dirty = false;
+        }
+        if !event::poll(Duration::from_millis(100))? {
             continue;
         }
-        let Event::Key(key) = event::read()? else {
+        let event = event::read()?;
+        // Resize only rendered correctly before because every loop pass
+        // redrew regardless; with dirty-gating it has to be explicit.
+        if matches!(event, Event::Resize(..)) {
+            dirty = true;
+            continue;
+        }
+        let Event::Key(key) = event else {
             continue;
         };
         if key.kind != event::KeyEventKind::Press {
             continue;
         }
+        dirty = true;
         let action = app.handle_key(key);
         if let Some(action) = &action {
             trace.user_action(&action_label(action), &format!("{:?}", key.code));

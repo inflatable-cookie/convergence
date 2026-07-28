@@ -88,6 +88,12 @@ where
 #[derive(Default)]
 pub struct Session {
     inner: std::sync::Mutex<SessionCache>,
+    /// Serialises token decryption. Startup fires several workers that
+    /// all miss the token cache at once, and each scrypt run allocates
+    /// gigabyte-scale scratch — six racing misses is six gigabytes of
+    /// peak footprint for one credential. The second thread through
+    /// this lock finds the cache warm.
+    token_gate: std::sync::Mutex<()>,
 }
 
 type ManifestScan = (
@@ -101,11 +107,65 @@ struct SessionCache {
     workspace: Option<(PathBuf, Workspace)>,
     scan: Option<(String, ManifestScan)>,
     remote: Option<(String, String, converge_client::remote::RemoteClient)>,
+    /// Decrypted bearer token, keyed by the store's token key. The
+    /// stored credential is sealed with scrypt — a deliberately
+    /// memory-hard KDF — so reading it costs about a second of CPU and
+    /// a gigabyte-scale scratch allocation. A one-shot CLI absorbs that
+    /// once; the TUI polls every few seconds and was re-deriving the
+    /// same key continuously, which is why an idle dashboard burned
+    /// half a core and five gigabytes (batch 27.3, sampled).
+    token: Option<(String, String)>,
 }
 
 impl Session {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// The decrypted bearer token, once per process (see the cache
+    /// field for why). Login and set-url invalidate through
+    /// [`Session::forget_token`].
+    fn remote_token(
+        &self,
+        ws: &Workspace,
+        remote: &converge_client::model::RemoteConfig,
+    ) -> Result<String> {
+        let key = ws.store.remote_token_key(remote);
+        {
+            let cache = self.inner.lock().expect("session lock");
+            if let Some((cached_key, token)) = &cache.token
+                && cached_key == &key
+            {
+                return Ok(token.clone());
+            }
+        }
+        // Serialise misses (see `token_gate`), then re-check: the
+        // thread that held the gate first has usually filled the cache.
+        let _gate = self.token_gate.lock().expect("token gate");
+        {
+            let cache = self.inner.lock().expect("session lock");
+            if let Some((cached_key, token)) = &cache.token
+                && cached_key == &key
+            {
+                return Ok(token.clone());
+            }
+        }
+        // Decrypt outside the session lock: a second of scrypt there
+        // would stall every cached lookup behind it.
+        let token = ws
+            .store
+            .get_remote_token(remote)?
+            .context("no token stored for this remote; run `converge login` again")?;
+        let mut cache = self.inner.lock().expect("session lock");
+        cache.token = Some((key, token.clone()));
+        Ok(token)
+    }
+
+    /// The credential changed (login, set-url): drop the cached copy so
+    /// the next call re-reads rather than serving the old token.
+    pub fn forget_token(&self) {
+        let mut cache = self.inner.lock().expect("session lock");
+        cache.token = None;
     }
 
     /// Discover the workspace once per cwd and hand back a handle.
@@ -1019,6 +1079,7 @@ fn run(cli: &Cli, mode: OutputMode, session: &Session) -> Result<serde_json::Val
                 None => sign_in_with_provider(url, mode)?,
             };
             ws.store.set_remote_token(&remote, &token)?;
+            session.forget_token();
             cfg.remote = Some(remote);
             ws.store.write_config(&cfg)?;
             emit(mode, format!("{repo}/{scope}/{gate} @ {url}"), |target| {
@@ -1462,6 +1523,7 @@ fn run(cli: &Cli, mode: OutputMode, session: &Session) -> Result<serde_json::Val
                 new_remote.base_url = url.clone();
 
                 let moved = ws.store.move_remote_token(&old_remote, &new_remote)?;
+                session.forget_token();
                 ws.store.rekey_state_urls(&old_remote.base_url, &url)?;
                 cfg.remote = Some(new_remote);
                 ws.store.write_config(&cfg)?;
@@ -2586,10 +2648,7 @@ fn remote_client(
     let remote = cfg
         .remote
         .context("no remote configured; run `converge login` first")?;
-    let token = ws
-        .store
-        .get_remote_token(&remote)?
-        .context("no token stored for this remote; run `converge login` again")?;
+    let token = session.remote_token(ws, &remote)?;
     let client = session.remote_client(&remote.base_url, &token);
     // Progress goes to stderr and only in human mode: `--json` owns
     // stdout, and Capture mode drives the TUI (batch 16.4, audit P4.20).
