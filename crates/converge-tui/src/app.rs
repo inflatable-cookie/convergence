@@ -611,20 +611,6 @@ impl App {
     pub fn mark_loaded(&mut self, view: View) {
         self.loaded_at.insert(view, std::time::Instant::now());
     }
-
-    /// "3s ago" for the active view, or None if it has never loaded.
-    pub fn view_age(&self) -> Option<String> {
-        let elapsed = self.loaded_at.get(&self.current_view())?.elapsed();
-        let secs = elapsed.as_secs();
-        Some(match secs {
-            0 => "just now".to_string(),
-            1..=59 => format!("{secs}s ago"),
-            60..=3599 => format!("{}m ago", secs / 60),
-            _ => format!("{}h ago", secs / 3600),
-        })
-    }
-
-    /// Configured gate, from the status report the TUI already holds.
     pub fn remote_gate(&self) -> Option<String> {
         // status renders the target as `repo/scope/gate @ url`.
         let target = self.status.as_ref()?["remote"]["target"].as_str()?;
@@ -663,16 +649,6 @@ impl App {
             })
             .unwrap_or_default()
     }
-
-    /// Short reachability label for the header (audit P4.22).
-    pub fn reachability(&self) -> &'static str {
-        match self.reachable {
-            Some(true) => "online",
-            Some(false) => "offline",
-            None => "",
-        }
-    }
-
     pub fn prompt(&self) -> String {
         let view = match self.current_view() {
             View::Root => "root",
@@ -2105,27 +2081,6 @@ mod tests {
             app.handle_key(key(KeyCode::Enter)),
             Some(Action::Run(_))
         ));
-    }
-
-    #[test]
-    fn view_age_reads_as_elapsed_time() {
-        let mut app = App::default();
-        assert_eq!(app.view_age(), None, "never loaded says nothing");
-        app.mark_loaded(View::Root);
-        assert_eq!(app.view_age().as_deref(), Some("just now"));
-        // A view that has not loaded shows no age even when another has.
-        app.frames.push(View::Releases);
-        assert_eq!(app.view_age(), None);
-    }
-
-    #[test]
-    fn reachability_starts_unknown_and_follows_the_last_answer() {
-        let mut app = App::default();
-        assert_eq!(app.reachability(), "", "no claim before the first try");
-        app.reachable = Some(true);
-        assert_eq!(app.reachability(), "online");
-        app.reachable = Some(false);
-        assert_eq!(app.reachability(), "offline");
     }
 
     #[test]

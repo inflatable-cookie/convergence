@@ -113,6 +113,14 @@ fn run(terminal: &mut ratatui::DefaultTerminal, trace: &mut trace::Trace) -> Res
     let session = std::sync::Arc::new(converge_cli::Session::new());
     let (tx, rx) = std::sync::mpsc::channel::<WorkerResult>();
     spawn_refresh(&tx, &session);
+    // The root tiles preview real rows (batch 27.3), so their loaders
+    // run at startup rather than waiting for somebody to open each
+    // view. Rows intents store data without navigating.
+    for view in [View::Bundles, View::Lanes, View::Releases, View::Gates] {
+        if let Some(argv) = view.loader() {
+            spawn_verb(&mut app, &tx, &session, argv, Intent::Rows(view));
+        }
+    }
     // The dashboard leads with ranked recommendations, so the inbox is
     // needed before anyone asks for it. On the worker, so a slow or
     // unreachable server delays a panel rather than the first frame.
@@ -647,7 +655,7 @@ fn render(frame: &mut Frame, app: &App) {
     let [header, body, last, suggestions, input] = Layout::vertical([
         Constraint::Length(1),
         Constraint::Min(3),
-        Constraint::Length(4),
+        Constraint::Length(1),
         Constraint::Length(suggestion_rows),
         Constraint::Length(1),
     ])
@@ -655,33 +663,33 @@ fn render(frame: &mut Frame, app: &App) {
 
     // Header: what this workspace is, how fresh, and whether the
     // server is reachable.
+    // Counts on the left; the remote on the right, coloured by
+    // reachability — green means the URL answers, red means it does
+    // not, gray means nobody has asked yet. The brand label and the
+    // freshness timer are gone (batch 27.3 trim): the binary's name is
+    // not information, and the timer restated what "online" implies.
+    let left = format!(
+        " {} snaps, {} pending changes",
+        app.snaps.len(),
+        app.pending_changes
+    );
+    let remote_target = app
+        .status
+        .as_ref()
+        .and_then(|s| s["remote"]["target"].as_str())
+        .unwrap_or("")
+        .to_string();
+    let remote_colour = match app.reachable {
+        Some(true) => Color::Green,
+        Some(false) => Color::Red,
+        None => Color::Gray,
+    };
+    let pad = (header.width as usize).saturating_sub(left.len() + remote_target.len() + 1);
     frame.render_widget(
         Paragraph::new(Line::from(vec![
-            Span::styled(" converge ", Style::default().add_modifier(Modifier::BOLD)),
-            Span::raw(format!(
-                "{} snaps, {} pending changes",
-                app.snaps.len(),
-                app.pending_changes
-            )),
-            // Freshness and reachability, so a stale or disconnected
-            // screen says so instead of looking authoritative
-            // (audit P2.9, P4.22).
-            Span::raw(
-                app.view_age()
-                    .map(|age| format!("  ·  {age}"))
-                    .unwrap_or_default(),
-            ),
-            Span::styled(
-                match app.reachability() {
-                    "" => String::new(),
-                    label => format!("  ·  {label}"),
-                },
-                Style::default().fg(if app.reachable == Some(false) {
-                    Color::Yellow
-                } else {
-                    Color::Gray
-                }),
-            ),
+            Span::raw(left),
+            Span::raw(" ".repeat(pad)),
+            Span::styled(remote_target, Style::default().fg(remote_colour)),
         ]))
         .style(Style::default().bg(Color::DarkGray)),
         header,
@@ -708,104 +716,9 @@ fn render(frame: &mut Frame, app: &App) {
             // screenshot that reopened this (batch 27.3) was twelve
             // lines of hashes floating in black, an unselectable list,
             // and an `Enter: promote` that named no target.
-            let status = app.status.as_ref();
-            let head = status.map(|s| s["head"].clone());
-            let remote = status.map(|s| s["remote"].clone());
-
-            let sections = Layout::default()
-                .direction(Direction::Vertical)
-                .constraints([Constraint::Length(6), Constraint::Min(6)])
-                .split(body);
-            let top = Layout::default()
-                .direction(Direction::Horizontal)
-                .constraints([Constraint::Percentage(45), Constraint::Percentage(55)])
-                .split(sections[0]);
-
-            // -- Your work: local state, in words rather than field names.
-            let snap_line = match head
-                .as_ref()
-                .and_then(|h| h["id"].as_str().map(str::to_string))
-            {
-                Some(id) => {
-                    let how = match head.as_ref().and_then(|h| h["trigger"].as_str()) {
-                        Some("automatic") => "auto-captured",
-                        _ => "captured by you",
-                    };
-                    format!("latest snap   {} ({how})", short_id(&id))
-                }
-                None => "no snaps yet — `:snap` captures one".to_string(),
-            };
-            let changes_line = match app.pending_changes {
-                0 => "nothing uncaptured".to_string(),
-                1 => "1 file changed since that snap".to_string(),
-                n => format!("{n} files changed since that snap"),
-            };
-            let local = vec![
-                Line::raw(snap_line),
-                Line::styled(
-                    changes_line,
-                    if app.pending_changes > 0 {
-                        Style::default().fg(Color::Yellow)
-                    } else {
-                        Style::default().fg(Color::Gray)
-                    },
-                ),
-            ];
-            frame.render_widget(
-                Paragraph::new(local).block(
-                    Block::default()
-                        .borders(Borders::ALL)
-                        .title(" Your work ")
-                        .border_style(Style::default().fg(Color::DarkGray)),
-                ),
-                top[0],
-            );
-
-            // -- The server: where publishes go and what came back.
-            let configured = remote
-                .as_ref()
-                .and_then(|r| r["configured"].as_bool())
-                .unwrap_or(false);
-            let server = if configured {
-                let target = remote
-                    .as_ref()
-                    .and_then(|r| r["target"].as_str())
-                    .unwrap_or("?")
-                    .to_string();
-                let last_published = remote
-                    .as_ref()
-                    .and_then(|r| r["last_published_snap"].as_str())
-                    .map(short_id)
-                    .unwrap_or_else(|| "nothing yet".into());
-                let last_seen = remote
-                    .as_ref()
-                    .and_then(|r| r["last_seen_bundle"].as_str())
-                    .map(short_id)
-                    .unwrap_or_else(|| "none yet".into());
-                vec![
-                    Line::raw(format!("publishing to  {target}")),
-                    Line::raw(format!("your last publish  {last_published}")),
-                    Line::raw(format!("latest bundle      {last_seen}")),
-                ]
-            } else {
-                vec![
-                    Line::raw("no server configured"),
-                    Line::styled(
-                        "`:login` connects one — everything local still works",
-                        Style::default().fg(Color::Gray),
-                    ),
-                ]
-            };
-            frame.render_widget(
-                Paragraph::new(server).block(
-                    Block::default()
-                        .borders(Borders::ALL)
-                        .title(" Server ")
-                        .border_style(Style::default().fg(Color::DarkGray)),
-                ),
-                top[1],
-            );
-
+            // The Your work / Server panels are gone (batch 27.3
+            // trim): the header carries the counts and the remote, and
+            // everything else those panels said is one keypress away.
             // -- The hub: six tiles, each a place to look, the
             // selected one opened by Enter. The first pass put a
             // command behind Enter and the operator named the cost:
@@ -817,7 +730,7 @@ fn render(frame: &mut Frame, app: &App) {
                     Constraint::Ratio(1, 3),
                     Constraint::Ratio(1, 3),
                 ])
-                .split(sections[1]);
+                .split(body);
             let selected_tile = app.root_selected.min(app::ROOT_TILES.len() - 1);
             for (row_index, row_area) in grid_rows.iter().enumerate() {
                 let columns = Layout::default()
@@ -830,14 +743,7 @@ fn render(frame: &mut Frame, app: &App) {
                         continue;
                     };
                     let selected = tile_index == selected_tile;
-                    let mut lines = root_tile_preview(app, *view);
-                    if selected {
-                        lines.push(Line::raw(""));
-                        lines.push(Line::styled(
-                            format!("Enter opens {name}"),
-                            Style::default().fg(Color::Yellow),
-                        ));
-                    }
+                    let lines = root_tile_preview(app, *view);
                     let border = if selected {
                         Style::default().fg(Color::Yellow)
                     } else {
@@ -1191,26 +1097,28 @@ fn render(frame: &mut Frame, app: &App) {
         }
     }
 
-    // Last strip: command echo cyan, output white, errors red (UX spec §4).
-    let mut last_lines: Vec<Line> = app
-        .last
-        .iter()
-        .map(|entry| match entry {
-            LastLine::Command(text) => Line::styled(text.clone(), Style::default().fg(Color::Cyan)),
-            LastLine::Output(text) => Line::raw(text.clone()),
-            LastLine::Error(text) => Line::styled(text.clone(), Style::default().fg(Color::Red)),
-        })
-        .collect();
-    if let Some(label) = &app.in_flight {
-        last_lines.push(Line::styled(
+    // One line of feedback, no box (batch 27.3 trim): the latest
+    // result — or the command in flight — coloured by what it is.
+    // Errors red, output plain, command echo cyan. The four-row "Last"
+    // pane restated history nobody asked for.
+    let latest = if let Some(label) = &app.in_flight {
+        Line::styled(
             format!("… {label} (running)"),
             Style::default().fg(Color::Yellow),
-        ));
-    }
-    frame.render_widget(
-        Paragraph::new(last_lines).block(Block::default().borders(Borders::TOP).title("Last")),
-        last,
-    );
+        )
+    } else {
+        match app.last.last() {
+            Some(LastLine::Command(text)) => {
+                Line::styled(format!("> {text}"), Style::default().fg(Color::Cyan))
+            }
+            Some(LastLine::Output(text)) => Line::raw(text.clone()),
+            Some(LastLine::Error(text)) => {
+                Line::styled(text.clone(), Style::default().fg(Color::Red))
+            }
+            None => Line::raw(""),
+        }
+    };
+    frame.render_widget(Paragraph::new(latest), last);
 
     // Suggestions palette.
     if !app.suggestions.is_empty() {
@@ -1383,7 +1291,7 @@ fn root_tile_preview(app: &App, view: View) -> Vec<Line<'static>> {
             }
             app.recommendations
                 .iter()
-                .take(3)
+                .take(4)
                 .map(|r| {
                     let owners = if r.owners.is_empty() {
                         String::new()
@@ -1399,43 +1307,85 @@ fn root_tile_preview(app: &App, view: View) -> Vec<Line<'static>> {
                         converge_cli::ActionKind::Publication => Color::Gray,
                     };
                     Line::styled(
-                        format!("· {}{owners}", r.headline),
+                        format!("{}{owners}", r.headline),
                         Style::default().fg(colour),
                     )
                 })
                 .collect()
         }
-        View::History => {
-            let snaps = app
-                .status
-                .as_ref()
-                .and_then(|s| s["snaps"]["total"].as_u64())
-                .unwrap_or(0);
-            vec![
-                Line::raw(format!("{snaps} snaps captured")),
-                Line::styled(
-                    "every version of your work, restorable",
-                    Style::default().fg(Color::Gray),
-                ),
-            ]
-        }
+        // The last few snaps, newest first — the same rows the History
+        // screen leads with, so the tile is a genuine preview of it.
+        View::History => app
+            .snaps
+            .iter()
+            .take(4)
+            .map(|s| {
+                let id = s["id"].as_str().map(short_id).unwrap_or_default();
+                let message = s["message"].as_str().unwrap_or("(automatic)");
+                Line::raw(format!("{id}  {message}"))
+            })
+            .collect(),
         view => {
-            let loaded = app.rows.get(&view).map(Vec::len);
-            let description = match view {
-                View::Bundles => "work waiting at each gate",
-                View::Lanes => "teammates' unpublished work",
-                View::Releases => "what has shipped, by channel",
-                View::Gates => "the pipeline stages",
-                _ => "",
+            let Some(rows) = app.rows.get(&view).filter(|r| !r.is_empty()) else {
+                return vec![Line::styled(
+                    match view {
+                        View::Bundles => "no bundles waiting",
+                        View::Lanes => "no lane activity",
+                        View::Releases => "nothing released yet",
+                        View::Gates => "loading…",
+                        _ => "",
+                    }
+                    .to_string(),
+                    Style::default().fg(Color::Gray),
+                )];
             };
-            let mut lines = vec![Line::styled(
-                description.to_string(),
-                Style::default().fg(Color::Gray),
-            )];
-            if let Some(count) = loaded {
-                lines.insert(0, Line::raw(format!("{count} item(s)")));
-            }
-            lines
+            rows.iter()
+                .take(4)
+                .map(|row| {
+                    let text = match view {
+                        View::Bundles => format!(
+                            "{}  {}",
+                            row["bundle_id"].as_str().map(short_id).unwrap_or_default(),
+                            row["recommendation"].as_str().unwrap_or("")
+                        ),
+                        View::Lanes => format!(
+                            "{}  {}",
+                            row["lane_id"].as_str().unwrap_or(""),
+                            row["updated_at"]
+                                .as_str()
+                                .map(|t| t.get(..10).unwrap_or(t))
+                                .unwrap_or("")
+                        ),
+                        View::Releases => format!(
+                            "{}  {}",
+                            row["channel"].as_str().unwrap_or(""),
+                            row["bundle_id"].as_str().map(short_id).unwrap_or_default()
+                        ),
+                        View::Gates => {
+                            let upstreams = row["upstreams"]
+                                .as_array()
+                                .map(|u| {
+                                    u.iter()
+                                        .filter_map(|v| v.as_str())
+                                        .collect::<Vec<_>>()
+                                        .join(", ")
+                                })
+                                .unwrap_or_default();
+                            format!(
+                                "{}  {}",
+                                row["gate_id"].as_str().unwrap_or(""),
+                                if upstreams.is_empty() {
+                                    "entry".to_string()
+                                } else {
+                                    format!("after {upstreams}")
+                                }
+                            )
+                        }
+                        _ => String::new(),
+                    };
+                    Line::raw(text)
+                })
+                .collect()
         }
     }
 }
@@ -1697,9 +1647,21 @@ mod screen_tests {
             text.contains("▶ 1. inbox"),
             "the selected tile is not visible: {text}"
         );
+        // The per-tile "Enter opens…" label went in the 27.3 trim; the
+        // footer's Enter label carries it once, for the selected tile.
         assert!(
-            text.contains("Enter opens inbox"),
-            "the selected tile does not say what Enter does: {text}"
+            text.contains("Enter: open inbox"),
+            "the footer does not say what Enter does: {text}"
+        );
+        // And the header carries the remote, coloured by reachability,
+        // instead of a brand label and a timer.
+        assert!(
+            text.contains("acme/default/intake"),
+            "the remote is not in the header: {text}"
+        );
+        assert!(
+            !text.contains(" converge "),
+            "the brand label is back: {text}"
         );
         assert!(
             !text.contains("Enter runs: converge"),
