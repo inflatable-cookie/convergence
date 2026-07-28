@@ -118,7 +118,7 @@ Promotion is always policy-checked. A bundle that fails policy is not promotable
 
 ### Release
 
-A `release` is a bundle that has been designated for consumption via a named release channel.
+A `release` is a bundle designated for consumption under a semver version (g02.028): unique, immutable, withdrawable by `yank` but never re-pointed. `latest` is a computation — highest non-yanked, non-prerelease version — and prerelease tags (`1.2.0-beta.1`) do the job release channels do elsewhere; gates do the rest.
 
 Notes:
 - A release is typically cut from the terminal gate of the primary gate graph, but it is not required.

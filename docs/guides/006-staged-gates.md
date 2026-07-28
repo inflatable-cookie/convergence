@@ -73,7 +73,7 @@ converge publish                            # lands in intake
 converge promote <bundle> --to review       # intake requires no approval
 converge approve <bundle>
 converge promote <bundle> --to release      # review requires one
-converge release <bundle> --channel stable
+converge release <bundle> --as 1.0.0
 ```
 
 Skipping a stage is refused: `release` accepts promotions from `review`,

@@ -151,7 +151,7 @@ database. A tar that catches one and not the other restores to a torn
 state, and you find out much later.
 
 **Back up the whole directory, not just the database.** The database
-holds bundle records, release channels and secret *ciphertext*; the
+holds bundle records, releases and secret *ciphertext*; the
 trees those records point at live in `objects/`. A backup of one without
 the other restores a deployment that answers every question and can hand
 over nothing. That is the mistake this section exists to prevent, and

@@ -1,6 +1,6 @@
 # 028 Semver Releases, Channels Retired
 
-Status: ready
+Status: complete
 Owner: repo maintainers
 Updated: 2026-07-28
 
@@ -69,6 +69,28 @@ withdrawal more honestly than a movable pointer ever could.
 - a yanked release leaves `latest` and ranges but stays in history
 - no verb, view, or doc mentions channels except the migration note
 
+## Outcome
+
+All four batches landed (28.2–28.4 in one sweep so main stayed green —
+changing `ReleaseRecord` alone breaks every consumer). Proven on the
+live deployment: the migration numbered the three pre-semver releases
+v0.1.0–v0.3.0, a duplicate was refused with the fix-forward message, a
+backport landed below `latest` without moving it, and a yanked 1.0.0
+left `latest` while `verify --release 1.0.0` still replayed it.
+
+The finding that earns the log entry: minutes after the whole suite
+passed, the real deployment refused to release —
+`NOT NULL constraint failed: releases.channel`. The legacy column only
+exists on *migrated* databases; every fresh fixture builds the new
+schema. The migration now drops the column, and a regression test
+builds the legacy schema by hand and releases onto it. The
+fresh-fixture blind spot, second appearance, this time in schema shape.
+
+Deliberately kept: `--channel` as a hidden alias for `--as` (muscle
+memory is not a defect), and doc 18's release refs marked Deferred —
+only lane refs export today.
+
 ## Next Task
 
-Batch card 28.1 (version model).
+`g02.027` continues (27.2 guidance, 27.4 the operator drives it cold).
+`22.5` remains the operator's call.

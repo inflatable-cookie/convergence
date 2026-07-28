@@ -47,7 +47,9 @@ Correspondence is carried explicitly:
 ### Branches
 
 - `converge/lane/<lane_id>` — a lane head's lineage
-- `converge/channel/<channel>` — a channel's release history
+- `converge/release/v<version>` — a release, as a tag-like ref
+  (**Deferred**: only lane refs are exported today; release refs follow
+  the g02.028 semver identity when somebody needs them in git)
 
 Mirror branches are **read-only for git users**: the exporter force-moves
 them on re-export (snapshot semantics). Local branches based on mirrors

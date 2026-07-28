@@ -118,7 +118,7 @@ the TUI, and the verb is a convenience rather than the real home.
 `-m/--message` is the message flag on every verb that takes one (`snap`,
 `annotate`, `publish`, `release`, `resolve apply`); `--notes` still works
 on `publish` and `release` as an alias. Any verb that names a bundle
-(`fetch`, `bundle`, `verify`) accepts an id or `--release <channel>`.
+(`fetch`, `bundle`, `verify`) accepts an id or `--release latest|<version>|<range>`.
 
 Human mode prints transfer progress to stderr, so `--json` output stays
 one envelope on stdout and pipelines are safe.
