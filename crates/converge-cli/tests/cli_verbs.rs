@@ -617,3 +617,65 @@ fn history_marks_snaps_off_the_current_line() -> anyhow::Result<()> {
     );
     Ok(())
 }
+
+/// The TUI has to be reachable from the thing people already type.
+///
+/// The about line has always named the TUI — "every front-end (TUI,
+/// agents) drives these verbs" — and never said it was a command. Batch
+/// 26.5 started with somebody reading that, learning a terminal UI
+/// exists, and having nowhere to go.
+#[test]
+fn the_help_says_how_to_reach_the_terminal_ui() -> anyhow::Result<()> {
+    let tmp = tempfile::tempdir()?;
+    let help = converge(tmp.path(), &["--help"]);
+    let text = String::from_utf8_lossy(&help.stdout);
+    assert!(
+        text.contains("converge tui"),
+        "the help does not name the verb: {text}"
+    );
+    assert!(
+        text.contains("converge-tui"),
+        "the help does not name the binary either: {text}"
+    );
+
+    // And with no arguments at all, which is the other way people ask.
+    // Clap writes the missing-subcommand help to stderr, so read both:
+    // what matters is that the hint reaches the terminal, not which
+    // stream carried it.
+    let bare = converge(tmp.path(), &[]);
+    let text = format!(
+        "{}{}",
+        String::from_utf8_lossy(&bare.stdout),
+        String::from_utf8_lossy(&bare.stderr)
+    );
+    assert!(text.contains("converge tui"), "{text}");
+    Ok(())
+}
+
+/// A partial install should say so rather than fail obscurely.
+#[test]
+fn converge_tui_explains_a_missing_binary() -> anyhow::Result<()> {
+    let tmp = tempfile::tempdir()?;
+    // A directory holding `converge` and nothing else: the sibling
+    // lookup misses, and with an empty PATH so does the fallback.
+    let lonely = tmp.path().join("converge");
+    std::fs::copy(env!("CARGO_BIN_EXE_converge"), &lonely)?;
+
+    let out = std::process::Command::new(&lonely)
+        .arg("tui")
+        .current_dir(tmp.path())
+        .env("PATH", "")
+        .env("CONVERGE_HOME", tmp.path().join("home"))
+        .output()?;
+    assert!(!out.status.success(), "a missing TUI reported success");
+    let err = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        err.contains("converge-tui"),
+        "the error does not name what is missing: {err}"
+    );
+    assert!(
+        err.contains("partial install"),
+        "the error does not say what kind of problem this is: {err}"
+    );
+    Ok(())
+}

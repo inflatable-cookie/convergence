@@ -98,6 +98,21 @@ converge publish --snap <the resolution snap>
 
 Details of that loop: `docs/architecture/17-lineage-and-merge-semantics.md`.
 
+## The terminal UI
+
+Everything above is the CLI, which is the semantic contract — every
+front-end drives these same verbs (architecture doc 15). There is also a
+terminal UI over the top of them:
+
+```
+converge tui        # or run `converge-tui` directly
+```
+
+It is a separate binary that ships alongside `converge`, and `converge
+tui` hands over to it. Worth knowing which way round that is: the TUI
+depends on the CLI for the argv contract, so the CLI cannot depend on
+the TUI, and the verb is a convenience rather than the real home.
+
 ## Notes on output
 
 `-m/--message` is the message flag on every verb that takes one (`snap`,

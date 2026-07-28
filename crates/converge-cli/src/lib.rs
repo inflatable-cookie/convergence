@@ -18,7 +18,12 @@ use converge_client::workspace::Workspace;
     // Crate version plus the commit it was built from: a bug report
     // against "0.1.0" names a moving target (batch 22.1).
     version = concat!(env!("CARGO_PKG_VERSION"), " (", env!("CONVERGE_COMMIT"), ")"),
-    about
+    about,
+    // The about line names the TUI and then never says how to reach it.
+    // Somebody reading this learns a terminal UI exists and has nowhere
+    // to go, which is exactly what happened (batch 26.5).
+    after_help = "Terminal UI:  converge tui   (or run `converge-tui` directly)\n\
+                  Server:       converge-server --help"
 )]
 pub struct Cli {
     /// Emit a machine-readable JSON envelope instead of human output.
@@ -300,6 +305,12 @@ enum Command {
     },
     /// List the repo's releases.
     Releases,
+    /// Launch the terminal UI.
+    ///
+    /// A convenience for `converge-tui`, which is its own binary: the
+    /// TUI depends on this crate for the argv contract, so this crate
+    /// cannot depend on it back.
+    Tui,
     /// Show the repo's gate graph, or change it.
     Gates {
         /// Omitted, this shows the graph — which is all it could do
@@ -1092,6 +1103,7 @@ fn run(cli: &Cli, mode: OutputMode, session: &Session) -> Result<serde_json::Val
                 println!("released {} to channel {}", r.bundle_id, r.channel);
             })
         }
+        Command::Tui => run_tui(),
         Command::Gates { command } => {
             let ws = session.workspace()?;
             let (client, remote) = remote_client(session, &ws, mode)?;
@@ -2560,6 +2572,56 @@ fn latest_snap(ws: &Workspace) -> Result<converge_client::model::SnapRecord> {
 /// validates and diffs one submission, which is what lets a reshape that
 /// changes two gates at once be legal at every moment somebody can
 /// observe it.
+/// Hand over to the terminal UI.
+///
+/// Looked for beside this binary first, then on `PATH`. Beside first
+/// because that is how both real installs land: the release tarball
+/// unpacks all three binaries into one directory, and `cargo install`
+/// puts them in the same `bin`. Preferring `PATH` would let a stale
+/// copy elsewhere win over the one you just installed.
+///
+/// On Unix this *replaces* the process rather than spawning a child.
+/// A TUI owns the terminal — raw mode, the alternate screen, the signal
+/// that arrives on resize — and putting a parent in the middle means
+/// two processes with a claim on it and an exit code to relay.
+fn run_tui() -> Result<serde_json::Value> {
+    let exe = std::env::current_exe().context("locate this binary")?;
+    let sibling = exe.with_file_name(if cfg!(windows) {
+        "converge-tui.exe"
+    } else {
+        "converge-tui"
+    });
+    let program = if sibling.is_file() {
+        sibling
+    } else {
+        std::path::PathBuf::from("converge-tui")
+    };
+
+    let mut command = std::process::Command::new(&program);
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::CommandExt;
+        // Only returns on failure.
+        let err = command.exec();
+        Err(anyhow::Error::new(err).context(format!(
+            "could not start {}; it ships alongside `converge`, so a missing \
+             one usually means a partial install",
+            program.display()
+        )))
+    }
+    #[cfg(not(unix))]
+    {
+        let status = command.status().with_context(|| {
+            format!(
+                "could not start {}; it ships alongside `converge`, so a \
+                 missing one usually means a partial install",
+                program.display()
+            )
+        })?;
+        std::process::exit(status.code().unwrap_or(1));
+    }
+}
+
 fn run_gate_change(
     mode: OutputMode,
     client: &converge_client::remote::RemoteClient,

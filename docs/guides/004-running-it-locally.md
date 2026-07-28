@@ -16,7 +16,7 @@ first place, and finding out why something is not working.
 ```sh
 cargo install --path crates/converge-cli    # converge
 cargo install --path crates/converge-server # converge-server
-cargo install --path crates/converge-tui    # converge-tui
+cargo install --path crates/converge-tui    # converge-tui (`converge tui` also launches it)
 ```
 
 `~/.cargo/bin` needs to be on your `PATH`.
