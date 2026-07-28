@@ -43,7 +43,10 @@ enum Intent {
 }
 
 /// Result of a worker-thread command.
-type WorkerResult = (Vec<String>, Intent, anyhow::Result<serde_json::Value>);
+/// `(argv, intent, quiet, result)` — quiet marks work the user did not
+/// ask for, whose outcome must not land in the feedback line as if they
+/// had (batch 27.3: the root showed `1 bundles` from a startup loader).
+type WorkerResult = (Vec<String>, Intent, bool, anyhow::Result<serde_json::Value>);
 
 /// Run one CLI verb on a worker thread and post the result back.
 fn spawn_verb(
@@ -53,13 +56,43 @@ fn spawn_verb(
     argv: Vec<String>,
     intent: Intent,
 ) {
-    app.record_command(&argv);
-    app.record_in_flight(&argv);
+    spawn_verb_inner(app, tx, session, argv, intent, false)
+}
+
+/// A load the user did not ask for: fills data, announces nothing.
+fn spawn_verb_quiet(
+    app: &mut App,
+    tx: &std::sync::mpsc::Sender<WorkerResult>,
+    session: &std::sync::Arc<converge_cli::Session>,
+    argv: Vec<String>,
+    intent: Intent,
+) {
+    spawn_verb_inner(app, tx, session, argv, intent, true)
+}
+
+fn spawn_verb_inner(
+    app: &mut App,
+    tx: &std::sync::mpsc::Sender<WorkerResult>,
+    session: &std::sync::Arc<converge_cli::Session>,
+    argv: Vec<String>,
+    intent: Intent,
+    background: bool,
+) {
+    // Background data loads — startup tile fills, dashboard refreshes,
+    // the reload after a command — are not something the user typed, and
+    // the feedback line saying `> inbox` when nobody typed it reads as
+    // the machine acting on its own (batch 27.3 screenshot). Only
+    // user-driven intents are announced.
+    let announce = !matches!(intent, Intent::InboxData);
+    if announce && !background {
+        app.record_command(&argv);
+        app.record_in_flight(&argv);
+    }
     let tx = tx.clone();
     let session = std::sync::Arc::clone(session);
     std::thread::spawn(move || {
         let result = converge_cli::execute_in(&session, argv.iter().cloned());
-        let _ = tx.send((argv, intent, result));
+        let _ = tx.send((argv, intent, background, result));
     });
 }
 
@@ -80,7 +113,7 @@ fn spawn_refresh(
             "status_failed": status.is_err(),
             "history": history.unwrap_or(serde_json::Value::Null),
         });
-        let _ = tx.send((vec!["status".into()], Intent::Refresh, Ok(combined)));
+        let _ = tx.send((vec!["status".into()], Intent::Refresh, true, Ok(combined)));
     });
 }
 
@@ -118,7 +151,7 @@ fn run(terminal: &mut ratatui::DefaultTerminal, trace: &mut trace::Trace) -> Res
     // view. Rows intents store data without navigating.
     for view in [View::Bundles, View::Lanes, View::Releases, View::Gates] {
         if let Some(argv) = view.loader() {
-            spawn_verb(&mut app, &tx, &session, argv, Intent::Rows(view));
+            spawn_verb_quiet(&mut app, &tx, &session, argv, Intent::Rows(view));
         }
     }
     // The dashboard leads with ranked recommendations, so the inbox is
@@ -152,7 +185,7 @@ fn run(terminal: &mut ratatui::DefaultTerminal, trace: &mut trace::Trace) -> Res
                 let events = match polled {
                     Ok(events) => events,
                     Err(err) => {
-                        let _ = tx.send((vec!["events".into()], Intent::Events, Err(err)));
+                        let _ = tx.send((vec!["events".into()], Intent::Events, true, Err(err)));
                         continue;
                     }
                 };
@@ -170,7 +203,7 @@ fn run(terminal: &mut ratatui::DefaultTerminal, trace: &mut trace::Trace) -> Res
                         .collect::<Vec<_>>()
                         .join(", "),
                 });
-                let _ = tx.send((vec!["events".into()], Intent::Events, Ok(note)));
+                let _ = tx.send((vec!["events".into()], Intent::Events, true, Ok(note)));
             }
         });
     }
@@ -185,7 +218,7 @@ fn run(terminal: &mut ratatui::DefaultTerminal, trace: &mut trace::Trace) -> Res
     loop {
         trace_screen(trace, &app);
         // Deliver finished worker results without blocking.
-        while let Ok((argv, intent, result)) = rx.try_recv() {
+        while let Ok((argv, intent, quiet, result)) = rx.try_recv() {
             trace.command_result(&argv, &result);
             if intent != Intent::Events {
                 app.finish_in_flight();
@@ -196,7 +229,7 @@ fn run(terminal: &mut ratatui::DefaultTerminal, trace: &mut trace::Trace) -> Res
             }
             match intent {
                 Intent::Refresh => absorb_refresh(&mut app, &result),
-                Intent::Rows(view) => absorb_view_rows(&mut app, view, result),
+                Intent::Rows(view) => absorb_view_rows(&mut app, view, quiet, result),
                 Intent::Resolution(target) => enter_resolution(&mut app, target, result),
                 Intent::Inbox => {
                     match result {
@@ -235,7 +268,7 @@ fn run(terminal: &mut ratatui::DefaultTerminal, trace: &mut trace::Trace) -> Res
                     // the last thing to know.
                     let view = app.current_view();
                     if let Some(argv) = view.loader() {
-                        spawn_verb(&mut app, &tx, &session, argv, Intent::Rows(view));
+                        spawn_verb_quiet(&mut app, &tx, &session, argv, Intent::Rows(view));
                     }
                 }
             }
@@ -365,7 +398,7 @@ fn run(terminal: &mut ratatui::DefaultTerminal, trace: &mut trace::Trace) -> Res
                                 let result =
                                     converge_cli::execute_in(&session, argv.iter().cloned());
                                 let _ = std::fs::remove_file(&path);
-                                let _ = tx.send((argv, Intent::Command, result));
+                                let _ = tx.send((argv, Intent::Command, false, result));
                             });
                         }
                         Err(err) => app.record_result(Err(anyhow::Error::from(err))),
@@ -560,9 +593,16 @@ fn enter_resolution(app: &mut App, target: String, result: anyhow::Result<serde_
 }
 
 /// Store a finished list-view load.
-fn absorb_view_rows(app: &mut App, view: View, result: anyhow::Result<serde_json::Value>) {
+fn absorb_view_rows(
+    app: &mut App,
+    view: View,
+    quiet: bool,
+    result: anyhow::Result<serde_json::Value>,
+) {
     let value = match result {
         Ok(value) => value,
+        // Errors always surface — a background load failing is real
+        // news even when its success would have been noise.
         Err(err) => return app.record_result(Err(err)),
     };
     // The inbox report is an object; its bundles section is the view.
@@ -571,11 +611,13 @@ fn absorb_view_rows(app: &mut App, view: View, result: anyhow::Result<serde_json
         View::Gates => value["gates"].as_array().cloned().unwrap_or_default(),
         _ => value.as_array().cloned().unwrap_or_default(),
     };
-    app.record_result(Ok(serde_json::json!(format!(
-        "{} {}",
-        rows.len(),
-        view.title().to_lowercase()
-    ))));
+    if !quiet {
+        app.record_result(Ok(serde_json::json!(format!(
+            "{} {}",
+            rows.len(),
+            view.title().to_lowercase()
+        ))));
+    }
     app.row_selected.insert(view, 0);
     app.rows.insert(view, rows);
     app.mark_loaded(view);
@@ -644,9 +686,9 @@ fn absorb_events(
     // now that the dashboard ranks from it, and that refresh must not
     // navigate — hence the data-only intent (batch 23.4).
     if app.current_view() == View::Inbox {
-        spawn_verb(app, tx, session, vec!["inbox".into()], Intent::Inbox);
+        spawn_verb_quiet(app, tx, session, vec!["inbox".into()], Intent::Inbox);
     } else if !app.inbox_entries.is_empty() || app.current_view() == View::Root {
-        spawn_verb(app, tx, session, vec!["inbox".into()], Intent::InboxData);
+        spawn_verb_quiet(app, tx, session, vec!["inbox".into()], Intent::InboxData);
     }
 }
 

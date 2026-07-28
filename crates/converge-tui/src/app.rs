@@ -533,9 +533,11 @@ impl Default for App {
 /// grid. Inbox first because it is where other people's work waits.
 pub const ROOT_TILES: &[(View, &str)] = &[
     (View::Inbox, "inbox"),
+    // History beside the inbox (operator's call): what needs doing and
+    // what you did are the two things a person looks for first.
+    (View::History, "history"),
     (View::Bundles, "bundles"),
     (View::Lanes, "lanes"),
-    (View::History, "history"),
     (View::Releases, "releases"),
     (View::Gates, "gates"),
 ];
@@ -1318,10 +1320,9 @@ impl App {
     }
 
     pub fn record_command(&mut self, argv: &[String]) {
-        self.say(LastLine::Command(format!(
-            "> {}",
-            redact_argv(argv).join(" ")
-        )));
+        // Bare text: the renderer adds the `>` prompt. Storing it here
+        // too printed `> > inbox` (batch 27.3 screenshot).
+        self.say(LastLine::Command(redact_argv(argv).join(" ")));
     }
 
     pub fn record_result(&mut self, result: anyhow::Result<serde_json::Value>) {
@@ -1532,17 +1533,17 @@ mod tests {
 
         app.handle_key(key(KeyCode::Down));
         assert_eq!(app.root_selected, 2, "down moves one grid row (+2)");
-        assert_eq!(app.primary_action().0, "open lanes");
+        assert_eq!(app.primary_action().0, "open bundles");
 
         app.handle_key(key(KeyCode::Right));
-        assert_eq!(app.primary_action().0, "open history");
+        assert_eq!(app.primary_action().0, "open lanes");
 
         // Enter opens; it never runs a verb from the hub. That was the
         // first 27.3 pass, and the operator called it what it was:
         // removing agency the moment the screen loads.
         let action = app.handle_key(key(KeyCode::Enter));
         assert!(
-            matches!(action, Some(Action::Enter(View::History))),
+            matches!(action, Some(Action::Enter(View::Lanes))),
             "enter did not open the selected tile: {action:?}"
         );
         assert!(
@@ -1554,7 +1555,7 @@ mod tests {
         let mut app = App::default();
         let action = app.handle_key(key(KeyCode::Char('2')));
         assert!(
-            matches!(action, Some(Action::Enter(View::Bundles))),
+            matches!(action, Some(Action::Enter(View::History))),
             "digit did not open its tile: {action:?}"
         );
     }
