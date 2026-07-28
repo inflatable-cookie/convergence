@@ -7,7 +7,7 @@ use std::time::Duration;
 use anyhow::Result;
 use crossterm::event::{self, Event};
 use ratatui::Frame;
-use ratatui::layout::{Constraint, Layout};
+use ratatui::layout::{Constraint, Direction, Layout};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, List, ListItem, Paragraph};
@@ -606,9 +606,30 @@ fn absorb_events(
     if count == 0 {
         return;
     }
+    // Summarised by kind: "49 remote event(s): bundle, bundle, bundle,
+    // bundle…" ran off the screen edge saying one thing eleven times
+    // (batch 27.3 screenshot). Nobody reads a comma list for a tally.
+    let kinds = value["kinds"].as_str().unwrap_or("");
+    let mut tally: Vec<(String, usize)> = Vec::new();
+    for kind in kinds.split(", ").filter(|k| !k.is_empty()) {
+        match tally.iter_mut().find(|(name, _)| name == kind) {
+            Some((_, n)) => *n += 1,
+            None => tally.push((kind.to_string(), 1)),
+        }
+    }
+    let summary = tally
+        .iter()
+        .map(|(name, n)| {
+            if *n == 1 {
+                name.clone()
+            } else {
+                format!("{name} ×{n}")
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(", ");
     app.record_result(Ok(serde_json::json!(format!(
-        "{count} remote event(s): {}",
-        value["kinds"].as_str().unwrap_or("")
+        "{count} remote event(s): {summary}"
     ))));
     spawn_refresh(tx, session);
     // Remote events change the inbox, not just status. Root needs it too
@@ -683,109 +704,199 @@ fn render(frame: &mut Frame, app: &App) {
             frame.render_widget(Paragraph::new(lines).block(view_block(app)), body);
         }
         View::Root => {
-            // One Root. There used to be two — a local one and a remote
-            // one behind a mode toggle — each using four lines of a
-            // thirty-line pane to withhold what the other one showed.
-            let (primary, _) = app.primary_action();
-            let head = app.status.as_ref().map(|s| s["head"].clone());
-            let head_line = head
+            // A dashboard in sections, not a paragraph in a void. The
+            // screenshot that reopened this (batch 27.3) was twelve
+            // lines of hashes floating in black, an unselectable list,
+            // and an `Enter: promote` that named no target.
+            let status = app.status.as_ref();
+            let head = status.map(|s| s["head"].clone());
+            let remote = status.map(|s| s["remote"].clone());
+
+            let sections = Layout::default()
+                .direction(Direction::Vertical)
+                .constraints([Constraint::Length(6), Constraint::Min(6)])
+                .split(body);
+            let top = Layout::default()
+                .direction(Direction::Horizontal)
+                .constraints([Constraint::Percentage(45), Constraint::Percentage(55)])
+                .split(sections[0]);
+
+            // -- Your work: local state, in words rather than field names.
+            let snap_line = match head
                 .as_ref()
                 .and_then(|h| h["id"].as_str().map(str::to_string))
-                .map(|id| {
-                    format!(
-                        "head: {} ({})",
-                        short_id(&id),
-                        head.as_ref()
-                            .and_then(|h| h["trigger"].as_str())
-                            .unwrap_or("?")
-                    )
-                })
-                .unwrap_or_else(|| "head: none".to_string());
-            let auto = app
-                .status
-                .as_ref()
-                .and_then(|s| s["snaps"]["automatic"].as_u64())
-                .unwrap_or(0);
-            let remote = app.status.as_ref().map(|s| s["remote"].clone());
+            {
+                Some(id) => {
+                    let how = match head.as_ref().and_then(|h| h["trigger"].as_str()) {
+                        Some("automatic") => "auto-captured",
+                        _ => "captured by you",
+                    };
+                    format!("latest snap   {} ({how})", short_id(&id))
+                }
+                None => "no snaps yet — `:snap` captures one".to_string(),
+            };
+            let changes_line = match app.pending_changes {
+                0 => "nothing uncaptured".to_string(),
+                1 => "1 file changed since that snap".to_string(),
+                n => format!("{n} files changed since that snap"),
+            };
+            let local = vec![
+                Line::raw(snap_line),
+                Line::styled(
+                    changes_line,
+                    if app.pending_changes > 0 {
+                        Style::default().fg(Color::Yellow)
+                    } else {
+                        Style::default().fg(Color::Gray)
+                    },
+                ),
+            ];
+            frame.render_widget(
+                Paragraph::new(local).block(
+                    Block::default()
+                        .borders(Borders::ALL)
+                        .title(" Your work ")
+                        .border_style(Style::default().fg(Color::DarkGray)),
+                ),
+                top[0],
+            );
+
+            // -- The server: where publishes go and what came back.
             let configured = remote
                 .as_ref()
                 .and_then(|r| r["configured"].as_bool())
                 .unwrap_or(false);
-            let target = remote
-                .as_ref()
-                .filter(|_| configured)
-                .and_then(|r| r["target"].as_str().map(str::to_string))
-                .unwrap_or_else(|| "not configured (run login)".to_string());
-            let last_published = remote
-                .as_ref()
-                .and_then(|r| r["last_published_snap"].as_str().map(str::to_string))
-                .map(|id| short_id(&id))
-                .unwrap_or_else(|| "none".to_string());
-            let last_seen = remote
-                .as_ref()
-                .and_then(|r| r["last_seen_bundle"].as_str().map(str::to_string))
-                .map(|id| short_id(&id))
-                .unwrap_or_else(|| "none".to_string());
-            let flow = app
-                .status
-                .as_ref()
-                .and_then(|s| s["profile"]["flow"].as_str().map(str::to_string))
-                .unwrap_or_default();
-            let mut lines = vec![
-                Line::raw(head_line),
-                Line::raw(format!(
-                    "pending changes: {}    automatic captures: {auto}",
-                    app.pending_changes
-                )),
-                Line::raw(""),
-                Line::raw(format!("remote: {target}")),
-                Line::raw(format!(
-                    "last published snap: {last_published}    last seen bundle: {last_seen}"
-                )),
-                Line::styled(flow, Style::default().fg(Color::DarkGray)),
-            ];
+            let server = if configured {
+                let target = remote
+                    .as_ref()
+                    .and_then(|r| r["target"].as_str())
+                    .unwrap_or("?")
+                    .to_string();
+                let last_published = remote
+                    .as_ref()
+                    .and_then(|r| r["last_published_snap"].as_str())
+                    .map(short_id)
+                    .unwrap_or_else(|| "nothing yet".into());
+                let last_seen = remote
+                    .as_ref()
+                    .and_then(|r| r["last_seen_bundle"].as_str())
+                    .map(short_id)
+                    .unwrap_or_else(|| "none yet".into());
+                vec![
+                    Line::raw(format!("publishing to  {target}")),
+                    Line::raw(format!("your last publish  {last_published}")),
+                    Line::raw(format!("latest bundle      {last_seen}")),
+                ]
+            } else {
+                vec![
+                    Line::raw("no server configured"),
+                    Line::styled(
+                        "`:login` connects one — everything local still works",
+                        Style::default().fg(Color::Gray),
+                    ),
+                ]
+            };
+            frame.render_widget(
+                Paragraph::new(server).block(
+                    Block::default()
+                        .borders(Borders::ALL)
+                        .title(" Server ")
+                        .border_style(Style::default().fg(Color::DarkGray)),
+                ),
+                top[1],
+            );
 
-            // Ranked next actions (spec §4.7, batch 23.4). Ordered by
-            // what blocks other people; the ranking lives in
-            // `converge_cli::inbox_actions`, so this panel and the Inbox
-            // view cannot disagree about what matters.
-            if !app.recommendations.is_empty() {
-                lines.push(Line::raw(""));
-                lines.push(Line::styled(
-                    "next",
-                    Style::default().add_modifier(Modifier::BOLD),
+            // -- What needs doing: numbered, selectable, and the
+            // selected row is what Enter runs. The highlight IS the
+            // explanation of the footer's `Enter:` label.
+            let mut todo: Vec<Line> = Vec::new();
+            if app.recommendations.is_empty() {
+                todo.push(Line::raw("nothing is waiting on you."));
+                todo.push(Line::raw(""));
+                todo.push(Line::styled(
+                    "make a change and `:snap` it, or browse with the keys below.",
+                    Style::default().fg(Color::Gray),
                 ));
-                for recommendation in &app.recommendations {
+            } else {
+                let selected_index = app
+                    .root_selected
+                    .min(app.recommendations.len().saturating_sub(1));
+                for (i, recommendation) in app.recommendations.iter().enumerate() {
+                    let selected = i == selected_index;
                     let owners = if recommendation.owners.is_empty() {
                         String::new()
                     } else {
                         format!("  ({})", recommendation.owners.join(", "))
                     };
-                    // The view, never the argv. A bundle id is 64
-                    // characters and spelling one out here pushes the
-                    // rest of the line off the edge; the Inbox is where
-                    // a row is a command you can paste.
-                    let where_to = format!("  → {}", recommendation.view);
-                    lines.push(Line::styled(
-                        format!("  {}{owners}{where_to}", recommendation.headline),
-                        // Blocking work is not the same colour as news.
-                        match recommendation.kind {
-                            converge_cli::ActionKind::Resolve => Style::default().fg(Color::Yellow),
-                            converge_cli::ActionKind::Publication => {
-                                Style::default().fg(Color::DarkGray)
-                            }
-                            _ => Style::default(),
-                        },
-                    ));
+                    let marker = if selected { "▶" } else { " " };
+                    let base = if selected {
+                        Style::default()
+                            .bg(Color::DarkGray)
+                            .add_modifier(Modifier::BOLD)
+                    } else {
+                        Style::default()
+                    };
+                    let kind_colour = match recommendation.kind {
+                        converge_cli::ActionKind::Resolve => Color::Red,
+                        converge_cli::ActionKind::Approve | converge_cli::ActionKind::Promote => {
+                            Color::Yellow
+                        }
+                        converge_cli::ActionKind::LanePull => Color::Cyan,
+                        converge_cli::ActionKind::Publication => Color::Gray,
+                    };
+                    todo.push(Line::from(vec![
+                        Span::styled(format!(" {marker} {}. ", i + 1), base),
+                        Span::styled(
+                            format!("{}{owners}", recommendation.headline),
+                            base.fg(kind_colour),
+                        ),
+                    ]));
+                    if selected {
+                        let does = match &recommendation.argv {
+                            // Ids shortened for the eye. Honest, not
+                            // cosmetic: every verb resolves unique
+                            // prefixes (batches 22.4/26.4), so the
+                            // displayed command runs as printed too.
+                            Some(argv) => format!(
+                                "Enter runs: converge {}",
+                                argv.iter()
+                                    .map(|a| {
+                                        if a.len() == 64 && a.chars().all(|c| c.is_ascii_hexdigit())
+                                        {
+                                            a[..12].to_string()
+                                        } else {
+                                            a.clone()
+                                        }
+                                    })
+                                    .collect::<Vec<_>>()
+                                    .join(" ")
+                            ),
+                            None => format!(
+                                "Enter opens the {} screen — several need a look",
+                                recommendation.view
+                            ),
+                        };
+                        todo.push(Line::from(vec![
+                            Span::raw("      "),
+                            Span::styled(does, Style::default().fg(Color::Gray)),
+                        ]));
+                    }
                 }
+                todo.push(Line::raw(""));
+                todo.push(Line::styled(
+                    "↑↓ choose · Enter do it · or press the number",
+                    Style::default().fg(Color::Gray),
+                ));
             }
-
-            lines.push(Line::raw(""));
-            lines.push(Line::styled(
-                format!("Enter: {primary}"),
-                Style::default().add_modifier(Modifier::BOLD),
-            ));
-            frame.render_widget(Paragraph::new(lines).block(view_block(app)), body);
+            frame.render_widget(
+                Paragraph::new(todo).block(
+                    Block::default()
+                        .borders(Borders::ALL)
+                        .title(" What needs doing ")
+                        .border_style(Style::default().fg(Color::DarkGray)),
+                ),
+                sections[1],
+            );
         }
         View::Resolution => {
             let empty = ResolutionState::default();
@@ -1544,9 +1655,19 @@ mod screen_tests {
             text.contains("(erin)"),
             "a personal lane names its owner: {text}"
         );
+        // The selected row explains what Enter does (batch 27.3) —
+        // which replaced the bare `→ bundles` arrow with a sentence.
         assert!(
-            text.contains("→ bundles"),
-            "the row points at the view that lists it: {text}"
+            text.contains("Enter runs: converge resolve list"),
+            "the selected row does not say what Enter does: {text}"
+        );
+        assert!(
+            text.contains("▶ 1."),
+            "the selection is not visible: {text}"
+        );
+        assert!(
+            text.contains("↑↓ choose"),
+            "nothing says the list is selectable: {text}"
         );
         // The 23.1 finding, guarded here too: a 64-character id in a
         // dashboard row pushes everything after it off the edge.

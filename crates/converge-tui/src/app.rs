@@ -431,6 +431,11 @@ pub struct App {
     /// and watch something happen — the Alt jump layer was the entire
     /// shortcut set and stock macOS terminals never deliver it.
     pub command_mode: bool,
+    /// Which row of the Root to-do list is selected (batch 27.3). The
+    /// screenshot that opened g02.027 shows why this exists: a list you
+    /// cannot select, above an `Enter: promote` that names no target,
+    /// is a promise about something invisible.
+    pub root_selected: usize,
     pub input: String,
     pub command_history: Vec<String>,
     pub history_cursor: Option<usize>,
@@ -492,6 +497,7 @@ impl Default for App {
             command_history: Vec::new(),
             history_cursor: None,
             command_mode: false,
+            root_selected: 0,
             suggestions: Vec::new(),
             suggestion_index: 0,
             last: Vec::new(),
@@ -567,16 +573,27 @@ impl App {
                 if self.pending_changes > 0 {
                     return ("snap".into(), Action::Run(vec!["snap".into()]));
                 }
-                // Then whatever is blocking other people. The dashboard
-                // ranks it (batch 23.4); Enter should do the top of that
-                // list rather than something unrelated to it. The label
-                // is the kind, not the argv: a 64-character bundle id in
-                // the hint bar pushes the key legend off the screen.
-                if let Some(top) = self.recommendations.iter().find(|r| r.argv.is_some()) {
-                    return (
-                        top.kind.cta().to_string(),
-                        action_for_argv(top.argv.clone().expect("checked")),
-                    );
+                // Then the *selected* row of the ranked list (batch
+                // 27.3) — Enter acts on the row the highlight is on,
+                // which is what a highlight means. A group with several
+                // runnable members has no argv, so Enter opens its view
+                // instead of picking one of five bundles for you.
+                if let Some(selected) = self.recommendations.get(
+                    self.root_selected
+                        .min(self.recommendations.len().saturating_sub(1)),
+                ) {
+                    return match &selected.argv {
+                        Some(argv) => (
+                            selected.kind.cta().to_string(),
+                            action_for_argv(argv.clone()),
+                        ),
+                        None => (
+                            format!("open {}", selected.view),
+                            Self::view_by_name(selected.view)
+                                .map(Action::Enter)
+                                .unwrap_or(Action::Enter(View::Inbox)),
+                        ),
+                    };
                 }
                 ("history".into(), Action::Enter(View::History))
             }
@@ -693,6 +710,20 @@ impl App {
     }
 
     /// Enter a view unless it is already the active one.
+    /// The Recommendation's `view` field is a name, because it crosses
+    /// the CLI boundary as data.
+    fn view_by_name(name: &str) -> Option<View> {
+        Some(match name {
+            "bundles" => View::Bundles,
+            "lanes" => View::Lanes,
+            "inbox" => View::Inbox,
+            "releases" => View::Releases,
+            "gates" => View::Gates,
+            "history" => View::History,
+            _ => return None,
+        })
+    }
+
     fn jump(&self, view: View) -> Option<Action> {
         if self.current_view() == view {
             return None;
@@ -913,6 +944,30 @@ impl App {
         ) && let Some(action) = self.handle_rows_key(self.current_view(), key)
         {
             return action;
+        }
+
+        // Root's to-do list is selectable (batch 27.3): the highlight
+        // is what Enter acts on, arrows move it, and a number both
+        // selects and acts — the one-keystroke path for the row you can
+        // already see.
+        if self.current_view() == View::Root && !self.recommendations.is_empty() {
+            match key.code {
+                KeyCode::Up => {
+                    self.root_selected = self.root_selected.saturating_sub(1);
+                    return None;
+                }
+                KeyCode::Down => {
+                    self.root_selected =
+                        (self.root_selected + 1).min(self.recommendations.len() - 1);
+                    return None;
+                }
+                KeyCode::Char(c @ '1'..='9') => {
+                    let index = (c as usize - '1' as usize).min(self.recommendations.len() - 1);
+                    self.root_selected = index;
+                    return Some(self.primary_action().1);
+                }
+                _ => {}
+            }
         }
 
         // The jump keys, bare. They were Alt-modified — and Alt is the

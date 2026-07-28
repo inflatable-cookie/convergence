@@ -94,7 +94,10 @@ was the operator's, and the verdict was immediate.
   single biggest thing the rebuild dropped
 - **27.3 Screens that look like their subject** (card 098): the root as
   sections rather than a paragraph; list views that show state, not just
-  ids
+  ids. *Root done early*, driven by the operator's screenshot: Your work
+  / Server / What needs doing panels, a numbered selectable to-do list
+  whose highlighted row states what Enter runs, plain words in place of
+  field names, and the event tally summarised by kind
 - **27.4 Somebody else drives it** (card 099): the operator, on a repo
   they have not been walked through, with findings recorded the way
   batch 22.4 recorded them
