@@ -386,6 +386,17 @@ pub struct InboxPublication {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct InboxBundle {
     pub bundle_id: String,
+    /// A bundle is a derived artifact, like a merge commit, so its
+    /// human name comes from what went into it (batch 27.3, operator:
+    /// "keyed only by the hash ID... they need to be named"). The
+    /// newest input's snap message, else its publish note, else the
+    /// window described in words. Never empty.
+    #[serde(default)]
+    pub title: String,
+    /// Publication window `(first, last)` — "publications 12–14" is the
+    /// bundle's span in a form a person can relate to the inbox.
+    #[serde(default)]
+    pub window: (u64, u64),
     pub gate_id: String,
     /// "resolve" (superposed), "approve" (short of approvals), or
     /// "promote" (ready, approved, and a stage ahead of it).

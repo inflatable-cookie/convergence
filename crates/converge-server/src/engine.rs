@@ -636,15 +636,41 @@ impl Engine<'_> {
             // into a hundred record reads to produce a label nobody
             // reads past the second name.
             let mut contributors: Vec<String> = Vec::new();
-            for publication_id in bundle.inputs.iter().take(INBOX_CONTRIBUTOR_SCAN) {
-                if let Some(publication) = self.meta.get_publication(publication_id)?
-                    && !contributors.contains(&publication.publisher)
-                {
+            // The newest input names the bundle: a bundle is a derived
+            // artifact, so its human title is the last thing that went
+            // into it — the snap message where one was written, the
+            // publish note otherwise. Inputs are window-ordered, so the
+            // newest is the last, and the walk is already bounded.
+            let mut title = String::new();
+            for publication_id in bundle.inputs.iter().rev().take(INBOX_CONTRIBUTOR_SCAN) {
+                let Some(publication) = self.meta.get_publication(publication_id)? else {
+                    continue;
+                };
+                if title.is_empty() {
+                    if let Some(snap) = self
+                        .meta
+                        .get_snap_record(authz.repo_id(), &publication.snap_id)?
+                        && let Some(message) = snap.message.filter(|m| !m.is_empty())
+                    {
+                        title = message;
+                    } else if let Some(note) = publication.notes.clone().filter(|n| !n.is_empty()) {
+                        title = note;
+                    }
+                }
+                if !contributors.contains(&publication.publisher) {
                     contributors.push(publication.publisher);
                 }
             }
+            if title.is_empty() {
+                title = format!(
+                    "{} publication(s) into {gate_id}",
+                    bundle.window.1.saturating_sub(bundle.window.0) + 1
+                );
+            }
             report.bundles.push(InboxBundle {
                 bundle_id: bundle.bundle_id,
+                title,
+                window: bundle.window,
                 gate_id,
                 recommendation: recommendation.to_string(),
                 // Only when there is one answer. Offering a guess where

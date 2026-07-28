@@ -501,13 +501,18 @@ fn row_label(row: &serde_json::Value) -> String {
         );
     }
     if !s("bundle_id").is_empty() {
+        // The title leads (operator: bundles "keyed only by the hash
+        // ID... need to be named"). A bundle is a derived artifact, so
+        // its name is the newest work inside it; the id stays, short
+        // and last, for the moment somebody needs to paste it.
         return format!(
-            "{}  @ {}  -> {}  ({}/{} approvals)",
-            short_id(&s("bundle_id")),
+            "\"{}\"  @ {}  -> {}  ({}/{} approvals)  {}",
+            s("title"),
             s("gate_id"),
             s("recommendation"),
             row["approvals"],
-            row["required_approvals"]
+            row["required_approvals"],
+            short_id(&s("bundle_id"))
         );
     }
     if !s("lane_id").is_empty() {
@@ -1436,8 +1441,8 @@ fn root_tile_preview(app: &App, view: View) -> Vec<Line<'static>> {
                 .map(|row| {
                     let text = match view {
                         View::Bundles => format!(
-                            "{}  {}",
-                            row["bundle_id"].as_str().map(short_id).unwrap_or_default(),
+                            "\"{}\"  {}",
+                            row["title"].as_str().unwrap_or(""),
                             row["recommendation"].as_str().unwrap_or("")
                         ),
                         View::Lanes => format!(

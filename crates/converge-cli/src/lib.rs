@@ -4466,8 +4466,8 @@ pub fn inbox_actions(report: &serde_json::Value) -> Vec<InboxAction> {
         let recommendation = bundle["recommendation"].as_str().unwrap_or("");
         actions.push(InboxAction {
             label: format!(
-                "bundle {} @ {} -> {recommendation} ({}/{})",
-                short(&id),
+                "\"{}\" @ {} -> {recommendation} ({}/{})",
+                bundle["title"].as_str().unwrap_or("bundle"),
                 // Where the work has reached, falling back to where it
                 // was built. `gate_id` never changes, so a promoted
                 // bundle kept reporting the entry gate it left two

@@ -484,6 +484,14 @@ fn the_inbox_recommends_the_next_stage() -> Result<()> {
     // At intake: promote, and the one onward gate is named so the row is
     // a command rather than a hint.
     let first = row(alice.inbox("repo", "scope", None)?);
+    // A bundle's human name is the newest work inside it (batch 27.3,
+    // operator: bundles were "keyed only by the hash ID"). The snap was
+    // captured with a message, so that message is the title.
+    assert_eq!(
+        first.title, "staged",
+        "the bundle is not named by its content"
+    );
+    assert_eq!(first.window, (1, 1));
     assert_eq!(first.recommendation, "promote");
     assert_eq!(first.next_gate.as_deref(), Some("review"));
     assert_eq!(first.from_gate.as_deref(), Some("intake"));
