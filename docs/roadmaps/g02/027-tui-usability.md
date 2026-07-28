@@ -18,6 +18,15 @@ That is the verdict that matters, and it should not be argued with. It
 also should not be mistaken for taste: all three complaints are specific
 regressions against `v0-legacy`, and all three are measurable.
 
+## The first thing to fix
+
+Before any of what follows: **there is no working navigation at all.**
+The `Alt` layer is the whole shortcut set and stock macOS terminals send
+composed characters for Option, so every jump key silently does nothing.
+Batch 23.1 found this, wrote it down accurately, and deferred it on the
+grounds that typing the verb still worked — which is true only for
+somebody who already knows the verbs. Card 096 has the detail.
+
 ## What was actually lost
 
 **Guidance.** The legacy shell rendered a permanent suggestions panel —
@@ -74,9 +83,12 @@ was the operator's, and the verdict was immediate.
 
 ## Execution Plan (batch details in cards)
 
-- **27.1 Frame and palette** (card 096): restore the five-band frame,
-  define the semantic palette in one place so no screen invents its own,
-  dim behind modals
+- **27.1 Frame and navigation** (card 096): the headline. The `Alt` jump
+  layer is the *entire* shortcut set and does nothing on stock macOS
+  terminals — a defect batch 23.1 found, recorded correctly and declined
+  to fix because "this batch does not add". Keys now navigate and `:`
+  types (operator's call). Plus the five-band frame, one semantic
+  palette, and dimming behind modals
 - **27.2 Guidance** (card 097): a permanent panel answering "what can I
   do from here", with help text restored to the suggestion data — the
   single biggest thing the rebuild dropped
