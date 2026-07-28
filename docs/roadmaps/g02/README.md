@@ -69,7 +69,8 @@ it and removes things before anything new is added.
 - [`024-workflow-profiles.md`](./024-workflow-profiles.md) — parked (needs a design partner)
 - [`025-edge-and-scale.md`](./025-edge-and-scale.md) — parked (needs a measured ceiling)
 - [`026-gate-administration.md`](./026-gate-administration.md) — complete
-- [`027-tui-usability.md`](./027-tui-usability.md) — ready, opened by the operator's verdict on first real use
+- [`027-tui-usability.md`](./027-tui-usability.md) — in progress (27.1 done; root redesigned through three rounds of operator feedback)
+- [`028-semver-releases.md`](./028-semver-releases.md) — ready: semver is the release identity, channels retired
 
 ## Next Task
 
