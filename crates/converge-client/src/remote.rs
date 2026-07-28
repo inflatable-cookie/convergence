@@ -1122,15 +1122,44 @@ impl RemoteClient {
         )
     }
 
-    pub fn get_channel_head(&self, repo_id: &str, channel: &str) -> Result<ReleaseRecord> {
+    /// Resolve `latest`, an exact version, or a range (`1.x`) to a
+    /// release. Resolution happens server-side with the shared rules in
+    /// `converge_model::releases`, so no front-end can disagree about
+    /// what `latest` means.
+    pub fn resolve_release(&self, repo_id: &str, request: &str) -> Result<ReleaseRecord> {
+        // A range like `>=1, <2` has characters a path cannot carry;
+        // encode by hand rather than adding a dependency for one call.
+        let encoded: String = request
+            .bytes()
+            .flat_map(|b| {
+                if b.is_ascii_alphanumeric() || matches!(b, b'.' | b'-' | b'_' | b'~' | b'x' | b'*')
+                {
+                    vec![b as char]
+                } else {
+                    format!("%{b:02X}").chars().collect()
+                }
+            })
+            .collect();
         let response = Self::check(
             self.http
-                .get(self.url(&format!("/api/repos/{repo_id}/release/{channel}")))
+                .get(self.url(&format!("/api/repos/{repo_id}/release/{encoded}")))
                 .bearer_auth(&self.token)
                 .send()
-                .context("channel head")?,
+                .context("resolve release")?,
         )?;
         response.json().context("parse release")
+    }
+
+    pub fn yank_release(&self, repo_id: &str, version: &str, reason: &str) -> Result<()> {
+        Self::check(
+            self.http
+                .post(self.url(&format!("/api/repos/{repo_id}/release/{version}/yank")))
+                .bearer_auth(&self.token)
+                .json(&serde_json::json!({ "reason": reason }))
+                .send()
+                .context("yank release")?,
+        )?;
+        Ok(())
     }
 
     pub fn gc(&self, repo_id: &str, dry_run: bool) -> Result<serde_json::Value> {

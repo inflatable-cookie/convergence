@@ -418,7 +418,11 @@ pub struct InboxBundle {
 pub struct RetentionPolicy {
     /// Keep the newest N releases per channel (None = keep all).
     #[serde(default)]
-    pub keep_releases_per_channel: Option<u32>,
+    /// Keep the newest N releases (g02.028: channels retired, so this
+    /// is one count, not per-channel). The old field name is accepted on
+    /// the wire so a stored policy predating the rename still parses.
+    #[serde(alias = "keep_releases_per_channel")]
+    pub keep_releases: Option<u32>,
     /// Keep the newest N bundles per gate (None = keep all).
     #[serde(default)]
     pub keep_bundles_per_gate: Option<u32>,
@@ -458,7 +462,17 @@ pub struct EventPage {
 /// A release: a bundle designated for consumption on a named channel.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ReleaseRecord {
-    pub channel: String,
+    /// Semver, stored bare (no leading `v`), unique per repo (g02.028).
+    /// Channels are retired: gates do staged promotion, prerelease tags
+    /// do pre-release tracks, and `latest` is a computation.
+    pub version: String,
+    /// Withdrawn, not deleted: a yanked release leaves `latest` and
+    /// range resolution but stays reachable by exact version, because
+    /// reproducing a bug against a withdrawn build is legitimate.
+    #[serde(default)]
+    pub yanked: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub yank_reason: Option<String>,
     pub repo_id: String,
     pub scope_id: String,
     pub bundle_id: String,

@@ -95,7 +95,7 @@ fn release_policy_channel_heads_and_fetch() -> Result<()> {
     // of the gates it has been through may release, not which one built
     // it.
     let err = alice
-        .release(&bundle.bundle_id, "repo", "scope", "stable", None)
+        .release(&bundle.bundle_id, "repo", "scope", "1.0.0", None)
         .unwrap_err();
     let text = err.to_string();
     assert!(
@@ -115,14 +115,27 @@ fn release_policy_channel_heads_and_fetch() -> Result<()> {
         &main_bundle.bundle_id,
         "repo",
         "scope",
-        "stable",
+        // A leading v is accepted and stored bare (g02.028).
+        "v1.0.0",
         Some("first".into()),
     )?;
-    assert_eq!(release.channel, "stable");
+    assert_eq!(release.version, "1.0.0");
+
+    // A nonsense version is refused before anything is written.
+    let err = alice
+        .release(&main_bundle.bundle_id, "repo", "scope", "stable", None)
+        .unwrap_err();
+    assert!(err.to_string().contains("not a semver version"), "{err:#}");
+
+    // And a duplicate is refused: releases are immutable, fix forward.
+    let err = alice
+        .release(&main_bundle.bundle_id, "repo", "scope", "1.0.0", None)
+        .unwrap_err();
+    assert!(err.to_string().contains("already exists"), "{err:#}");
 
     // Capability enforced: bob (read-only) cannot release.
     let err = bob
-        .release(&main_bundle.bundle_id, "repo", "scope", "stable", None)
+        .release(&main_bundle.bundle_id, "repo", "scope", "1.1.0", None)
         .unwrap_err();
     assert!(err.to_string().contains("authorization denied"));
 
@@ -139,8 +152,8 @@ fn release_policy_channel_heads_and_fetch() -> Result<()> {
         None,
         None,
     )?;
-    alice.release(&bundle2.bundle_id, "repo", "scope", "stable", None)?;
-    let head = alice.get_channel_head("repo", "stable")?;
+    alice.release(&bundle2.bundle_id, "repo", "scope", "1.2.0", None)?;
+    let head = alice.resolve_release("repo", "latest")?;
     assert_eq!(head.bundle_id, bundle2.bundle_id, "channel head advanced");
     assert_eq!(alice.list_releases("repo")?.len(), 2);
 
@@ -173,7 +186,7 @@ fn superposed_bundle_cannot_release() -> Result<()> {
     let (bundle, _) =
         alice.publish(&b.store, "repo", "scope", "main", &snap_b, None, None, None)?;
     let err = alice
-        .release(&bundle.bundle_id, "repo", "scope", "stable", None)
+        .release(&bundle.bundle_id, "repo", "scope", "1.0.0", None)
         .unwrap_err();
     assert!(err.to_string().contains("unresolved superpositions"));
     Ok(())
@@ -192,7 +205,7 @@ fn retention_config_round_trips_with_admin_gate() -> Result<()> {
     let bob = RemoteClient::new(&base_url, "token-b");
 
     let policy = converge_model::RetentionPolicy {
-        keep_releases_per_channel: Some(5),
+        keep_releases: Some(5),
         keep_bundles_per_gate: Some(10),
         keep_publication_days: Some(30),
         keep_events: Some(1000),
@@ -222,7 +235,7 @@ fn gc_reclaims_unreachable_and_never_touches_reachable() -> Result<()> {
     std::fs::write(ws_dir.path().join("keep.txt"), "released content")?;
     let snap = ws.create_snap(None)?;
     let (bundle, _) = alice.publish(&ws.store, "repo", "scope", "main", &snap, None, None, None)?;
-    alice.release(&bundle.bundle_id, "repo", "scope", "stable", None)?;
+    alice.release(&bundle.bundle_id, "repo", "scope", "1.0.0", None)?;
     alice.push_lineage(&ws.store, "repo", None, &snap.id, false)?;
 
     // Unreachable garbage: objects uploaded but never referenced.
@@ -259,7 +272,7 @@ fn gc_reclaims_unreachable_and_never_touches_reachable() -> Result<()> {
 
     // Reachable-never-collected: channel head still fetches + materializes;
     // lane still pulls.
-    let head = alice.get_channel_head("repo", "stable")?;
+    let head = alice.resolve_release("repo", "latest")?;
     let ws_b_dir = tempfile::tempdir()?;
     let ws_b = Workspace::init(ws_b_dir.path(), false)?;
     let root = alice.fetch_bundle(&ws_b.store, "repo", &head.bundle_id)?;
@@ -310,7 +323,7 @@ fn gc_retention_drops_metadata_and_requires_admin() -> Result<()> {
     std::fs::write(ws_dir.path().join("a.txt"), "v1")?;
     let s1 = ws.create_snap(None)?;
     let (b1, _) = alice.publish(&ws.store, "repo", "scope", "main", &s1, None, None, None)?;
-    alice.release(&b1.bundle_id, "repo", "scope", "stable", None)?;
+    alice.release(&b1.bundle_id, "repo", "scope", "1.0.0", None)?;
     std::fs::write(ws_dir.path().join("a.txt"), "v2")?;
     let s2 = ws.create_snap(None)?;
     let (b2, _) = alice.publish(
@@ -323,12 +336,12 @@ fn gc_retention_drops_metadata_and_requires_admin() -> Result<()> {
         None,
         None,
     )?;
-    alice.release(&b2.bundle_id, "repo", "scope", "stable", None)?;
+    alice.release(&b2.bundle_id, "repo", "scope", "1.1.0", None)?;
 
     alice.set_retention(
         "repo",
         &converge_model::RetentionPolicy {
-            keep_releases_per_channel: Some(1),
+            keep_releases: Some(1),
             ..Default::default()
         },
     )?;
@@ -343,7 +356,7 @@ fn gc_retention_drops_metadata_and_requires_admin() -> Result<()> {
         1,
         "old release row gone"
     );
-    let head = alice.get_channel_head("repo", "stable")?;
+    let head = alice.resolve_release("repo", "latest")?;
     assert_eq!(head.bundle_id, b2.bundle_id, "channel head survives");
     Ok(())
 }
@@ -408,7 +421,7 @@ fn events_flow_with_increasing_seq_and_cursor_filtering() -> Result<()> {
     // publish -> bundle event; sync push -> lane event; release -> release event.
     let (bundle, _) = alice.publish(&ws.store, "repo", "scope", "main", &snap, None, None, None)?;
     alice.push_lineage(&ws.store, "repo", None, &snap.id, false)?;
-    alice.release(&bundle.bundle_id, "repo", "scope", "stable", None)?;
+    alice.release(&bundle.bundle_id, "repo", "scope", "1.0.0", None)?;
 
     let events = alice.events("repo", 0)?;
     let kinds: Vec<&str> = events.iter().map(|e| e.kind.as_str()).collect();
@@ -479,7 +492,7 @@ fn retention_spares_bundles_that_open_publications_declare() -> Result<()> {
     alice.set_retention(
         "repo",
         &converge_model::RetentionPolicy {
-            keep_releases_per_channel: None,
+            keep_releases: None,
             keep_bundles_per_gate: Some(2),
             keep_publication_days: None,
             keep_events: None,
@@ -505,5 +518,62 @@ fn retention_spares_bundles_that_open_publications_declare() -> Result<()> {
         "retention wedged the gate: {:?}",
         bundle.status
     );
+    Ok(())
+}
+
+/// A deployment that predates semver has channel-keyed rows *and* a
+/// `channel` column with NOT NULL on it. Both halves matter: the rows
+/// need real numbers (0.<n>.0 by order — operator's call, no legacy
+/// caste), and the column has to go, because while it physically exists
+/// every new insert fails — on the migrated deployment only. Every
+/// fresh database, and therefore every test fixture, was fine, which is
+/// why the whole suite passed minutes before the real deployment
+/// refused to release (batch 28.2).
+#[test]
+fn a_pre_semver_deployment_migrates_and_can_still_release() -> Result<()> {
+    let dir = tempfile::tempdir()?;
+    let path = dir.path().join("meta.sqlite");
+    {
+        let conn = rusqlite::Connection::open(&path)?;
+        conn.execute_batch(
+            "CREATE TABLE releases (
+                repo_id TEXT NOT NULL,
+                channel TEXT NOT NULL,
+                seq INTEGER PRIMARY KEY AUTOINCREMENT,
+                record_json TEXT NOT NULL
+            );",
+        )?;
+        for (bundle, at) in [("b-one", "T1"), ("b-two", "T2")] {
+            conn.execute(
+                "INSERT INTO releases (repo_id, channel, record_json) VALUES ('repo', 'stable', ?1)",
+                [format!(
+                    r#"{{"channel":"stable","repo_id":"repo","scope_id":"s","bundle_id":"{bundle}","released_by":"tom","notes":null,"created_at":"{at}"}}"#
+                )],
+            )?;
+        }
+    }
+
+    let meta = SqliteMetadataStore::open(&path)?;
+    let migrated = meta.list_releases("repo")?;
+    assert_eq!(migrated.len(), 2);
+    assert_eq!(migrated[0].version, "0.1.0", "numbered by order");
+    assert_eq!(migrated[1].version, "0.2.0");
+    assert_eq!(migrated[0].bundle_id, "b-one", "history preserved");
+
+    // The half the fixtures could not see: a *new* release on the
+    // migrated schema.
+    meta.add_release(&converge_model::ReleaseRecord {
+        version: "1.0.0".into(),
+        yanked: false,
+        yank_reason: None,
+        repo_id: "repo".into(),
+        scope_id: "s".into(),
+        bundle_id: "b-three".into(),
+        released_by: "tom".into(),
+        notes: None,
+        created_at: "T3".into(),
+    })?;
+    assert_eq!(meta.list_releases("repo")?.len(), 3);
+    assert!(meta.get_release("repo", "0.1.0")?.is_some());
     Ok(())
 }

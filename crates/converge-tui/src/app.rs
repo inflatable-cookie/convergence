@@ -633,9 +633,11 @@ impl App {
     }
 
     /// Release channels, if the Releases view has been loaded.
-    pub fn channel_names(&self) -> Vec<String> {
-        let mut names = self.row_values(View::Releases, "channel");
-        names.dedup();
+    /// Existing release versions, newest first — shown for orientation
+    /// when cutting the next one (g02.028).
+    pub fn release_versions(&self) -> Vec<String> {
+        let mut names = self.row_values(View::Releases, "version");
+        names.reverse();
         names
     }
 

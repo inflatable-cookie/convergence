@@ -165,7 +165,7 @@ impl SqliteMetadataStore {
             );
             CREATE TABLE IF NOT EXISTS releases (
                 repo_id TEXT NOT NULL,
-                channel TEXT NOT NULL,
+                version TEXT NOT NULL DEFAULT '',
                 seq INTEGER PRIMARY KEY AUTOINCREMENT,
                 record_json TEXT NOT NULL
             );
@@ -205,6 +205,51 @@ impl SqliteMetadataStore {
                 [],
             )
             .context("add object_pins.pinned_at")?;
+        }
+
+        // Releases predating g02.028 are channel-keyed and unversioned.
+        // They get real numbers — 0.<seq>.0, deterministic — rather than
+        // a "legacy" label, because a permanent unversioned caste would
+        // contradict the rule versioning exists to state (operator's
+        // call, 2026-07-28). The record keeps its history; only its
+        // identity changes shape.
+        let has_version = conn.prepare("SELECT version FROM releases LIMIT 1").is_ok();
+        if !has_version {
+            conn.execute(
+                "ALTER TABLE releases ADD COLUMN version TEXT NOT NULL DEFAULT ''",
+                [],
+            )
+            .context("add releases.version")?;
+        }
+        // The legacy `channel` column carries NOT NULL, so as long as it
+        // physically exists every *new* insert fails on a migrated
+        // deployment — while every fresh database, and therefore every
+        // test fixture, is fine. Found by releasing on the real
+        // deployment minutes after the whole suite passed (batch 28.2):
+        // the fresh-fixture blind spot again, this time in schema shape.
+        let has_channel = conn.prepare("SELECT channel FROM releases LIMIT 1").is_ok();
+        if has_channel {
+            conn.execute("ALTER TABLE releases DROP COLUMN channel", [])
+                .context("drop releases.channel")?;
+        }
+        let mut stmt = conn
+            .prepare("SELECT seq, record_json FROM releases WHERE version = '' ORDER BY seq ASC")?;
+        let unversioned: Vec<(i64, String)> = stmt
+            .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?
+            .collect::<std::result::Result<_, _>>()?;
+        drop(stmt);
+        for (order, (seq, json)) in unversioned.into_iter().enumerate() {
+            let mut record: serde_json::Value = serde_json::from_str(&json)?;
+            let version = converge_model::releases::migration_version(order as u64 + 1).to_string();
+            record["version"] = serde_json::json!(version);
+            record["yanked"] = serde_json::json!(false);
+            if let Some(map) = record.as_object_mut() {
+                map.remove("channel");
+            }
+            conn.execute(
+                "UPDATE releases SET version = ?1, record_json = ?2 WHERE seq = ?3",
+                params![version, serde_json::to_string(&record)?, seq],
+            )?;
         }
         Ok(())
     }
@@ -1151,8 +1196,8 @@ impl MetadataStore for SqliteMetadataStore {
         let json = serde_json::to_string(release)?;
         let conn = self.conn.lock().expect("meta lock");
         conn.execute(
-            "INSERT INTO releases (repo_id, channel, record_json) VALUES (?1, ?2, ?3)",
-            params![release.repo_id, release.channel, json],
+            "INSERT INTO releases (repo_id, version, record_json) VALUES (?1, ?2, ?3)",
+            params![release.repo_id, release.version, json],
         )?;
         Ok(())
     }
@@ -1169,19 +1214,39 @@ impl MetadataStore for SqliteMetadataStore {
         Ok(out)
     }
 
-    fn get_channel_head(&self, repo_id: &str, channel: &str) -> Result<Option<ReleaseRecord>> {
+    fn get_release(&self, repo_id: &str, version: &str) -> Result<Option<ReleaseRecord>> {
         let conn = self.conn.lock().expect("meta lock");
         let json: Option<String> = conn
             .query_row(
-                "SELECT record_json FROM releases
-                 WHERE repo_id = ?1 AND channel = ?2
-                 ORDER BY seq DESC LIMIT 1",
-                params![repo_id, channel],
+                "SELECT record_json FROM releases WHERE repo_id = ?1 AND version = ?2",
+                params![repo_id, version],
                 |row| row.get(0),
             )
             .ok();
         json.map(|j| serde_json::from_str(&j).context("parse release"))
             .transpose()
+    }
+
+    fn set_release_yanked(&self, repo_id: &str, version: &str, reason: &str) -> Result<bool> {
+        let conn = self.conn.lock().expect("meta lock");
+        let json: Option<String> = conn
+            .query_row(
+                "SELECT record_json FROM releases WHERE repo_id = ?1 AND version = ?2",
+                params![repo_id, version],
+                |row| row.get(0),
+            )
+            .ok();
+        let Some(json) = json else {
+            return Ok(false);
+        };
+        let mut record: ReleaseRecord = serde_json::from_str(&json)?;
+        record.yanked = true;
+        record.yank_reason = Some(reason.to_string());
+        conn.execute(
+            "UPDATE releases SET record_json = ?1 WHERE repo_id = ?2 AND version = ?3",
+            params![serde_json::to_string(&record)?, repo_id, version],
+        )?;
+        Ok(true)
     }
 
     fn delete_releases_for_bundles(&self, repo_id: &str, bundle_ids: &[String]) -> Result<u64> {

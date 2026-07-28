@@ -300,9 +300,9 @@ fn run(terminal: &mut ratatui::DefaultTerminal, trace: &mut trace::Trace) -> Res
                         Wizard::publish(app.remote_gate().as_deref(), app.gate_names())
                     }
                     WizardKind::Member => Wizard::member(Vec::new()),
-                    WizardKind::Release(id) => Wizard::release(id, app.channel_names()),
+                    WizardKind::Release(id) => Wizard::release(id, app.release_versions()),
                     WizardKind::Promote(id) => Wizard::promote(id, app.gate_names()),
-                    WizardKind::Fetch => Wizard::fetch(app.channel_names()),
+                    WizardKind::Fetch => Wizard::fetch(app.release_versions()),
                     // Existing gates come from the loaded Gates view, so
                     // the upstream field offers something real without a
                     // synchronous probe (17.2). Every repo has at least
@@ -439,10 +439,10 @@ fn trace_screen(trace: &mut trace::Trace, app: &App) {
 /// the divergence the argv contract exists to prevent.
 fn row_label(row: &serde_json::Value) -> String {
     let s = |key: &str| row[key].as_str().unwrap_or("").to_string();
-    if !s("bundle_id").is_empty() && !s("channel").is_empty() {
+    if !s("bundle_id").is_empty() && !s("version").is_empty() {
         return format!(
             "{}  {}  by {}  {}",
-            s("channel"),
+            s("version"),
             short_id(&s("bundle_id")),
             s("released_by"),
             s("created_at")
@@ -929,7 +929,7 @@ fn render(frame: &mut Frame, app: &App) {
                         "this view lists bundles waiting on you — an approval, or a",
                         "superposition to resolve — not every bundle in the repo.",
                     ][..],
-                    View::Releases => &["no releases yet.", "  release <bundle> --channel <name>"],
+                    View::Releases => &["no releases yet.", "  release <bundle> --as 1.0.0"],
                     View::Lanes => &["no lanes yet."],
                     View::Gates => &["no gate graph loaded."],
                     _ => &["nothing here yet."],
@@ -1358,7 +1358,10 @@ fn root_tile_preview(app: &App, view: View) -> Vec<Line<'static>> {
                         ),
                         View::Releases => format!(
                             "{}  {}",
-                            row["channel"].as_str().unwrap_or(""),
+                            row["version"]
+                                .as_str()
+                                .map(|v| format!("v{v}"))
+                                .unwrap_or_default(),
                             row["bundle_id"].as_str().map(short_id).unwrap_or_default()
                         ),
                         View::Gates => {

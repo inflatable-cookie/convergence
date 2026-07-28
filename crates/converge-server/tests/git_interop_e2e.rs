@@ -121,7 +121,7 @@ fn git_repo_imports_works_under_convergence_and_mirrors_back() -> Result<()> {
         &ws.store, "repo", "scope", "intake", &snap, None, None, None,
     )?;
     assert_eq!(bundle.status, BundleStatus::Ready { promotable: true });
-    alice.release(&bundle.bundle_id, "repo", "scope", "stable", None)?;
+    alice.release(&bundle.bundle_id, "repo", "scope", "1.0.0", None)?;
 
     // Export the full lineage: only the new snap becomes a new commit.
     let export = export_lineage(&ws.store, root, "converge/lane/local", &snap.id)?;

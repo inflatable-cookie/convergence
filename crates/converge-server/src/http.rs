@@ -98,7 +98,8 @@ pub fn router(state: AppState) -> Router {
         .route("/api/repos/:repo/events", get(list_events))
         .route("/api/bundles/:id/release", post(release))
         .route("/api/repos/:repo/releases", get(list_releases))
-        .route("/api/repos/:repo/release/:channel", get(channel_head))
+        .route("/api/repos/:repo/release/:version", get(release_lookup))
+        .route("/api/repos/:repo/release/:version/yank", post(yank_release))
         .route(
             "/api/repos/:repo/retention",
             get(get_retention).put(set_retention),
@@ -1934,23 +1935,51 @@ async fn list_releases(
     }))
 }
 
-async fn channel_head(
+/// Resolve `latest`, an exact version, or a range (g02.028). The
+/// resolution rules live in `converge_model::releases`, so the CLI and
+/// any future front-end cannot disagree with the server about what
+/// `latest` means.
+async fn release_lookup(
     State(state): State<SharedState>,
-    Path((repo, channel)): Path<(String, String)>,
+    Path((repo, request)): Path<(String, String)>,
     headers: HeaderMap,
 ) -> Result<Json<ReleaseRecord>, ApiError> {
     authorize_repo(&state, &headers, &repo, Capability::Read)?;
-    state
-        .meta
-        .get_channel_head(&repo, &channel)
-        .map_err(internal_error)?
-        .map(Json)
-        .ok_or_else(|| {
-            ApiError(
-                StatusCode::NOT_FOUND,
-                format!("channel {channel} has no release"),
-            )
+    let releases = state.meta.list_releases(&repo).map_err(internal_error)?;
+    let parsed: Vec<(semver::Version, bool)> = releases
+        .iter()
+        .filter_map(|r| {
+            converge_model::releases::parse_version(&r.version)
+                .ok()
+                .map(|v| (v, r.yanked))
         })
+        .collect();
+    let version = converge_model::releases::resolve(&request, &parsed)
+        .map_err(|err| ApiError(StatusCode::NOT_FOUND, err))?
+        .to_string();
+    releases
+        .into_iter()
+        .find(|r| r.version == version)
+        .map(Json)
+        .ok_or_else(|| ApiError(StatusCode::NOT_FOUND, format!("no release {version}")))
+}
+
+async fn yank_release(
+    State(state): State<SharedState>,
+    Path((repo, version)): Path<(String, String)>,
+    headers: HeaderMap,
+    Json(request): Json<serde_json::Value>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let authz = authorize_repo(&state, &headers, &repo, Capability::Release)?;
+    let engine = crate::Engine {
+        meta: &*state.meta,
+        objects: &*state.objects,
+    };
+    let reason = request["reason"].as_str().unwrap_or("").to_string();
+    engine
+        .yank(authz, &version, &reason)
+        .map_err(|err| ApiError(StatusCode::BAD_REQUEST, format!("{err:#}")))?;
+    Ok(Json(serde_json::json!({ "ok": true })))
 }
 
 async fn get_retention(

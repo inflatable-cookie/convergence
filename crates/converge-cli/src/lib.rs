@@ -294,14 +294,23 @@ enum Command {
         #[arg(long)]
         to: String,
     },
-    /// Release a bundle to a named channel.
+    /// Release a bundle as a semver version.
     Release {
         bundle_id: String,
-        #[arg(long)]
-        channel: String,
+        /// The version, e.g. 1.2.0 or 2.0.0-beta.1. Unique, immutable;
+        /// backports below the newest version are allowed.
+        #[arg(long = "as", value_name = "VERSION", alias = "channel")]
+        version: String,
         /// Message recorded on the release.
         #[arg(short, long, alias = "notes")]
         message: Option<String>,
+    },
+    /// Withdraw a release: it leaves `latest` and ranges but stays in
+    /// history, reachable by exact version.
+    Yank {
+        version: String,
+        #[arg(short, long)]
+        reason: String,
     },
     /// List the repo's releases.
     Releases,
@@ -1087,7 +1096,7 @@ fn run(cli: &Cli, mode: OutputMode, session: &Session) -> Result<serde_json::Val
         }
         Command::Release {
             bundle_id,
-            channel,
+            version,
             message,
         } => {
             let ws = session.workspace()?;
@@ -1096,11 +1105,22 @@ fn run(cli: &Cli, mode: OutputMode, session: &Session) -> Result<serde_json::Val
                 bundle_id,
                 &remote.repo_id,
                 &remote.scope,
-                channel,
+                version,
                 message.clone(),
             )?;
             emit(mode, release, |r| {
-                println!("released {} to channel {}", r.bundle_id, r.channel);
+                println!("released {} as v{}", r.bundle_id, r.version);
+            })
+        }
+        Command::Yank { version, reason } => {
+            let ws = session.workspace()?;
+            let (client, remote) = remote_client(session, &ws, mode)?;
+            client.yank_release(&remote.repo_id, version, reason)?;
+            emit(mode, serde_json::json!({"version": version}), |_| {
+                println!(
+                    "yanked v{version}: it leaves `latest` and ranges, and stays \
+                     reachable by exact version"
+                );
             })
         }
         Command::Tui => run_tui(),
@@ -1136,8 +1156,12 @@ fn run(cli: &Cli, mode: OutputMode, session: &Session) -> Result<serde_json::Val
             emit(mode, releases, |releases| {
                 for r in releases {
                     println!(
-                        "{}  {}  by {}  {}",
-                        r.channel, r.bundle_id, r.released_by, r.created_at
+                        "v{}{}  {}  by {}  {}",
+                        r.version,
+                        if r.yanked { " (yanked)" } else { "" },
+                        short(&r.bundle_id),
+                        r.released_by,
+                        r.created_at
                     );
                 }
             })
@@ -1233,8 +1257,8 @@ fn run(cli: &Cli, mode: OutputMode, session: &Session) -> Result<serde_json::Val
                     let policy = client.get_retention(&remote.repo_id)?;
                     emit(mode, policy, |p| {
                         println!(
-                            "releases/channel: {}  bundles/gate: {}  publication days: {}  events: {}",
-                            describe_limit(p.keep_releases_per_channel),
+                            "releases: {}  bundles/gate: {}  publication days: {}  events: {}",
+                            describe_limit(p.keep_releases),
                             describe_limit(p.keep_bundles_per_gate),
                             describe_limit(p.keep_publication_days),
                             describe_limit(p.keep_events)
@@ -1248,7 +1272,7 @@ fn run(cli: &Cli, mode: OutputMode, session: &Session) -> Result<serde_json::Val
                     keep_events,
                 } => {
                     let policy = converge_client::model::RetentionPolicy {
-                        keep_releases_per_channel: *keep_releases,
+                        keep_releases: *keep_releases,
                         keep_bundles_per_gate: *keep_bundles,
                         keep_publication_days: *keep_publication_days,
                         keep_events: *keep_events,
@@ -2869,8 +2893,8 @@ fn serving_check(
     // Whichever it lands on, say which one in every message: a report
     // that names the wrong subject is a false lead for whoever reads it
     // at three in the morning.
-    let (subject, head) = match client.get_channel_head(&remote.repo_id, "stable") {
-        Ok(record) => ("the stable release", record.bundle_id),
+    let (subject, head) = match client.resolve_release(&remote.repo_id, "latest") {
+        Ok(record) => ("the latest release", record.bundle_id),
         Err(_) => match store.get_last_seen_bundle(remote, &remote.scope, &remote.gate) {
             Ok(Some(bundle_id)) => ("the last bundle this workspace saw", bundle_id),
             _ => {
@@ -3897,8 +3921,8 @@ fn bundle_ref(
 ) -> Result<String> {
     match (bundle_id, release) {
         (Some(id), _) => Ok(id.to_string()),
-        (None, Some(channel)) => Ok(client.get_channel_head(&remote.repo_id, channel)?.bundle_id),
-        (None, None) => anyhow::bail!("provide a bundle id or --release <channel>"),
+        (None, Some(request)) => Ok(client.resolve_release(&remote.repo_id, request)?.bundle_id),
+        (None, None) => anyhow::bail!("provide a bundle id or --release <latest|version|range>"),
     }
 }
 

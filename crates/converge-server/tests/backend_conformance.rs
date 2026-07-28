@@ -101,7 +101,7 @@ fn conform_metadata(meta: &dyn MetadataStore) -> Result<()> {
     assert_eq!(meta.event_floor("conf")?, seq1, "floor never rewinds");
 
     let policy = RetentionPolicy {
-        keep_releases_per_channel: Some(3),
+        keep_releases: Some(3),
         ..Default::default()
     };
     meta.set_retention("conf", &policy)?;
@@ -157,7 +157,9 @@ fn conform_metadata(meta: &dyn MetadataStore) -> Result<()> {
     // (batch 13.4, audit M1): ids sharing a prefix must not cascade.
     for (channel, bundle) in [("stable", "bundle-abc"), ("beta", "bundle-abcdef")] {
         meta.add_release(&converge_model::ReleaseRecord {
-            channel: channel.into(),
+            version: channel.into(),
+            yanked: false,
+            yank_reason: None,
             repo_id: "conf".into(),
             scope_id: "s".into(),
             bundle_id: bundle.into(),

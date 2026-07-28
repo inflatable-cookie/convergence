@@ -378,8 +378,8 @@ fn a_bundle_travels_the_whole_staged_graph() -> Result<()> {
 
     // And it can be released from the gate it reached, not the one that
     // built it.
-    alice.release(&id, "repo", "scope", "stable", None)?;
-    assert_eq!(alice.get_channel_head("repo", "stable")?.bundle_id, id);
+    alice.release(&id, "repo", "scope", "1.0.0", None)?;
+    assert_eq!(alice.resolve_release("repo", "latest")?.bundle_id, id);
     Ok(())
 }
 
@@ -419,7 +419,7 @@ fn a_prefix_is_recorded_as_the_id_it_resolved_to() -> Result<()> {
     // copying it out of `converge publish`.
     alice.approve(short, "repo", "scope")?;
     alice.promote(short, "repo", "scope", "release")?;
-    alice.release(short, "repo", "scope", "stable", None)?;
+    alice.release(short, "repo", "scope", "1.0.0", None)?;
 
     let meta = SqliteMetadataStore::open(&server_dir.path().join("meta.sqlite"))?;
     assert_eq!(
@@ -433,7 +433,7 @@ fn a_prefix_is_recorded_as_the_id_it_resolved_to() -> Result<()> {
         1,
         "the promotion was filed under the short id"
     );
-    let head = alice.get_channel_head("repo", "stable")?;
+    let head = alice.resolve_release("repo", "latest")?;
     assert_eq!(
         head.bundle_id, full,
         "the release recorded a truncated id, which GC would not match"

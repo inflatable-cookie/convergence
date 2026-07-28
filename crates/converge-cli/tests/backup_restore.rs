@@ -166,7 +166,7 @@ fn deployment(ws: &Path, home: &Path) -> Result<Deployment> {
     assert!(set.status.success(), "secret set failed");
 
     assert!(
-        converge(ws, home, &["release", &bundle_id, "--channel", "stable"])
+        converge(ws, home, &["release", &bundle_id, "--as", "1.0.0"])
             .status
             .success()
     );
@@ -242,7 +242,7 @@ fn a_restored_deployment_still_serves_trees_provenance_and_secrets() -> Result<(
         &[
             "fetch",
             "--release",
-            "stable",
+            "latest",
             "--into",
             into.to_str().expect("utf8"),
         ],

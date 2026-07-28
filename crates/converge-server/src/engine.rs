@@ -776,8 +776,25 @@ impl Engine<'_> {
                 reached.join(", ")
             );
         }
+        // Semver identity (g02.028): valid, and unique per repo —
+        // checked here so the refusal happens before anything is
+        // written. Uniqueness only: backports below `latest` are how
+        // long-term support works, and strictness is a later opt-in.
+        let version =
+            converge_model::releases::parse_version(channel).map_err(|err| anyhow::anyhow!(err))?;
+        let existing: Vec<semver::Version> = self
+            .meta
+            .list_releases(authz.repo_id())?
+            .iter()
+            .filter_map(|r| converge_model::releases::parse_version(&r.version).ok())
+            .collect();
+        if let Some(refusal) = converge_model::releases::refuse_version(&version, &existing) {
+            bail!(refusal);
+        }
         let release = ReleaseRecord {
-            channel: channel.to_string(),
+            version: version.to_string(),
+            yanked: false,
+            yank_reason: None,
             repo_id: authz.repo_id().to_string(),
             scope_id: authz.scope_id().to_string(),
             bundle_id: bundle_id.to_string(),
@@ -787,8 +804,26 @@ impl Engine<'_> {
         };
         self.meta.add_release(&release)?;
         self.meta
-            .add_event(authz.repo_id(), "release", channel, &now())?;
+            .add_event(authz.repo_id(), "release", &release.version, &now())?;
         Ok(release)
+    }
+
+    /// Withdraw a release (g02.028): marked, never deleted. It leaves
+    /// `latest` and range resolution; an exact version still reaches it.
+    pub fn yank(&self, authz: AuthzContext, version: &str, reason: &str) -> Result<()> {
+        require(&authz, Capability::Release)?;
+        let version = converge_model::releases::parse_version(version)
+            .map_err(|err| anyhow::anyhow!(err))?
+            .to_string();
+        if !self
+            .meta
+            .set_release_yanked(authz.repo_id(), &version, reason)?
+        {
+            bail!("no release {version}");
+        }
+        self.meta
+            .add_event(authz.repo_id(), "release.yanked", &version, &now())?;
+        Ok(())
     }
 
     /// Policy-checked promotion (arch 14 §3): target gate must list the

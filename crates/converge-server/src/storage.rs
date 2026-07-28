@@ -351,7 +351,12 @@ pub trait MetadataStore: Send + Sync {
     // releases (g02.008)
     fn add_release(&self, release: &ReleaseRecord) -> Result<()>;
     fn list_releases(&self, repo_id: &str) -> Result<Vec<ReleaseRecord>>;
-    fn get_channel_head(&self, repo_id: &str, channel: &str) -> Result<Option<ReleaseRecord>>;
+    /// Exact version lookup — yanked or not, because naming a version
+    /// exactly is allowed to reach a withdrawn one (g02.028).
+    fn get_release(&self, repo_id: &str, version: &str) -> Result<Option<ReleaseRecord>>;
+
+    /// Mark a release withdrawn. Returns false when no such version.
+    fn set_release_yanked(&self, repo_id: &str, version: &str, reason: &str) -> Result<bool>;
 
     // GC metadata drops (g02.008 batch 8.3)
     fn delete_releases_for_bundles(&self, repo_id: &str, bundle_ids: &[String]) -> Result<u64>;

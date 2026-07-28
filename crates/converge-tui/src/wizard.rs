@@ -64,7 +64,7 @@ pub enum WizardKind {
     Annotate(String),
     /// Grant a teammate capabilities (batch 23.3).
     Member,
-    /// Release a bundle to a channel; carries the bundle id.
+    /// Release a bundle as a semver version; carries the bundle id.
     Release(String),
     /// Promote a bundle to a downstream gate; carries the bundle id.
     Promote(String),
@@ -298,27 +298,29 @@ impl Wizard {
     }
 
     /// Release a bundle to a channel.
-    pub fn release(bundle_id: String, channels: Vec<String>) -> Self {
-        // Existing channels are offered, but a new one has to be
-        // typeable: the first release to `stable` happens when `stable`
-        // does not exist yet.
-        let channel = Field::new(
-            "channel",
-            if channels.is_empty() {
-                "Channel"
-            } else {
-                "Channel (existing, or a new name)"
-            },
-            FieldKind::Text {
-                default: channels.first().cloned(),
+    pub fn release(bundle_id: String, existing: Vec<String>) -> Self {
+        // Semver identity (g02.028). The newest existing version is
+        // shown in the prompt as orientation, not as a default: the
+        // next number is a decision about what changed, and a wizard
+        // must not make it for you.
+        let prompt = match existing.first() {
+            Some(newest) => format!("Version (newest so far: v{newest})"),
+            None => "Version (e.g. 1.0.0)".to_string(),
+        };
+        let version = Field {
+            name: "version",
+            prompt: Box::leak(prompt.into_boxed_str()),
+            kind: FieldKind::Text {
+                default: None,
                 optional: false,
             },
-        );
+            masked: false,
+        };
         Self::new(
             WizardKind::Release(bundle_id),
             "Release bundle",
             vec![
-                channel,
+                version,
                 Field::new(
                     "message",
                     "Message (optional)",
@@ -361,20 +363,23 @@ impl Wizard {
     /// different things (batch 16.2), which is precisely the pair a
     /// person gets wrong from a flag list — so this asks one question
     /// with three answers instead of offering two independent flags.
-    pub fn fetch(channels: Vec<String>) -> Self {
+    pub fn fetch(versions: Vec<String>) -> Self {
         Self::new(
             WizardKind::Fetch,
             "Fetch",
             vec![
                 Field::new(
                     "target",
-                    if channels.is_empty() {
-                        "Bundle id, or a channel name"
+                    // `latest` beats defaulting to a specific version:
+                    // it is what most fetches mean, and it stays right
+                    // as new releases land (g02.028).
+                    if versions.is_empty() {
+                        "Bundle id, or latest / a version"
                     } else {
-                        "Bundle id, or a channel name (see Releases)"
+                        "Bundle id, or latest / a version (see Releases)"
                     },
                     FieldKind::Text {
-                        default: channels.first().cloned(),
+                        default: Some("latest".into()),
                         optional: false,
                     },
                 ),
@@ -595,8 +600,8 @@ impl Wizard {
                 let mut argv = vec![
                     "release".into(),
                     bundle_id.clone(),
-                    "--channel".into(),
-                    value("channel"),
+                    "--as".into(),
+                    value("version"),
                 ];
                 let message = value("message");
                 if !message.is_empty() {
@@ -871,17 +876,10 @@ mod tests {
 
     #[test]
     fn release_and_promote_carry_their_bundle() {
-        let mut wizard = Wizard::release("b".repeat(64), vec!["stable".into()]);
+        let mut wizard = Wizard::release("b".repeat(64), vec!["0.9.0".into()]);
         assert_eq!(
-            drive(&mut wizard, &["stable", "ship it"]),
-            vec![
-                "release",
-                &"b".repeat(64),
-                "--channel",
-                "stable",
-                "-m",
-                "ship it"
-            ]
+            drive(&mut wizard, &["1.0.0", "ship it"]),
+            vec!["release", &"b".repeat(64), "--as", "1.0.0", "-m", "ship it"]
         );
 
         let mut wizard = Wizard::promote("c".repeat(64), vec!["review".into()]);
@@ -905,7 +903,7 @@ mod tests {
                 vec!["--into".to_string(), "/tmp/x".to_string()],
             ),
         ] {
-            let mut wizard = Wizard::fetch(vec!["stable".into()]);
+            let mut wizard = Wizard::fetch(vec!["1.0.0".into()]);
             let argv = drive(&mut wizard, &["stable", destination, into]);
             let mut want = vec![
                 "fetch".to_string(),

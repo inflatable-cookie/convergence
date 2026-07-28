@@ -66,10 +66,7 @@ where
 /// - a range (`1.x`, `1.2`, `>=1, <2`) — highest non-yanked,
 ///   non-prerelease match; yanked releases leave ranges just as they
 ///   leave `latest`
-pub fn resolve<'a>(
-    request: &str,
-    releases: &'a [(Version, bool)],
-) -> Result<&'a Version, String> {
+pub fn resolve<'a>(request: &str, releases: &'a [(Version, bool)]) -> Result<&'a Version, String> {
     if request == "latest" {
         return latest(releases.iter().map(|(v, y)| (v, *y)))
             .ok_or_else(|| "no releases yet (prereleases and yanked ones do not count)".into());
@@ -133,10 +130,10 @@ mod tests {
 
     #[test]
     fn latest_skips_prereleases_and_yanks() {
-        let releases = vec![
+        let releases = [
             (v("1.0.0"), false),
-            (v("2.0.0"), true),          // yanked
-            (v("2.1.0-beta.1"), false),  // prerelease
+            (v("2.0.0"), true),         // yanked
+            (v("2.1.0-beta.1"), false), // prerelease
             (v("1.5.0"), false),
         ];
         assert_eq!(

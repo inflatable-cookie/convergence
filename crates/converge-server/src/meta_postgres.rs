@@ -113,7 +113,11 @@ impl PostgresMetadataStore {
                 repo_id TEXT PRIMARY KEY, floor BIGINT NOT NULL);
             CREATE TABLE IF NOT EXISTS releases (
                 seq BIGSERIAL PRIMARY KEY, repo_id TEXT NOT NULL,
-                channel TEXT NOT NULL, record_json TEXT NOT NULL);
+                version TEXT NOT NULL DEFAULT '', record_json TEXT NOT NULL);
+            -- Pre-g02.028 deployments have channel-keyed rows; the
+            -- migration below numbers them 0.<n>.0 by order.
+            ALTER TABLE releases
+                ADD COLUMN IF NOT EXISTS version TEXT NOT NULL DEFAULT '';
             CREATE TABLE IF NOT EXISTS promotions (
                 bundle_id TEXT NOT NULL, from_gate TEXT NOT NULL,
                 to_gate TEXT NOT NULL, promoted_at TEXT NOT NULL);
@@ -133,6 +137,29 @@ impl PostgresMetadataStore {
             ",
             )
             .context("init postgres schema")?;
+        {
+            // Number unversioned (pre-semver) releases 0.<n>.0 by order
+            // (g02.028): real numbers rather than a legacy caste.
+            let rows = client.query(
+                "SELECT seq, record_json FROM releases WHERE version = '' ORDER BY seq ASC",
+                &[],
+            )?;
+            for (order, row) in rows.iter().enumerate() {
+                let seq: i64 = row.get(0);
+                let mut record: serde_json::Value = serde_json::from_str(row.get(1))?;
+                let version =
+                    converge_model::releases::migration_version(order as u64 + 1).to_string();
+                record["version"] = serde_json::json!(version);
+                record["yanked"] = serde_json::json!(false);
+                if let Some(map) = record.as_object_mut() {
+                    map.remove("channel");
+                }
+                client.execute(
+                    "UPDATE releases SET version = $1, record_json = $2 WHERE seq = $3",
+                    &[&version, &serde_json::to_string(&record)?, &seq],
+                )?;
+            }
+        }
         Ok(Self {
             client: Mutex::new(client),
         })
@@ -862,8 +889,8 @@ impl MetadataStore for PostgresMetadataStore {
         let json = serde_json::to_string(release)?;
         let mut c = self.client.lock().expect("pg lock");
         c.execute(
-            "INSERT INTO releases (repo_id, channel, record_json) VALUES ($1, $2, $3)",
-            &[&release.repo_id, &release.channel, &json],
+            "INSERT INTO releases (repo_id, version, record_json) VALUES ($1, $2, $3)",
+            &[&release.repo_id, &release.version, &json],
         )?;
         Ok(())
     }
@@ -879,15 +906,33 @@ impl MetadataStore for PostgresMetadataStore {
             .collect()
     }
 
-    fn get_channel_head(&self, repo_id: &str, channel: &str) -> Result<Option<ReleaseRecord>> {
+    fn get_release(&self, repo_id: &str, version: &str) -> Result<Option<ReleaseRecord>> {
         let mut c = self.client.lock().expect("pg lock");
         let row = c.query_opt(
-            "SELECT record_json FROM releases
-             WHERE repo_id = $1 AND channel = $2 ORDER BY seq DESC LIMIT 1",
-            &[&repo_id, &channel],
+            "SELECT record_json FROM releases WHERE repo_id = $1 AND version = $2",
+            &[&repo_id, &version],
         )?;
         row.map(|r| serde_json::from_str(r.get(0)).context("parse release"))
             .transpose()
+    }
+
+    fn set_release_yanked(&self, repo_id: &str, version: &str, reason: &str) -> Result<bool> {
+        let mut c = self.client.lock().expect("pg lock");
+        let row = c.query_opt(
+            "SELECT record_json FROM releases WHERE repo_id = $1 AND version = $2",
+            &[&repo_id, &version],
+        )?;
+        let Some(row) = row else {
+            return Ok(false);
+        };
+        let mut record: ReleaseRecord = serde_json::from_str(row.get(0))?;
+        record.yanked = true;
+        record.yank_reason = Some(reason.to_string());
+        c.execute(
+            "UPDATE releases SET record_json = $1 WHERE repo_id = $2 AND version = $3",
+            &[&serde_json::to_string(&record)?, &repo_id, &version],
+        )?;
+        Ok(true)
     }
 
     fn delete_releases_for_bundles(&self, repo_id: &str, bundle_ids: &[String]) -> Result<u64> {

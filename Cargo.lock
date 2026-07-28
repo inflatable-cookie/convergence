@@ -677,6 +677,7 @@ dependencies = [
  "reqwest",
  "rusqlite",
  "rust-s3",
+ "semver",
  "serde",
  "serde_bytes",
  "serde_json",

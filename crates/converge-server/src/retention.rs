@@ -8,23 +8,30 @@ use converge_model::{ReleaseRecord, RetentionPolicy};
 
 use crate::storage::StoredBundle;
 
-/// Releases beyond the newest N per channel (input order = release order).
+/// Releases beyond the newest N (input order = release order). One
+/// count, not per-channel — channels are retired (g02.028). When the
+/// count is exceeded, yanked releases go first (oldest first): they are
+/// already withdrawn, and keeping them ahead of live history would make
+/// the count lie.
 pub fn releases_to_drop(releases: &[ReleaseRecord], policy: &RetentionPolicy) -> Vec<String> {
-    let Some(keep) = policy.keep_releases_per_channel else {
+    let Some(keep) = policy.keep_releases else {
         return Vec::new();
     };
-    let mut by_channel: BTreeMap<&str, Vec<&ReleaseRecord>> = BTreeMap::new();
-    for release in releases {
-        by_channel
-            .entry(&release.channel)
-            .or_default()
-            .push(release);
-    }
+    let mut excess = releases.len().saturating_sub(keep as usize);
     let mut drop = Vec::new();
-    for (_, mut chain) in by_channel {
-        // Newest last in input order; drop everything before the tail N.
-        let excess = chain.len().saturating_sub(keep as usize);
-        drop.extend(chain.drain(..excess).map(|r| r.bundle_id.clone()));
+    for release in releases.iter().filter(|r| r.yanked) {
+        if excess == 0 {
+            break;
+        }
+        drop.push(release.bundle_id.clone());
+        excess -= 1;
+    }
+    for release in releases.iter().filter(|r| !r.yanked) {
+        if excess == 0 {
+            break;
+        }
+        drop.push(release.bundle_id.clone());
+        excess -= 1;
     }
     drop
 }
@@ -94,9 +101,11 @@ mod tests {
     use super::*;
     use converge_model::BundleStatus;
 
-    fn release(channel: &str, bundle: &str) -> ReleaseRecord {
+    fn release(version: &str, bundle: &str) -> ReleaseRecord {
         ReleaseRecord {
-            channel: channel.into(),
+            version: version.into(),
+            yanked: false,
+            yank_reason: None,
             repo_id: "repo".into(),
             scope_id: "scope".into(),
             bundle_id: bundle.into(),
@@ -123,19 +132,25 @@ mod tests {
     }
 
     #[test]
-    fn releases_keep_newest_per_channel() {
-        let releases = vec![
-            release("stable", "r1"),
-            release("stable", "r2"),
-            release("stable", "r3"),
-            release("beta", "b1"),
+    fn releases_keep_newest_and_yanks_go_first() {
+        let mut releases = vec![
+            release("1.0.0", "r1"),
+            release("1.1.0", "r2"),
+            release("1.2.0", "r3"),
+            release("2.0.0", "r4"),
         ];
         let policy = RetentionPolicy {
-            keep_releases_per_channel: Some(2),
+            keep_releases: Some(2),
             ..Default::default()
         };
-        assert_eq!(releases_to_drop(&releases, &policy), vec!["r1"]);
+        // No yanks: the oldest two go.
+        assert_eq!(releases_to_drop(&releases, &policy), vec!["r1", "r2"]);
         assert!(releases_to_drop(&releases, &RetentionPolicy::default()).is_empty());
+
+        // A yanked release is already withdrawn, so it is dropped ahead
+        // of live history whatever its age.
+        releases[2].yanked = true;
+        assert_eq!(releases_to_drop(&releases, &policy), vec!["r3", "r1"]);
     }
 
     #[test]
