@@ -533,11 +533,12 @@ impl Default for App {
 /// grid. Inbox first because it is where other people's work waits.
 pub const ROOT_TILES: &[(View, &str)] = &[
     (View::Inbox, "inbox"),
-    // History beside the inbox (operator's call): what needs doing and
-    // what you did are the two things a person looks for first.
+    // Order is the operator's: inbox and history first (what needs
+    // doing, what you did), then lanes and bundles (what teammates are
+    // doing, what is moving through the gates), then the outputs.
     (View::History, "history"),
-    (View::Bundles, "bundles"),
     (View::Lanes, "lanes"),
+    (View::Bundles, "bundles"),
     (View::Releases, "releases"),
     (View::Gates, "gates"),
 ];
@@ -1533,17 +1534,17 @@ mod tests {
 
         app.handle_key(key(KeyCode::Down));
         assert_eq!(app.root_selected, 2, "down moves one grid row (+2)");
-        assert_eq!(app.primary_action().0, "open bundles");
+        assert_eq!(app.primary_action().0, "open lanes");
 
         app.handle_key(key(KeyCode::Right));
-        assert_eq!(app.primary_action().0, "open lanes");
+        assert_eq!(app.primary_action().0, "open bundles");
 
         // Enter opens; it never runs a verb from the hub. That was the
         // first 27.3 pass, and the operator called it what it was:
         // removing agency the moment the screen loads.
         let action = app.handle_key(key(KeyCode::Enter));
         assert!(
-            matches!(action, Some(Action::Enter(View::Lanes))),
+            matches!(action, Some(Action::Enter(View::Bundles))),
             "enter did not open the selected tile: {action:?}"
         );
         assert!(
