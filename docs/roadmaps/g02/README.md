@@ -69,8 +69,12 @@ it and removes things before anything new is added.
 - [`024-workflow-profiles.md`](./024-workflow-profiles.md) — parked (needs a design partner)
 - [`025-edge-and-scale.md`](./025-edge-and-scale.md) — parked (needs a measured ceiling)
 - [`026-gate-administration.md`](./026-gate-administration.md) — complete
+- [`027-tui-usability.md`](./027-tui-usability.md) — ready, opened by the operator's verdict on first real use
 
 ## Next Task
 
-`g02.022` batch 22.5 (release) — the operator's call. `g02.026` closed
-the gap that was blocking it.
+Batch card 27.1 (frame and palette) under `g02.027`.
+
+`g02.022` batch 22.5 (release) remains the operator's call. `g02.026`
+closed the gap that was blocking it; `g02.027` is a usability debt found
+by putting the TUI in front of somebody who had not built it.
