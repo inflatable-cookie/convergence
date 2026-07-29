@@ -547,8 +547,10 @@ pub const ROOT_TILES: &[(View, &str)] = &[
     (View::History, "history"),
     (View::Lanes, "lanes"),
     (View::Candidates, "candidates"),
-    (View::Releases, "releases"),
+    // Gates before releases: the grid reads in pipeline order, and a
+    // release is what comes out of the last gate.
     (View::Gates, "gates"),
+    (View::Releases, "releases"),
 ];
 
 impl App {
