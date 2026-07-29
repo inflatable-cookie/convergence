@@ -314,7 +314,7 @@ fn resolution_supersedes_the_variants_it_decided() -> Result<()> {
 
     // Round two: the window is still open (nothing promoted), so the two
     // originals re-merge alongside a resolution based on the superposed
-    // bundle. The resolution wins outright.
+    // candidate. The resolution wins outright.
     let root = merge_window(
         &objects,
         Some(&base),

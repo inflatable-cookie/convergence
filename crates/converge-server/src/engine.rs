@@ -3,13 +3,13 @@ use time::OffsetDateTime;
 use time::format_description::well_known::Rfc3339;
 
 use converge_model::{
-    BundleStatus, InboxBundle, InboxLane, InboxPublication, InboxReport, LaneHead, LaneRecord,
-    ObjectId, PublicationRecord, ReleaseRecord, SnapRecord, VerifyReport,
+    CandidateStatus, InboxCandidate, InboxLane, InboxPublication, InboxReport, LaneHead,
+    LaneRecord, ObjectId, PublicationRecord, ReleaseRecord, SnapRecord, VerifyReport,
 };
 
 use crate::authz::{AuthzContext, Capability};
 
-/// How many of a bundle's inputs the inbox reads to name contributors
+/// How many of a candidate's inputs the inbox reads to name contributors
 /// (batch 23.4).
 ///
 /// The label is "who is waiting on this", and nobody reads past the
@@ -21,10 +21,10 @@ use crate::authz::{AuthzContext, Capability};
 const INBOX_CONTRIBUTOR_SCAN: usize = 8;
 use crate::merge::{MergeInput, merge_window};
 use crate::storage::{
-    BatchConflict, MetaOp, MetadataStore, ObjectStore, PartitionState, StoredBundle,
+    BatchConflict, MetaOp, MetadataStore, ObjectStore, PartitionState, StoredCandidate,
 };
 
-/// The convergence engine: publish intake, deterministic bundle builds, and
+/// The convergence engine: publish intake, deterministic candidate builds, and
 /// policy-checked promotion. Every method takes an [`AuthzContext`] minted by
 /// `authz::authorize` — there is no unauthorized path in by construction.
 pub struct Engine<'a> {
@@ -36,8 +36,8 @@ pub struct PublishInput {
     pub gate_id: String,
     /// Full snap record: identity-verified and stored on publish.
     pub snap: SnapRecord,
-    /// The bundle the publisher last saw for this target (doc 17 §2).
-    pub base_bundle_id: Option<String>,
+    /// The candidate the publisher last saw for this target (doc 17 §2).
+    pub base_candidate_id: Option<String>,
     /// `None` -> the publisher's auto-provisioned personal lane.
     pub lane_id: Option<String>,
     pub notes: Option<String>,
@@ -50,10 +50,10 @@ fn now() -> String {
 }
 
 impl Engine<'_> {
-    /// Publish intake + synchronous bundle build for the partition. The
-    /// build is deterministic: bundle_id = hash(gate, ordered input ids,
+    /// Publish intake + synchronous candidate build for the partition. The
+    /// build is deterministic: candidate_id = hash(gate, ordered input ids,
     /// merged root manifest).
-    pub fn publish(&self, authz: AuthzContext, input: PublishInput) -> Result<StoredBundle> {
+    pub fn publish(&self, authz: AuthzContext, input: PublishInput) -> Result<StoredCandidate> {
         require(&authz, Capability::Publish)?;
         if !self.meta.repo_exists(authz.repo_id())? {
             bail!("unknown repo {}", authz.repo_id());
@@ -74,16 +74,16 @@ impl Engine<'_> {
         // Identity-verify and persist the snap record (provenance links
         // into lineage; rejects tampered records).
         self.upload_snap_record(&authz, &input.snap)?;
-        if let Some(base_id) = &input.base_bundle_id {
+        if let Some(base_id) = &input.base_candidate_id {
             let base = self
                 .meta
-                .get_bundle(base_id)
-                .map_err(|_| anyhow::anyhow!("declared base bundle {base_id} is unknown"))?;
+                .get_candidate(base_id)
+                .map_err(|_| anyhow::anyhow!("declared base candidate {base_id} is unknown"))?;
             if base.repo_id != authz.repo_id()
                 || base.scope_id != authz.scope_id()
                 || base.gate_id != input.gate_id
             {
-                bail!("declared base bundle {base_id} belongs to another partition");
+                bail!("declared base candidate {base_id} belongs to another partition");
             }
         }
 
@@ -92,7 +92,7 @@ impl Engine<'_> {
         let lane_id = self.resolve_writable_lane(&authz, &input.lane_id)?;
 
         // One atomic operation per attempt (batch 13.1, audit H2): read the
-        // partition, compute the publication + merged bundle in memory, then
+        // partition, compute the publication + merged candidate in memory, then
         // commit everything in a single guarded batch. A concurrent publish
         // trips a guard, rolls the batch back, and we rebuild against the
         // fresh window instead of committing a stale one.
@@ -132,7 +132,7 @@ impl Engine<'_> {
                 publication_id,
                 snap_id: input.snap.id.clone(),
                 root_manifest: input.snap.root_manifest.clone(),
-                base_bundle_id: input.base_bundle_id.clone(),
+                base_candidate_id: input.base_candidate_id.clone(),
                 snap_parents: input.snap.parents.clone(),
                 repo_id: authz.repo_id().to_string(),
                 scope_id: authz.scope_id().to_string(),
@@ -145,7 +145,7 @@ impl Engine<'_> {
 
             let mut window = existing.clone();
             window.push((next_seq, publication.clone()));
-            let bundle = self.build_bundle(&authz, &input.gate_id, &partition, &window)?;
+            let candidate = self.build_candidate(&authz, &input.gate_id, &partition, &window)?;
 
             let ops = [
                 MetaOp::AssertPartitionState {
@@ -162,12 +162,12 @@ impl Engine<'_> {
                     expected: existing.len() as u64,
                 },
                 MetaOp::AddPublication(publication),
-                MetaOp::PutBundle(bundle.clone()),
-                // Event hint (doc 14 §5b): bundle state changed.
+                MetaOp::PutCandidate(candidate.clone()),
+                // Event hint (doc 14 §5b): candidate state changed.
                 MetaOp::AddEvent {
                     repo_id: authz.repo_id().to_string(),
-                    kind: "bundle".to_string(),
-                    subject_id: bundle.bundle_id.clone(),
+                    kind: "candidate".to_string(),
+                    subject_id: candidate.candidate_id.clone(),
                     created_at: now(),
                 },
             ];
@@ -176,7 +176,7 @@ impl Engine<'_> {
                     // The publication now references the uploaded tree
                     // durably: release its upload pins (batch 12.2).
                     self.unpin_tree(authz.repo_id(), &input.snap.root_manifest)?;
-                    return Ok(bundle);
+                    return Ok(candidate);
                 }
                 Err(err) if err.is::<BatchConflict>() => continue,
                 Err(err) => return Err(err),
@@ -249,16 +249,16 @@ impl Engine<'_> {
         Ok(())
     }
 
-    /// Deterministic bundle build over the given window (doc 17 §3): fold
+    /// Deterministic candidate build over the given window (doc 17 §3): fold
     /// the window's publications onto W. Pure compute against the object
     /// store — metadata writes happen in the caller's atomic batch.
-    fn build_bundle(
+    fn build_candidate(
         &self,
         authz: &AuthzContext,
         gate_id: &str,
         partition: &PartitionState,
         window: &[(u64, PublicationRecord)],
-    ) -> Result<StoredBundle> {
+    ) -> Result<StoredCandidate> {
         assert!(!window.is_empty(), "publish composes at least its own");
 
         let graph = self.meta.get_gate_graph(authz.repo_id())?;
@@ -269,16 +269,16 @@ impl Engine<'_> {
             .map(|g| g.strategy.clone())
             .unwrap_or_else(|| "whole-file".to_string());
 
-        let w_root = match &partition.base_bundle_id {
-            Some(id) => self.meta.get_bundle(id)?.root_manifest,
+        let w_root = match &partition.base_candidate_id {
+            Some(id) => self.meta.get_candidate(id)?.root_manifest,
             None => None,
         };
 
         let inputs: Result<Vec<MergeInput>> = window
             .iter()
             .map(|(_, p)| {
-                let base = match &p.base_bundle_id {
-                    Some(id) => self.meta.get_bundle(id)?.root_manifest,
+                let base = match &p.base_candidate_id {
+                    Some(id) => self.meta.get_candidate(id)?.root_manifest,
                     None => None,
                 };
                 Ok(MergeInput {
@@ -298,10 +298,10 @@ impl Engine<'_> {
         );
 
         let hash_id = |root: Option<&ObjectId>| {
-            bundle_hash(gate_id, w_root.as_ref(), &input_ids, &strategy, root)
+            candidate_hash(gate_id, w_root.as_ref(), &input_ids, &strategy, root)
         };
 
-        let bundle = match inputs.and_then(|inputs| {
+        let candidate = match inputs.and_then(|inputs| {
             crate::merge::merge_window_outcome(self.objects, w_root.as_ref(), &inputs, &strategy)
         }) {
             // The fold reports its own superpositions (batch 15.1, audit
@@ -309,39 +309,39 @@ impl Engine<'_> {
             Ok(outcome) => {
                 let root = outcome.root;
                 let has_superpositions = outcome.has_superpositions;
-                StoredBundle {
-                    bundle_id: hash_id(Some(&root)),
+                StoredCandidate {
+                    candidate_id: hash_id(Some(&root)),
                     repo_id: authz.repo_id().to_string(),
                     scope_id: authz.scope_id().to_string(),
                     gate_id: gate_id.to_string(),
                     inputs: input_ids,
                     root_manifest: Some(root),
-                    base_bundle_id: partition.base_bundle_id.clone(),
+                    base_candidate_id: partition.base_candidate_id.clone(),
                     window: window_range,
                     strategy,
-                    status: BundleStatus::Ready {
+                    status: CandidateStatus::Ready {
                         promotable: !has_superpositions,
                     },
                     created_at: now(),
                 }
             }
-            Err(err) => StoredBundle {
-                bundle_id: hash_id(None),
+            Err(err) => StoredCandidate {
+                candidate_id: hash_id(None),
                 repo_id: authz.repo_id().to_string(),
                 scope_id: authz.scope_id().to_string(),
                 gate_id: gate_id.to_string(),
                 inputs: input_ids,
                 root_manifest: None,
-                base_bundle_id: partition.base_bundle_id.clone(),
+                base_candidate_id: partition.base_candidate_id.clone(),
                 window: window_range,
                 strategy,
-                status: BundleStatus::Failed {
+                status: CandidateStatus::Failed {
                     reason: format!("{err:#}"),
                 },
                 created_at: now(),
             },
         };
-        Ok(bundle)
+        Ok(candidate)
     }
 
     /// Resolve `lane_id` to a registered lane the subject may write:
@@ -477,7 +477,7 @@ impl Engine<'_> {
         let expected = converge_model::compute_snap_id(
             &snap.root_manifest,
             &snap.parents,
-            snap.derived_from_bundle.as_deref(),
+            snap.derived_from_candidate.as_deref(),
         );
         if expected != snap.id {
             bail!("snap record identity mismatch (expected {expected})");
@@ -500,7 +500,7 @@ impl Engine<'_> {
     }
 
     /// Triage report: readable lane heads (newer than `since`), the
-    /// scope's current-window publications, and bundles awaiting action.
+    /// scope's current-window publications, and candidates awaiting action.
     pub fn inbox(&self, authz: &AuthzContext, since: Option<&str>) -> Result<InboxReport> {
         require(authz, Capability::Read)?;
         let mut report = InboxReport::default();
@@ -565,24 +565,24 @@ impl Engine<'_> {
             }
         }
 
-        // At most one bundle per gate, straight from the store: the old
-        // full-scope scan read every bundle ever built here to answer a
+        // At most one candidate per gate, straight from the store: the old
+        // full-scope scan read every candidate ever built here to answer a
         // question about a handful of gates (audit 4.4 / L6).
-        let latest: std::collections::BTreeMap<String, crate::storage::StoredBundle> = self
+        let latest: std::collections::BTreeMap<String, crate::storage::StoredCandidate> = self
             .meta
-            .latest_bundles_per_gate(authz.repo_id(), authz.scope_id())?
+            .latest_candidates_per_gate(authz.repo_id(), authz.scope_id())?
             .into_iter()
-            .map(|bundle| (bundle.gate_id.clone(), bundle))
+            .map(|candidate| (candidate.gate_id.clone(), candidate))
             .collect();
-        for (gate_id, bundle) in latest {
-            let approvals = self.meta.count_approvals(&bundle.bundle_id)?;
+        for (gate_id, candidate) in latest {
+            let approvals = self.meta.count_approvals(&candidate.candidate_id)?;
 
-            // Where this bundle has already got to, so a gate it has
+            // Where this candidate has already got to, so a gate it has
             // reached is not offered again (26.4 semantics).
-            let mut reached = vec![bundle.gate_id.clone()];
+            let mut reached = vec![candidate.gate_id.clone()];
             reached.extend(
                 self.meta
-                    .list_promotions(&bundle.bundle_id)?
+                    .list_promotions(&candidate.candidate_id)?
                     .into_iter()
                     .map(|(_, to, _)| to),
             );
@@ -602,7 +602,7 @@ impl Engine<'_> {
             let has_somewhere_to_go = !onward.is_empty();
 
             // Approvals are required by the gate being promoted *out
-            // of*, not the one that produced the bundle. Reading it off
+            // of*, not the one that produced the candidate. Reading it off
             // the producing gate is the same mistake batch 26.4 fixed in
             // `promote` itself, and it survived here one batch longer:
             // the inbox recommended a promotion out of a review stage as
@@ -619,30 +619,30 @@ impl Engine<'_> {
                 .map(|g| g.required_approvals)
                 .unwrap_or(0);
 
-            let recommendation = match bundle.status {
-                BundleStatus::Ready { promotable: false } => "resolve",
-                BundleStatus::Ready { promotable: true } if approvals < required => "approve",
+            let recommendation = match candidate.status {
+                CandidateStatus::Ready { promotable: false } => "resolve",
+                CandidateStatus::Ready { promotable: true } if approvals < required => "approve",
                 // Ready, approved, and a stage ahead of it. Under a
                 // single gate this state was correctly silent — there was
                 // nowhere to promote to — so the inbox never learned to
                 // report it, and batch 26.5 found a staged repo where the
                 // one thing waiting on a person was the one thing the
                 // action queue did not mention.
-                BundleStatus::Ready { promotable: true } if has_somewhere_to_go => "promote",
+                CandidateStatus::Ready { promotable: true } if has_somewhere_to_go => "promote",
                 _ => continue,
             };
-            // Who is waiting on this bundle: whoever published into it.
+            // Who is waiting on this candidate: whoever published into it.
             // Bounded, because a wide window would turn one inbox call
             // into a hundred record reads to produce a label nobody
             // reads past the second name.
             let mut contributors: Vec<String> = Vec::new();
-            // The newest input names the bundle: a bundle is a derived
+            // The newest input names the candidate: a candidate is a derived
             // artifact, so its human title is the last thing that went
             // into it — the snap message where one was written, the
             // publish note otherwise. Inputs are window-ordered, so the
             // newest is the last, and the walk is already bounded.
             let mut title = String::new();
-            for publication_id in bundle.inputs.iter().rev().take(INBOX_CONTRIBUTOR_SCAN) {
+            for publication_id in candidate.inputs.iter().rev().take(INBOX_CONTRIBUTOR_SCAN) {
                 let Some(publication) = self.meta.get_publication(publication_id)? else {
                     continue;
                 };
@@ -664,13 +664,13 @@ impl Engine<'_> {
             if title.is_empty() {
                 title = format!(
                     "{} publication(s) into {gate_id}",
-                    bundle.window.1.saturating_sub(bundle.window.0) + 1
+                    candidate.window.1.saturating_sub(candidate.window.0) + 1
                 );
             }
-            report.bundles.push(InboxBundle {
-                bundle_id: bundle.bundle_id,
+            report.candidates.push(InboxCandidate {
+                candidate_id: candidate.candidate_id,
                 title,
-                window: bundle.window,
+                window: candidate.window,
                 gate_id,
                 recommendation: recommendation.to_string(),
                 // Only when there is one answer. Offering a guess where
@@ -688,37 +688,37 @@ impl Engine<'_> {
         Ok(report)
     }
 
-    pub fn approve(&self, authz: AuthzContext, bundle_id: &str) -> Result<u32> {
+    pub fn approve(&self, authz: AuthzContext, candidate_id: &str) -> Result<u32> {
         require(&authz, Capability::Approve)?;
-        let bundle = self.meta.get_bundle(bundle_id)?;
-        ensure_partition(&authz, &bundle)?;
+        let candidate = self.meta.get_candidate(candidate_id)?;
+        ensure_partition(&authz, &candidate)?;
         // The caller may have given a prefix (batch 22.4), and
-        // `get_bundle` resolved it — so from here the *resolved* id is
+        // `get_candidate` resolved it — so from here the *resolved* id is
         // the only one to use. Batch 26.4 found the alternative: promote
         // compared the partition's stored base against the short string
-        // the user typed, decided a bundle was not the current window,
+        // the user typed, decided a candidate was not the current window,
         // and wrote a truncated id into the promotions table that
-        // referenced no real bundle.
-        let bundle_id = bundle.bundle_id.as_str();
-        self.meta.add_approval(bundle_id, authz.subject())?;
-        self.meta.count_approvals(bundle_id)
+        // referenced no real candidate.
+        let candidate_id = candidate.candidate_id.as_str();
+        self.meta.add_approval(candidate_id, authz.subject())?;
+        self.meta.count_approvals(candidate_id)
     }
 
     /// Provenance replay (vision: determinism as a product feature):
-    /// re-run the recorded merge and prove the bundle's identity.
-    pub fn verify(&self, bundle_id: &str) -> Result<VerifyReport> {
-        let bundle = self.meta.get_bundle(bundle_id)?;
-        let w_root = match &bundle.base_bundle_id {
-            Some(id) => self.meta.get_bundle(id)?.root_manifest,
+    /// re-run the recorded merge and prove the candidate's identity.
+    pub fn verify(&self, candidate_id: &str) -> Result<VerifyReport> {
+        let candidate = self.meta.get_candidate(candidate_id)?;
+        let w_root = match &candidate.base_candidate_id {
+            Some(id) => self.meta.get_candidate(id)?.root_manifest,
             None => None,
         };
         let mut inputs = Vec::new();
-        for publication_id in &bundle.inputs {
+        for publication_id in &candidate.inputs {
             let publication = self.meta.get_publication(publication_id)?.ok_or_else(|| {
                 anyhow::anyhow!("provenance incomplete: publication {publication_id} missing")
             })?;
-            let base = match &publication.base_bundle_id {
-                Some(id) => self.meta.get_bundle(id)?.root_manifest,
+            let base = match &publication.base_candidate_id {
+                Some(id) => self.meta.get_candidate(id)?.root_manifest,
                 None => None,
             };
             inputs.push(MergeInput {
@@ -728,67 +728,67 @@ impl Engine<'_> {
             });
         }
         let recomputed_root =
-            merge_window(self.objects, w_root.as_ref(), &inputs, &bundle.strategy)?;
-        let recomputed_id = bundle_hash(
-            &bundle.gate_id,
+            merge_window(self.objects, w_root.as_ref(), &inputs, &candidate.strategy)?;
+        let recomputed_id = candidate_hash(
+            &candidate.gate_id,
             w_root.as_ref(),
-            &bundle.inputs,
-            &bundle.strategy,
+            &candidate.inputs,
+            &candidate.strategy,
             Some(&recomputed_root),
         );
-        let root_matches = bundle.root_manifest.as_ref() == Some(&recomputed_root);
-        let id_matches = recomputed_id == bundle.bundle_id;
+        let root_matches = candidate.root_manifest.as_ref() == Some(&recomputed_root);
+        let id_matches = recomputed_id == candidate.candidate_id;
         Ok(VerifyReport {
             verified: root_matches && id_matches,
-            bundle_id: bundle.bundle_id.clone(),
-            recorded_root: bundle.root_manifest.clone(),
+            candidate_id: candidate.candidate_id.clone(),
+            recorded_root: candidate.root_manifest.clone(),
             recomputed_root: Some(recomputed_root),
             recomputed_id,
             detail: if root_matches && id_matches {
-                "replayed merge reproduces the recorded bundle".to_string()
+                "replayed merge reproduces the recorded candidate".to_string()
             } else if !root_matches {
                 "recomputed root manifest differs from the recorded one".to_string()
             } else {
-                "recomputed bundle id differs from the recorded one".to_string()
+                "recomputed candidate id differs from the recorded one".to_string()
             },
         })
     }
 
-    /// The sixth verb: designate a ready, promotable bundle for
+    /// The sixth verb: designate a ready, promotable candidate for
     /// consumption on a named channel. Policy: the producing gate must be
     /// marked `may_release` (vision: release is a policy-driven output,
     /// not the terminal gate by definition).
     pub fn release(
         &self,
         authz: AuthzContext,
-        bundle_id: &str,
+        candidate_id: &str,
         channel: &str,
         notes: Option<String>,
     ) -> Result<ReleaseRecord> {
         require(&authz, Capability::Release)?;
-        let bundle = self.meta.get_bundle(bundle_id)?;
-        ensure_partition(&authz, &bundle)?;
-        match &bundle.status {
-            BundleStatus::Ready { promotable: true } => {}
-            BundleStatus::Ready { promotable: false } => {
-                bail!("bundle {bundle_id} has unresolved superpositions")
+        let candidate = self.meta.get_candidate(candidate_id)?;
+        ensure_partition(&authz, &candidate)?;
+        match &candidate.status {
+            CandidateStatus::Ready { promotable: true } => {}
+            CandidateStatus::Ready { promotable: false } => {
+                bail!("candidate {candidate_id} has unresolved superpositions")
             }
-            other => bail!("bundle {bundle_id} is not ready: {other:?}"),
+            other => bail!("candidate {candidate_id} is not ready: {other:?}"),
         }
         // Resolved id from here (batch 26.4): see `promote`.
-        let bundle_id = bundle.bundle_id.as_str();
+        let candidate_id = candidate.candidate_id.as_str();
         let graph = self.meta.get_gate_graph(authz.repo_id())?;
 
         // Releasable where it has *reached*, not where it was built. The
         // same assumption that made a staged graph untraversable also
-        // meant a bundle promoted into a release gate could not be
+        // meant a candidate promoted into a release gate could not be
         // released from it, because the check read `may_release` off the
         // gate that produced it — which in a staged graph is the entry
         // gate, and an entry gate that may release is not a staged graph.
-        let mut reached = vec![bundle.gate_id.clone()];
+        let mut reached = vec![candidate.gate_id.clone()];
         reached.extend(
             self.meta
-                .list_promotions(bundle_id)?
+                .list_promotions(candidate_id)?
                 .into_iter()
                 .map(|(_, to, _)| to),
         );
@@ -798,7 +798,7 @@ impl Engine<'_> {
             .any(|g| g.may_release && reached.contains(&g.gate_id))
         {
             bail!(
-                "no gate this bundle has reached may release: {}",
+                "no gate this candidate has reached may release: {}",
                 reached.join(", ")
             );
         }
@@ -823,7 +823,7 @@ impl Engine<'_> {
             yank_reason: None,
             repo_id: authz.repo_id().to_string(),
             scope_id: authz.scope_id().to_string(),
-            bundle_id: bundle_id.to_string(),
+            candidate_id: candidate_id.to_string(),
             released_by: authz.subject().to_string(),
             notes,
             created_at: now(),
@@ -854,26 +854,26 @@ impl Engine<'_> {
 
     /// Policy-checked promotion (arch 14 §3): target gate must list the
     /// producing gate upstream; the producing gate's required approvals must
-    /// be met; the bundle must be ready and promotable.
-    pub fn promote(&self, authz: AuthzContext, bundle_id: &str, to_gate: &str) -> Result<()> {
+    /// be met; the candidate must be ready and promotable.
+    pub fn promote(&self, authz: AuthzContext, candidate_id: &str, to_gate: &str) -> Result<()> {
         require(&authz, Capability::Promote)?;
-        let bundle = self.meta.get_bundle(bundle_id)?;
-        ensure_partition(&authz, &bundle)?;
+        let candidate = self.meta.get_candidate(candidate_id)?;
+        ensure_partition(&authz, &candidate)?;
         // The caller may have given a prefix (batch 22.4), and
-        // `get_bundle` resolved it — so from here the *resolved* id is
+        // `get_candidate` resolved it — so from here the *resolved* id is
         // the only one to use. Batch 26.4 found the alternative: promote
         // compared the partition's stored base against the short string
-        // the user typed, decided a bundle was not the current window,
+        // the user typed, decided a candidate was not the current window,
         // and wrote a truncated id into the promotions table that
-        // referenced no real bundle.
-        let bundle_id = bundle.bundle_id.as_str();
+        // referenced no real candidate.
+        let candidate_id = candidate.candidate_id.as_str();
 
-        match &bundle.status {
-            BundleStatus::Ready { promotable: true } => {}
-            BundleStatus::Ready { promotable: false } => {
-                bail!("bundle {bundle_id} has unresolved superpositions")
+        match &candidate.status {
+            CandidateStatus::Ready { promotable: true } => {}
+            CandidateStatus::Ready { promotable: false } => {
+                bail!("candidate {candidate_id} has unresolved superpositions")
             }
-            other => bail!("bundle {bundle_id} is not ready: {other:?}"),
+            other => bail!("candidate {candidate_id} is not ready: {other:?}"),
         }
 
         let graph = self.meta.get_gate_graph(authz.repo_id())?;
@@ -882,9 +882,9 @@ impl Engine<'_> {
             .iter()
             .find(|g| g.gate_id == to_gate)
             .ok_or_else(|| anyhow::anyhow!("unknown target gate {to_gate}"))?;
-        // Where the bundle has *got to*, not merely where it was built.
+        // Where the candidate has *got to*, not merely where it was built.
         //
-        // A bundle keeps the gate that produced it for ever, and doc 14
+        // A candidate keeps the gate that produced it for ever, and doc 14
         // §3 has always said re-promoting it "to a further downstream
         // gate records the promotion" — but this check only ever looked
         // at the producing gate, so a chain was impossible. Batch 26.4
@@ -896,12 +896,12 @@ impl Engine<'_> {
         // The reached set is the producing gate plus every gate a
         // recorded promotion delivered it to. Fan-out to siblings still
         // works, and skipping a stage is still refused: promoting
-        // straight from intake to release fails until the bundle has
+        // straight from intake to release fails until the candidate has
         // actually reached review.
-        let mut reached = vec![bundle.gate_id.clone()];
+        let mut reached = vec![candidate.gate_id.clone()];
         reached.extend(
             self.meta
-                .list_promotions(bundle_id)?
+                .list_promotions(candidate_id)?
                 .into_iter()
                 .map(|(_, to, _)| to),
         );
@@ -924,10 +924,10 @@ impl Engine<'_> {
             .iter()
             .find(|g| g.gate_id == from_gate)
             .ok_or_else(|| anyhow::anyhow!("unknown gate {from_gate}"))?;
-        let approvals = self.meta.count_approvals(bundle_id)?;
+        let approvals = self.meta.count_approvals(candidate_id)?;
         if approvals < producing.required_approvals {
             bail!(
-                "bundle {bundle_id} has {approvals} of {} required approvals",
+                "candidate {candidate_id} has {approvals} of {} required approvals",
                 producing.required_approvals
             );
         }
@@ -938,32 +938,32 @@ impl Engine<'_> {
         // last-writer-wins.
         let partition =
             self.meta
-                .get_partition_state(authz.repo_id(), authz.scope_id(), &bundle.gate_id)?;
+                .get_partition_state(authz.repo_id(), authz.scope_id(), &candidate.gate_id)?;
 
         // Monotonicity guards (batch 13.2, audit H1, doc 14 §3): promote
-        // only advances the window. A bundle that already is the current W
+        // only advances the window. A candidate that already is the current W
         // re-promotes to another downstream gate without touching state
         // (fan-out); anything stale is refused instead of rewinding the
         // floor and re-opening consumed publications.
-        let is_current_w = partition.base_bundle_id.as_deref() == Some(bundle_id)
-            && partition.window_floor == bundle.window.1;
+        let is_current_w = partition.base_candidate_id.as_deref() == Some(candidate_id)
+            && partition.window_floor == candidate.window.1;
         if !is_current_w {
-            if bundle.window.1 <= partition.window_floor {
+            if candidate.window.1 <= partition.window_floor {
                 bail!(
-                    "stale bundle {bundle_id}: its window ends at seq {} but the \
-                     partition floor is already {} — a newer bundle was promoted; \
+                    "stale candidate {candidate_id}: its window ends at seq {} but the \
+                     partition floor is already {} — a newer candidate was promoted; \
                      republish against the current W and promote that",
-                    bundle.window.1,
+                    candidate.window.1,
                     partition.window_floor
                 );
             }
-            if bundle.base_bundle_id != partition.base_bundle_id {
+            if candidate.base_candidate_id != partition.base_candidate_id {
                 bail!(
-                    "bundle {bundle_id} was built on base {:?} but the partition's \
+                    "candidate {candidate_id} was built on base {:?} but the partition's \
                      current W is {:?} — promote would fork promoted history; \
                      republish against the current W",
-                    bundle.base_bundle_id,
-                    partition.base_bundle_id
+                    candidate.base_candidate_id,
+                    partition.base_candidate_id
                 );
             }
         }
@@ -975,7 +975,7 @@ impl Engine<'_> {
         // still goes through.
         if self
             .meta
-            .list_promotions(bundle_id)?
+            .list_promotions(candidate_id)?
             .iter()
             .any(|(_, to, _)| to == to_gate)
         {
@@ -986,26 +986,26 @@ impl Engine<'_> {
             MetaOp::AssertPartitionState {
                 repo_id: authz.repo_id().to_string(),
                 scope_id: authz.scope_id().to_string(),
-                gate_id: bundle.gate_id.clone(),
+                gate_id: candidate.gate_id.clone(),
                 expected: partition,
             },
             MetaOp::RecordPromotion {
-                bundle_id: bundle_id.to_string(),
-                from_gate: bundle.gate_id.clone(),
+                candidate_id: candidate_id.to_string(),
+                from_gate: candidate.gate_id.clone(),
                 to_gate: to_gate.to_string(),
                 at: now(),
             },
         ];
         if !is_current_w {
-            // Promotion advances the window (doc 17 §3): the promoted bundle
+            // Promotion advances the window (doc 17 §3): the promoted candidate
             // becomes W and its window's publications leave the pool.
             ops.push(MetaOp::SetPartitionState {
                 repo_id: authz.repo_id().to_string(),
                 scope_id: authz.scope_id().to_string(),
-                gate_id: bundle.gate_id.clone(),
+                gate_id: candidate.gate_id.clone(),
                 state: PartitionState {
-                    window_floor: bundle.window.1,
-                    base_bundle_id: Some(bundle.bundle_id.clone()),
+                    window_floor: candidate.window.1,
+                    base_candidate_id: Some(candidate.candidate_id.clone()),
                 },
             });
         }
@@ -1021,9 +1021,9 @@ impl Engine<'_> {
     }
 }
 
-/// Deterministic bundle identity (doc 17 §3): hash(gate, W root, ordered
+/// Deterministic candidate identity (doc 17 §3): hash(gate, W root, ordered
 /// input publication ids, strategy, merged root).
-pub fn bundle_hash(
+pub fn candidate_hash(
     gate_id: &str,
     w_root: Option<&ObjectId>,
     input_ids: &[String],
@@ -1056,13 +1056,13 @@ fn require(authz: &AuthzContext, capability: Capability) -> Result<()> {
     Ok(())
 }
 
-fn ensure_partition(authz: &AuthzContext, bundle: &StoredBundle) -> Result<()> {
-    if bundle.repo_id != authz.repo_id() || bundle.scope_id != authz.scope_id() {
+fn ensure_partition(authz: &AuthzContext, candidate: &StoredCandidate) -> Result<()> {
+    if candidate.repo_id != authz.repo_id() || candidate.scope_id != authz.scope_id() {
         bail!(
-            "bundle {} belongs to {}/{}, authz covers {}/{}",
-            bundle.bundle_id,
-            bundle.repo_id,
-            bundle.scope_id,
+            "candidate {} belongs to {}/{}, authz covers {}/{}",
+            candidate.candidate_id,
+            candidate.repo_id,
+            candidate.scope_id,
             authz.repo_id(),
             authz.scope_id()
         );

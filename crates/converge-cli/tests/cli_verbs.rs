@@ -139,7 +139,7 @@ fn resolve_list_validate_apply_over_superposition() -> anyhow::Result<()> {
         created_at,
         root_manifest,
         parents: Vec::new(),
-        derived_from_bundle: None,
+        derived_from_candidate: None,
         message: Some("superposed".into()),
         trigger: "explicit".into(),
         stats: SnapStats::default(),

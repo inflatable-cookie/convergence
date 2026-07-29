@@ -55,22 +55,26 @@ fn authenticated_routes() -> Vec<(&'static str, String, Option<serde_json::Value
             "/api/publish".into(),
             Some(serde_json::json!({ "repo_id": "repo" })),
         ),
-        ("GET", "/api/bundles/some-bundle".into(), None),
-        ("GET", "/api/bundles/some-bundle/provenance".into(), None),
-        ("GET", "/api/bundles/some-bundle/verify".into(), None),
+        ("GET", "/api/candidates/some-candidate".into(), None),
+        (
+            "GET",
+            "/api/candidates/some-candidate/provenance".into(),
+            None,
+        ),
+        ("GET", "/api/candidates/some-candidate/verify".into(), None),
         (
             "POST",
-            "/api/bundles/some-bundle/approve".into(),
+            "/api/candidates/some-candidate/approve".into(),
             Some(serde_json::json!({})),
         ),
         (
             "POST",
-            "/api/bundles/some-bundle/promote".into(),
+            "/api/candidates/some-candidate/promote".into(),
             Some(serde_json::json!({})),
         ),
         (
             "POST",
-            "/api/bundles/some-bundle/release".into(),
+            "/api/candidates/some-candidate/release".into(),
             Some(serde_json::json!({})),
         ),
         (

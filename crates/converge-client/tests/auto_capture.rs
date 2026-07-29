@@ -31,7 +31,7 @@ fn synthetic_snap(
         created_at: created.format(&Rfc3339)?,
         root_manifest: root,
         parents: Vec::new(),
-        derived_from_bundle: None,
+        derived_from_candidate: None,
         message: None,
         trigger: trigger.into(),
         stats: SnapStats::default(),

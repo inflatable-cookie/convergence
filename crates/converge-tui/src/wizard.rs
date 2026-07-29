@@ -64,11 +64,11 @@ pub enum WizardKind {
     Annotate(String),
     /// Grant a teammate capabilities (batch 23.3).
     Member,
-    /// Release a bundle as a semver version; carries the bundle id.
+    /// Release a candidate as a semver version; carries the candidate id.
     Release(String),
-    /// Promote a bundle to a downstream gate; carries the bundle id.
+    /// Promote a candidate to a downstream gate; carries the candidate id.
     Promote(String),
-    /// Fetch a bundle or a channel head.
+    /// Fetch a candidate or a channel head.
     Fetch,
     /// Add a gate to the repo's graph (batch 26.3).
     Gate,
@@ -288,7 +288,7 @@ impl Wizard {
                 ),
                 Field::new(
                     "releasable",
-                    "May bundles here be released to a channel",
+                    "May candidates here be released to a channel",
                     FieldKind::Choice {
                         options: vec!["no".into(), "yes".into()],
                     },
@@ -297,8 +297,8 @@ impl Wizard {
         )
     }
 
-    /// Release a bundle to a channel.
-    pub fn release(bundle_id: String, existing: Vec<String>) -> Self {
+    /// Release a candidate to a channel.
+    pub fn release(candidate_id: String, existing: Vec<String>) -> Self {
         // Semver identity (g02.028). The newest existing version is
         // shown in the prompt as orientation, not as a default: the
         // next number is a decision about what changed, and a wizard
@@ -317,8 +317,8 @@ impl Wizard {
             masked: false,
         };
         Self::new(
-            WizardKind::Release(bundle_id),
-            "Release bundle",
+            WizardKind::Release(candidate_id),
+            "Release candidate",
             vec![
                 version,
                 Field::new(
@@ -333,11 +333,11 @@ impl Wizard {
         )
     }
 
-    /// Promote a bundle to a downstream gate.
-    pub fn promote(bundle_id: String, gates: Vec<String>) -> Self {
+    /// Promote a candidate to a downstream gate.
+    pub fn promote(candidate_id: String, gates: Vec<String>) -> Self {
         Self::new(
-            WizardKind::Promote(bundle_id),
-            "Promote bundle",
+            WizardKind::Promote(candidate_id),
+            "Promote candidate",
             vec![if gates.is_empty() {
                 Field::new(
                     "to",
@@ -357,7 +357,7 @@ impl Wizard {
         )
     }
 
-    /// Fetch a bundle or a channel head, optionally into the workspace.
+    /// Fetch a candidate or a channel head, optionally into the workspace.
     ///
     /// `--checkout` and `--into` are mutually exclusive and mean
     /// different things (batch 16.2), which is precisely the pair a
@@ -374,9 +374,9 @@ impl Wizard {
                     // it is what most fetches mean, and it stays right
                     // as new releases land (g02.028).
                     if versions.is_empty() {
-                        "Bundle id, or latest / a version"
+                        "Candidate id, or latest / a version"
                     } else {
-                        "Bundle id, or latest / a version (see Releases)"
+                        "Candidate id, or latest / a version (see Releases)"
                     },
                     FieldKind::Text {
                         default: Some("latest".into()),
@@ -596,10 +596,10 @@ impl Wizard {
                 argv.push("--execute".into());
                 argv
             }
-            WizardKind::Release(bundle_id) => {
+            WizardKind::Release(candidate_id) => {
                 let mut argv = vec![
                     "release".into(),
-                    bundle_id.clone(),
+                    candidate_id.clone(),
                     "--as".into(),
                     value("version"),
                 ];
@@ -610,15 +610,15 @@ impl Wizard {
                 }
                 argv
             }
-            WizardKind::Promote(bundle_id) => vec![
+            WizardKind::Promote(candidate_id) => vec![
                 "promote".into(),
-                bundle_id.clone(),
+                candidate_id.clone(),
                 "--to".into(),
                 value("to"),
             ],
             WizardKind::Fetch => {
                 let target = value("target");
-                // A bundle id is 64 hex characters; anything else is a
+                // A candidate id is 64 hex characters; anything else is a
                 // channel name. Guessing beats asking "is this an id or
                 // a channel?", which is a question about our own data
                 // model rather than about the user's intent.
@@ -875,7 +875,7 @@ mod tests {
     }
 
     #[test]
-    fn release_and_promote_carry_their_bundle() {
+    fn release_and_promote_carry_their_candidate() {
         let mut wizard = Wizard::release("b".repeat(64), vec!["0.9.0".into()]);
         assert_eq!(
             drive(&mut wizard, &["1.0.0", "ship it"]),
@@ -919,9 +919,9 @@ mod tests {
         }
     }
 
-    /// A 64-hex target is a bundle id; anything else is a channel.
+    /// A 64-hex target is a candidate id; anything else is a channel.
     #[test]
-    fn fetch_wizard_tells_a_bundle_id_from_a_channel_name() {
+    fn fetch_wizard_tells_a_candidate_id_from_a_channel_name() {
         let mut wizard = Wizard::fetch(Vec::new());
         let id = "a".repeat(64);
         assert_eq!(drive(&mut wizard, &[&id, "store", ""])[1], id);

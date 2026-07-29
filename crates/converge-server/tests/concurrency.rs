@@ -10,7 +10,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use anyhow::Result;
-use converge_client::model::BundleStatus;
+use converge_client::model::CandidateStatus;
 use converge_client::remote::RemoteClient;
 use converge_client::workspace::Workspace;
 use converge_model::{GateGraph, GateNode};
@@ -122,10 +122,10 @@ fn promotions_racing_publishes_keep_windows_contiguous() -> Result<()> {
         let client = cluster.client(i);
         publishers.push(std::thread::spawn(move || -> Result<(u64, u64)> {
             let (_dir, ws, snap) = snap_with(&format!("f{i}.txt"), &format!("body {i}"))?;
-            let (bundle, _) = client.publish(
+            let (candidate, _) = client.publish(
                 &ws.store, "repo", "scope", "intake", &snap, None, None, None,
             )?;
-            Ok(bundle.window)
+            Ok(candidate.window)
         }));
     }
 
@@ -141,12 +141,12 @@ fn promotions_racing_publishes_keep_windows_contiguous() -> Result<()> {
                     Ok(report) => report,
                     Err(_) => continue,
                 };
-                for bundle in report.bundles {
+                for candidate in report.candidates {
                     if client
-                        .promote(&bundle.bundle_id, "repo", "scope", "main")
+                        .promote(&candidate.candidate_id, "repo", "scope", "main")
                         .is_ok()
                     {
-                        promoted.push(bundle.bundle_id);
+                        promoted.push(candidate.candidate_id);
                     }
                 }
                 std::thread::sleep(std::time::Duration::from_millis(5));
@@ -175,7 +175,7 @@ fn promotions_racing_publishes_keep_windows_contiguous() -> Result<()> {
     );
 
     // A window never reaches back below a floor a promotion already set:
-    // for each bundle, start <= end, and starts are non-decreasing in end
+    // for each candidate, start <= end, and starts are non-decreasing in end
     // order, which is what "the floor only moves forward" looks like from
     // the outside.
     let mut by_end = windows.clone();
@@ -190,7 +190,7 @@ fn promotions_racing_publishes_keep_windows_contiguous() -> Result<()> {
         floor_seen = start;
     }
 
-    // Promotions that succeeded are distinct: the same bundle cannot be
+    // Promotions that succeeded are distinct: the same candidate cannot be
     // promoted twice into the same gate (13.2's monotonicity guard).
     let mut unique = promoted.clone();
     unique.sort();
@@ -198,34 +198,39 @@ fn promotions_racing_publishes_keep_windows_contiguous() -> Result<()> {
     assert_eq!(
         unique.len(),
         promoted.len(),
-        "a bundle was promoted twice: {promoted:?}"
+        "a candidate was promoted twice: {promoted:?}"
     );
     Ok(())
 }
 
-/// Two threads promoting the *same* bundle into the same gate at the
+/// Two threads promoting the *same* candidate into the same gate at the
 /// same instant. Both may report success — promote is idempotent, which
 /// is what a client retrying a timed-out request needs — but the
 /// partition must end up in the state one promotion would have produced,
 /// and the promotion must be recorded once.
 #[test]
-fn simultaneous_promotion_of_one_bundle_is_idempotent() -> Result<()> {
+fn simultaneous_promotion_of_one_candidate_is_idempotent() -> Result<()> {
     let cluster = Cluster::start(2)?;
     let (_dir, ws, snap) = snap_with("a.txt", "one")?;
-    let (bundle, _) = cluster.client(0).publish(
+    let (candidate, _) = cluster.client(0).publish(
         &ws.store, "repo", "scope", "intake", &snap, None, None, None,
     )?;
-    assert_eq!(bundle.status, BundleStatus::Ready { promotable: true });
+    assert_eq!(
+        candidate.status,
+        CandidateStatus::Ready { promotable: true }
+    );
 
     let barrier = Arc::new(std::sync::Barrier::new(2));
     let mut handles = Vec::new();
     for i in 0..2 {
         let client = cluster.client(i);
         let barrier = Arc::clone(&barrier);
-        let bundle_id = bundle.bundle_id.clone();
+        let candidate_id = candidate.candidate_id.clone();
         handles.push(std::thread::spawn(move || {
             barrier.wait();
-            client.promote(&bundle_id, "repo", "scope", "main").is_ok()
+            client
+                .promote(&candidate_id, "repo", "scope", "main")
+                .is_ok()
         }));
     }
     let wins = handles
@@ -236,7 +241,7 @@ fn simultaneous_promotion_of_one_bundle_is_idempotent() -> Result<()> {
     assert!(wins >= 1, "at least one promotion must succeed");
 
     // The floor advanced exactly once: the next publish opens a window
-    // starting immediately after the promoted bundle's, not two past it.
+    // starting immediately after the promoted candidate's, not two past it.
     let (_dir, ws2, snap2) = snap_with("b.txt", "two")?;
     let (next, _) = cluster.client(0).publish(
         &ws2.store,
@@ -244,13 +249,13 @@ fn simultaneous_promotion_of_one_bundle_is_idempotent() -> Result<()> {
         "scope",
         "intake",
         &snap2,
-        Some(bundle.bundle_id.clone()),
+        Some(candidate.candidate_id.clone()),
         None,
         None,
     )?;
     assert_eq!(
         next.window.0,
-        bundle.window.1 + 1,
+        candidate.window.1 + 1,
         "double promotion moved the floor twice"
     );
 
@@ -260,7 +265,7 @@ fn simultaneous_promotion_of_one_bundle_is_idempotent() -> Result<()> {
     assert!(
         cluster
             .client(0)
-            .promote(&bundle.bundle_id, "repo", "scope", "main")
+            .promote(&candidate.candidate_id, "repo", "scope", "main")
             .is_ok(),
         "promote must be idempotent for retries"
     );
@@ -301,33 +306,33 @@ fn gc_running_against_live_uploads_collects_nothing_reachable() -> Result<()> {
             // a real window in which to be collected.
             let body: String = std::iter::repeat_n(format!("payload {i} "), 40_000).collect();
             let (_dir, ws, snap) = snap_with(&format!("big{i}.bin"), &body)?;
-            let (bundle, _) = client.publish(
+            let (candidate, _) = client.publish(
                 &ws.store, "repo", "scope", "intake", &snap, None, None, None,
             )?;
-            Ok(bundle.bundle_id)
+            Ok(candidate.candidate_id)
         }));
     }
 
-    let mut bundles = Vec::new();
+    let mut candidates = Vec::new();
     for handle in publishers {
-        bundles.push(handle.join().expect("publisher thread")?);
+        candidates.push(handle.join().expect("publisher thread")?);
     }
     stop.store(true, std::sync::atomic::Ordering::Relaxed);
     let runs = collector.join().expect("gc thread");
     assert!(runs > 0, "the collector never ran");
 
-    // Every published bundle is still fully fetchable: nothing reachable
+    // Every published candidate is still fully fetchable: nothing reachable
     // was collected out from under it.
     let reader = cluster.client(0);
-    for bundle_id in bundles {
+    for candidate_id in candidates {
         let dir = tempfile::tempdir()?;
         let ws = Workspace::init(dir.path(), false)?;
         let root = reader
-            .fetch_bundle(&ws.store, "repo", &bundle_id)
-            .unwrap_or_else(|err| panic!("bundle {bundle_id} lost objects to GC: {err:#}"));
+            .fetch_candidate(&ws.store, "repo", &candidate_id)
+            .unwrap_or_else(|err| panic!("candidate {candidate_id} lost objects to GC: {err:#}"));
         let out = tempfile::tempdir()?;
         ws.materialize_manifest_to(&root, out.path(), true)
-            .unwrap_or_else(|err| panic!("bundle {bundle_id} cannot materialize: {err:#}"));
+            .unwrap_or_else(|err| panic!("candidate {candidate_id} cannot materialize: {err:#}"));
     }
     Ok(())
 }

@@ -9,31 +9,31 @@ impl LocalStore {
         let path = self
             .root
             .join("resolutions")
-            .join(format!("{}.json", resolution.bundle_id));
+            .join(format!("{}.json", resolution.candidate_id));
         write_atomic(&path, &bytes).context("write resolution")?;
         Ok(())
     }
 
-    pub fn get_resolution(&self, bundle_id: &str) -> Result<Resolution> {
+    pub fn get_resolution(&self, candidate_id: &str) -> Result<Resolution> {
         let path = self
             .root
             .join("resolutions")
-            .join(format!("{}.json", bundle_id));
+            .join(format!("{}.json", candidate_id));
         let bytes = fs::read(&path).with_context(|| format!("read {}", path.display()))?;
         let r: Resolution = serde_json::from_slice(&bytes).context("parse resolution")?;
         if r.version != 1 && r.version != 2 {
             return Err(anyhow!("unsupported resolution version"));
         }
-        if r.bundle_id != bundle_id {
-            return Err(anyhow!("resolution bundle_id mismatch"));
+        if r.candidate_id != candidate_id {
+            return Err(anyhow!("resolution candidate_id mismatch"));
         }
         Ok(r)
     }
 
-    pub fn has_resolution(&self, bundle_id: &str) -> bool {
+    pub fn has_resolution(&self, candidate_id: &str) -> bool {
         self.root
             .join("resolutions")
-            .join(format!("{}.json", bundle_id))
+            .join(format!("{}.json", candidate_id))
             .exists()
     }
 }

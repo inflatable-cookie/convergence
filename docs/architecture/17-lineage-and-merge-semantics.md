@@ -4,7 +4,7 @@ Status: active
 Updated: 2026-07-25
 Roadmap: `g02.005` Batch 5.1, `g02.015` Batch 15.4, `g02.016` Batch 16.1
 
-Decision-complete semantics for snap lineage, base-aware merge, bundle
+Decision-complete semantics for snap lineage, base-aware merge, candidate
 windows, and per-gate coalesce strategies. Supersedes the union-merge and
 flat-history semantics of the first vertical slice. Docs 14 and 16 defer to
 this doc where they overlap.
@@ -21,8 +21,8 @@ Record (v2):
   in a workspace. First parent is the primary lineage: the workspace head
   at capture time. Multiple parents occur only when a capture incorporates
   external history (currently: none produced automatically; reserved).
-- `derived_from_bundle: Option<BundleId>` — set when the captured tree is
-  the materialization/resolution of a fetched bundle. Bundles are not
+- `derived_from_candidate: Option<CandidateId>` — set when the captured tree is
+  the materialization/resolution of a fetched candidate. Candidates are not
   snaps, so this is a provenance edge, not a parent.
 - `root_manifest`, `stats` — as today.
 - `created_at`, `message`, `trigger` — metadata only.
@@ -75,9 +75,9 @@ old history where the two orders coincide. Explicit snaps and the head are
 never thinned.
 
 Head rules: the workspace tracks one head snap id. Capture sets head to the
-new snap. Restore sets head to the restored snap. Materializing a bundle
+new snap. Restore sets head to the restored snap. Materializing a candidate
 into the workspace sets head to the snap subsequently captured from it
-(with `derived_from_bundle` set); materialize alone does not move head.
+(with `derived_from_candidate` set); materialize alone does not move head.
 
 Implemented (batch 16.1) as two client operations with that split baked
 in: `capture_tree` records a stored tree as a snap and leaves head alone,
@@ -90,18 +90,18 @@ out.
 
 ### Publication base
 
-`PublishRequest` and `PublicationRecord` gain `base_bundle_id:
-Option<BundleId>` — the bundle the publisher last knew for the target
-`(repo, scope, gate)`. The client records the latest bundle id it has seen
+`PublishRequest` and `PublicationRecord` gain `base_candidate_id:
+Option<CandidateId>` — the candidate the publisher last knew for the target
+`(repo, scope, gate)`. The client records the latest candidate id it has seen
 per target (on publish response and on fetch) and sends it automatically.
 `None` means "no known base": the input's delta is computed against the
 empty tree (everything reads as added). The server rejects a
-`base_bundle_id` that is not in the partition's history.
+`base_candidate_id` that is not in the partition's history.
 
 ### Window base W
 
-Every bundle build starts from **W**, the root manifest of the partition's
-last *promoted* bundle (empty tree if none — see §3 for windows).
+Every candidate build starts from **W**, the root manifest of the partition's
+last *promoted* candidate (empty tree if none — see §3 for windows).
 
 ### Delta and decision table
 
@@ -125,7 +125,7 @@ Cost follows from that, in all three phases:
   is neither re-hashed nor re-stored.
 - **Classification**: whether the result carries superpositions is
   known from the fold itself — W is superposition-free by construction
-  (promote refuses a non-promotable bundle), so no second walk is
+  (promote refuses a non-promotable candidate), so no second walk is
   needed to find out.
 
 The measurable consequence, pinned by tests: a one-file publish costs
@@ -147,7 +147,7 @@ Per path, fold deltas onto W:
 | one input adds/modifies; rest untouched | that value |
 | several inputs set the same content | that value (dedup) |
 | several inputs set divergent content | strategy dispatch (§4); unresolved → `Superposition`, one variant per distinct content, source = lane |
-| one input deletes; rest untouched | path removed from the bundle manifest |
+| one input deletes; rest untouched | path removed from the candidate manifest |
 | one input deletes; another modifies | `Superposition` containing the modified variant(s) and a `Tombstone` variant |
 | input's delta is `unchanged` for the path | that input expresses no opinion — it never creates a variant |
 
@@ -184,45 +184,45 @@ Rules:
   is most needed. The safety condition is unchanged and does the work:
   the superseder carries its own explicit opinion at `p`, so no content
   is dropped that nothing else expresses. A publisher who never based on
-  the superposed bundle is untouched — their opinion was formed without
+  the superposed candidate is untouched — their opinion was formed without
   seeing the variants, so it still contests the resolution.
 - **Tombstones never appear as plain manifest entries.** A resolved
   deletion is an absent path. `Tombstone` exists only as a superposition
   variant, and resolving a superposition to its tombstone variant removes
   the path.
-- Materialization skips nothing: bundle manifests contain only real
+- Materialization skips nothing: candidate manifests contain only real
   entries and superpositions.
 - The "unchanged expresses no opinion" rule is what kills the slice's
   false superpositions: a publisher who didn't touch a file can no longer
   collide with one who did.
 
-## 3. Bundle windows
+## 3. Candidate windows
 
 Partition state gains `window_floor: u64` — the highest publication `seq`
-consumed by the last **promoted** bundle (0 initially).
+consumed by the last **promoted** candidate (0 initially).
 
-- A bundle build consumes the ordered publications with
+- A candidate build consumes the ordered publications with
   `seq > window_floor` (the *window*).
-- Promotion of bundle B sets `window_floor` to the highest seq in B's
+- Promotion of candidate B sets `window_floor` to the highest seq in B's
   window and makes B the new W for subsequent builds.
 - Builds between promotions repeatedly re-merge the current window — small
   by construction.
-- Provenance on the bundle records: `base_bundle_id` (W's bundle, if any)
+- Provenance on the candidate records: `base_candidate_id` (W's candidate, if any)
   and the window's `(first_seq, last_seq)`.
 
 Determinism contract:
 
 ```
-bundle_id = blake3(gate_id, W_root, ordered window publication ids,
+candidate_id = blake3(gate_id, W_root, ordered window publication ids,
                    strategy name, merged_root)
 ```
 
-Same W, same window, same strategy → same bundle, byte for byte.
+Same W, same window, same strategy → same candidate, byte for byte.
 
 ## 4. Per-gate coalesce strategies
 
 `GateNode` gains `strategy` (serde default `whole-file`). The strategy is
-recorded in bundle provenance. Dispatch is per divergent path after the §2
+recorded in candidate provenance. Dispatch is per divergent path after the §2
 fold; directories always recurse; only leaf divergence reaches a strategy.
 
 ### `whole-file`
@@ -253,12 +253,12 @@ contract.
 
 ## 5. Wire and model deltas (summary for doc 16)
 
-- `SnapRecord` v2: `parents`, `derived_from_bundle`, identity rule above
-- `PublishRequest` / `PublicationRecord`: `+ base_bundle_id`
-- `BundleRecord`: `+ base_bundle_id`, `+ window: (u64, u64)`,
+- `SnapRecord` v2: `parents`, `derived_from_candidate`, identity rule above
+- `PublishRequest` / `PublicationRecord`: `+ base_candidate_id`
+- `CandidateRecord`: `+ base_candidate_id`, `+ window: (u64, u64)`,
   `+ strategy: String`
 - `GateNode`: `+ strategy`
-- client state: last-seen bundle id per `(repo, scope, gate)` target
+- client state: last-seen candidate id per `(repo, scope, gate)` target
 
 ## Next Task
 

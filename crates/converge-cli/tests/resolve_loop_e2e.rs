@@ -147,7 +147,7 @@ fn conflict_to_resolved_publish_without_out_of_band_knowledge() -> Result<()> {
             .success()
     );
 
-    // Alice's inbox names the superposed bundle and hands her a command.
+    // Alice's inbox names the superposed candidate and hands her a command.
     let inbox = json_data(&converge(a, &["--json", "inbox"]));
     let actions = converge_cli::inbox_actions(&inbox);
     let resolve_action = actions
@@ -158,14 +158,14 @@ fn conflict_to_resolved_publish_without_out_of_band_knowledge() -> Result<()> {
                 .as_ref()
                 .is_some_and(|argv| argv.first().map(String::as_str) == Some("resolve"))
         })
-        .expect("inbox recommends resolving the superposed bundle");
+        .expect("inbox recommends resolving the superposed candidate");
     let argv = resolve_action.argv.clone().expect("runnable");
     assert_eq!(argv[..2], ["resolve".to_string(), "list".to_string()]);
-    let bundle_id = argv[2].clone();
+    let candidate_id = argv[2].clone();
 
-    // The recommendation runs as written — against a *bundle* id, with
+    // The recommendation runs as written — against a *candidate* id, with
     // its tree fetched on demand. This is the dead end audit P1.2 found.
-    let listed = json_data(&converge(a, &["--json", "resolve", "list", &bundle_id]));
+    let listed = json_data(&converge(a, &["--json", "resolve", "list", &candidate_id]));
     let variants = listed["shared.txt"]
         .as_array()
         .expect("shared.txt is superposed");
@@ -177,7 +177,7 @@ fn conflict_to_resolved_publish_without_out_of_band_knowledge() -> Result<()> {
     // a missing nicety.
     let previewed = json_data(&converge(
         a,
-        &["--json", "resolve", "list", &bundle_id, "--preview"],
+        &["--json", "resolve", "list", &candidate_id, "--preview"],
     ));
     let shown: Vec<String> = previewed["shared.txt"]
         .as_array()
@@ -205,16 +205,16 @@ fn conflict_to_resolved_publish_without_out_of_band_knowledge() -> Result<()> {
             "--json",
             "resolve",
             "apply",
-            &bundle_id,
+            &candidate_id,
             "decisions.json",
             "--force",
         ],
     ));
     let resolved_snap = applied["snap"].as_str().expect("snap id").to_string();
     assert_eq!(
-        applied["derived_from_bundle"].as_str(),
-        Some(bundle_id.as_str()),
-        "provenance edge to the bundle, not a parent (doc 17 §1)"
+        applied["derived_from_candidate"].as_str(),
+        Some(candidate_id.as_str()),
+        "provenance edge to the candidate, not a parent (doc 17 §1)"
     );
     assert_eq!(applied["checked_out"], true);
     assert_eq!(
@@ -233,7 +233,7 @@ fn conflict_to_resolved_publish_without_out_of_band_knowledge() -> Result<()> {
     publish_argv.extend(next);
     let published = json_data(&converge(a, &publish_argv));
     assert_eq!(
-        published["bundle"]["status"],
+        published["candidate"]["status"],
         serde_json::json!({ "ready": { "promotable": true } }),
         "the resolved publish is promotable — the superposition is gone"
     );
@@ -270,7 +270,7 @@ fn arrival_paths_land_work_in_the_workspace() -> Result<()> {
             .success()
     );
     let published = json_data(&converge(a, &["--json", "publish", "--lane", "lane-a"]));
-    let bundle_id = published["bundle"]["bundle_id"]
+    let candidate_id = published["candidate"]["candidate_id"]
         .as_str()
         .unwrap()
         .to_string();
@@ -314,30 +314,33 @@ fn arrival_paths_land_work_in_the_workspace() -> Result<()> {
         "alice version"
     );
 
-    // Fetching a bundle with --checkout lands it as a snap to continue
-    // from, with the bundle as provenance (doc 17 §1).
+    // Fetching a candidate with --checkout lands it as a snap to continue
+    // from, with the candidate as provenance (doc 17 §1).
     let c_dir = tempfile::tempdir()?;
     let c = c_dir.path();
     assert!(converge(c, &["init"]).status.success());
     login(c, &base_url, "token-b", "bob");
 
-    let bare = json_data(&converge(c, &["--json", "fetch", &bundle_id]));
+    let bare = json_data(&converge(c, &["--json", "fetch", &candidate_id]));
     assert!(bare["snap"].is_null());
     assert_eq!(
         bare["next"].as_str(),
-        Some(format!("show {bundle_id}").as_str())
+        Some(format!("show {candidate_id}").as_str())
     );
     assert!(
         !c.join("shared.txt").exists(),
         "a bare fetch writes no files"
     );
 
-    // `show` works on the fetched bundle without materializing anything.
-    let shown = json_data(&converge(c, &["--json", "show", &bundle_id]));
-    assert_eq!(shown["kind"], "bundle");
+    // `show` works on the fetched candidate without materializing anything.
+    let shown = json_data(&converge(c, &["--json", "show", &candidate_id]));
+    assert_eq!(shown["kind"], "candidate");
     assert_eq!(shown["entries"][0]["name"], "shared.txt");
 
-    let checked_out = json_data(&converge(c, &["--json", "fetch", &bundle_id, "--checkout"]));
+    let checked_out = json_data(&converge(
+        c,
+        &["--json", "fetch", &candidate_id, "--checkout"],
+    ));
     let snap_id = checked_out["snap"]
         .as_str()
         .expect("checkout captures a snap");
@@ -355,7 +358,7 @@ fn arrival_paths_land_work_in_the_workspace() -> Result<()> {
         &[
             "--json",
             "fetch",
-            &bundle_id,
+            &candidate_id,
             "--checkout",
             "--into",
             "copy",
@@ -415,14 +418,14 @@ fn remote_human_output_reads_like_prose_and_reports_transfer() -> Result<()> {
         "no progress in machine mode"
     );
 
-    let bundle_id =
-        serde_json::from_str::<serde_json::Value>(out.trim())?["data"]["bundle"]["bundle_id"]
-            .as_str()
-            .expect("bundle id")
-            .to_string();
+    let candidate_id = serde_json::from_str::<serde_json::Value>(out.trim())?["data"]["candidate"]
+        ["candidate_id"]
+        .as_str()
+        .expect("candidate id")
+        .to_string();
 
-    // Bundle inspection: prose, and addressable the same way fetch is.
-    let shown = converge(a, &["bundle", &bundle_id]);
+    // Candidate inspection: prose, and addressable the same way fetch is.
+    let shown = converge(a, &["candidate", &candidate_id]);
     let text = String::from_utf8_lossy(&shown.stdout).into_owned();
     assert!(
         text.contains("publication") && !text.contains("("),
@@ -476,7 +479,7 @@ fn previews_are_bounded_and_say_why_when_there_is_no_text() -> Result<()> {
     );
 
     let inbox = json_data(&converge(a, &["--json", "inbox"]));
-    let bundle_id = converge_cli::inbox_actions(&inbox)
+    let candidate_id = converge_cli::inbox_actions(&inbox)
         .iter()
         .find_map(|action| {
             action
@@ -485,11 +488,11 @@ fn previews_are_bounded_and_say_why_when_there_is_no_text() -> Result<()> {
                 .filter(|argv| argv.first().map(String::as_str) == Some("resolve"))
                 .map(|argv| argv[2].clone())
         })
-        .expect("a superposed bundle");
+        .expect("a superposed candidate");
 
     let previewed = json_data(&converge(
         a,
-        &["--json", "resolve", "list", &bundle_id, "--preview"],
+        &["--json", "resolve", "list", &candidate_id, "--preview"],
     ));
 
     for variant in previewed["image.bin"].as_array().expect("binary variants") {
@@ -557,7 +560,7 @@ fn a_preview_skips_what_every_variant_agrees_on() -> Result<()> {
     );
 
     let inbox = json_data(&converge(a, &["--json", "inbox"]));
-    let bundle_id = converge_cli::inbox_actions(&inbox)
+    let candidate_id = converge_cli::inbox_actions(&inbox)
         .iter()
         .find_map(|action| {
             action
@@ -566,11 +569,11 @@ fn a_preview_skips_what_every_variant_agrees_on() -> Result<()> {
                 .filter(|argv| argv.first().map(String::as_str) == Some("resolve"))
                 .map(|argv| argv[2].clone())
         })
-        .expect("a superposed bundle");
+        .expect("a superposed candidate");
 
     let previewed = json_data(&converge(
         a,
-        &["--json", "resolve", "list", &bundle_id, "--preview"],
+        &["--json", "resolve", "list", &candidate_id, "--preview"],
     ));
     let variants = previewed["m.rs"].as_array().expect("variants");
     assert_eq!(variants.len(), 2);

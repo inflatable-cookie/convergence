@@ -7,7 +7,7 @@ and foundational proving into the next execution sequence.
 
 ## Product Guardrails
 
-- Keep the core object model coherent: `snap`, `publish`, `bundle`, `promote`,
+- Keep the core object model coherent: `snap`, `publish`, `candidate`, `promote`,
   `release`, and `superposition` must stay stable and explicit across docs and
   implementation.
 - Do not let research, architecture, and execution blur into one vague queue.

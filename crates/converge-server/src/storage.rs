@@ -3,7 +3,7 @@ use anyhow::Result;
 use crate::authz::Capability;
 
 use converge_model::{
-    BundleStatus, EventRecord, GateGraph, LaneHead, LaneRecord, ObjectId, PublicationRecord,
+    CandidateStatus, EventRecord, GateGraph, LaneHead, LaneRecord, ObjectId, PublicationRecord,
     ReleaseRecord, RetentionPolicy, SnapRecord,
 };
 
@@ -37,31 +37,31 @@ impl ObjectKind {
     }
 }
 
-/// A bundle as the server stores it: the wire record plus policy state.
+/// A candidate as the server stores it: the wire record plus policy state.
 #[derive(Clone, Debug)]
-pub struct StoredBundle {
-    pub bundle_id: String,
+pub struct StoredCandidate {
+    pub candidate_id: String,
     pub repo_id: String,
     pub scope_id: String,
     pub gate_id: String,
     pub inputs: Vec<String>,
     pub root_manifest: Option<ObjectId>,
-    /// W: bundle whose root this build folded onto (doc 17 §3).
-    pub base_bundle_id: Option<String>,
+    /// W: candidate whose root this build folded onto (doc 17 §3).
+    pub base_candidate_id: Option<String>,
     /// (first_seq, last_seq) of the consumed publication window.
     pub window: (u64, u64),
     pub strategy: String,
-    pub status: BundleStatus,
+    pub status: CandidateStatus,
     pub created_at: String,
 }
 
 /// Per-(repo, scope, gate) window state (doc 17 §3).
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct PartitionState {
-    /// Highest publication seq consumed by the last promoted bundle.
+    /// Highest publication seq consumed by the last promoted candidate.
     pub window_floor: u64,
-    /// The last promoted bundle (W for the next build).
-    pub base_bundle_id: Option<String>,
+    /// The last promoted candidate (W for the next build).
+    pub base_candidate_id: Option<String>,
 }
 
 /// One write (or guard) inside an atomic metadata batch (g02.013 batch
@@ -71,7 +71,7 @@ pub struct PartitionState {
 #[derive(Clone, Debug)]
 pub enum MetaOp {
     AddPublication(PublicationRecord),
-    PutBundle(StoredBundle),
+    PutCandidate(StoredCandidate),
     SetPartitionState {
         repo_id: String,
         scope_id: String,
@@ -79,7 +79,7 @@ pub enum MetaOp {
         state: PartitionState,
     },
     RecordPromotion {
-        bundle_id: String,
+        candidate_id: String,
         from_gate: String,
         to_gate: String,
         at: String,
@@ -280,9 +280,13 @@ pub trait MetadataStore: Send + Sync {
         after_seq: Option<u64>,
         limit: usize,
     ) -> Result<Vec<(u64, ReleaseRecord)>>;
-    /// The newest bundle per gate in a scope — at most one row per gate,
-    /// so the inbox stops scanning every bundle ever built there.
-    fn latest_bundles_per_gate(&self, repo_id: &str, scope_id: &str) -> Result<Vec<StoredBundle>>;
+    /// The newest candidate per gate in a scope — at most one row per gate,
+    /// so the inbox stops scanning every candidate ever built there.
+    fn latest_candidates_per_gate(
+        &self,
+        repo_id: &str,
+        scope_id: &str,
+    ) -> Result<Vec<StoredCandidate>>;
 
     // lanes (g02.007)
     fn create_lane(&self, lane: &LaneRecord) -> Result<()>;
@@ -320,14 +324,14 @@ pub trait MetadataStore: Send + Sync {
         gate_id: &str,
         state: &PartitionState,
     ) -> Result<()>;
-    fn put_bundle(&self, bundle: &StoredBundle) -> Result<()>;
-    fn get_bundle(&self, bundle_id: &str) -> Result<StoredBundle>;
-    fn list_bundles(&self, repo_id: &str, scope_id: &str) -> Result<Vec<StoredBundle>>;
-    fn list_bundles_all_scopes(&self, repo_id: &str) -> Result<Vec<StoredBundle>>;
+    fn put_candidate(&self, candidate: &StoredCandidate) -> Result<()>;
+    fn get_candidate(&self, candidate_id: &str) -> Result<StoredCandidate>;
+    fn list_candidates(&self, repo_id: &str, scope_id: &str) -> Result<Vec<StoredCandidate>>;
+    fn list_candidates_all_scopes(&self, repo_id: &str) -> Result<Vec<StoredCandidate>>;
     /// All partitions of a repo: (scope, gate, window_floor).
     fn list_partitions(&self, repo_id: &str) -> Result<Vec<(String, String, u64)>>;
-    fn add_approval(&self, bundle_id: &str, approver: &str) -> Result<()>;
-    fn count_approvals(&self, bundle_id: &str) -> Result<u32>;
+    fn add_approval(&self, candidate_id: &str, approver: &str) -> Result<()>;
+    fn count_approvals(&self, candidate_id: &str) -> Result<u32>;
     // events (g02.010 batch 10.3)
     fn add_event(
         &self,
@@ -359,18 +363,22 @@ pub trait MetadataStore: Send + Sync {
     fn set_release_yanked(&self, repo_id: &str, version: &str, reason: &str) -> Result<bool>;
 
     // GC metadata drops (g02.008 batch 8.3)
-    fn delete_releases_for_bundles(&self, repo_id: &str, bundle_ids: &[String]) -> Result<u64>;
-    fn delete_bundles(&self, repo_id: &str, bundle_ids: &[String]) -> Result<u64>;
+    fn delete_releases_for_candidates(
+        &self,
+        repo_id: &str,
+        candidate_ids: &[String],
+    ) -> Result<u64>;
+    fn delete_candidates(&self, repo_id: &str, candidate_ids: &[String]) -> Result<u64>;
     fn delete_publications(&self, repo_id: &str, publication_ids: &[String]) -> Result<u64>;
 
     fn record_promotion(
         &self,
-        bundle_id: &str,
+        candidate_id: &str,
         from_gate: &str,
         to_gate: &str,
         at: &str,
     ) -> Result<()>;
-    fn list_promotions(&self, bundle_id: &str) -> Result<Vec<(String, String, String)>>;
+    fn list_promotions(&self, candidate_id: &str) -> Result<Vec<(String, String, String)>>;
 
     // object→repo association (g02.011 batch 11.1): objects are deduped
     // across repos, so repo membership lives here, not in the object store.

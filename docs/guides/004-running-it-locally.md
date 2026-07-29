@@ -152,7 +152,7 @@ database. A tar that catches one and not the other restores to a torn
 state, and you find out much later.
 
 **Back up the whole directory, not just the database.** The database
-holds bundle records, releases and secret *ciphertext*; the
+holds candidate records, releases and secret *ciphertext*; the
 trees those records point at live in `objects/`. A backup of one without
 the other restores a deployment that answers every question and can hand
 over nothing. That is the mistake this section exists to prevent, and
@@ -224,12 +224,12 @@ converge doctor --deep
 Then check the two things that cannot be regenerated:
 
 ```sh
-converge verify <bundle-id>          # replays provenance server-side
+converge verify <candidate-id>          # replays provenance server-side
 converge secret get MY_SECRET        # decrypts with your local key
 ```
 
 `verify` is the strong one: it re-runs the recorded merge on the server
-and proves the bundle's identity, so it reads real objects rather than
+and proves the candidate's identity, so it reads real objects rather than
 asking whether they exist. It exits non-zero when it fails.
 
 ### What is not recoverable

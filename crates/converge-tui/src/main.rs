@@ -18,7 +18,7 @@ use wizard::{Wizard, WizardKind, WizardStep};
 /// What a finished worker result is *for* (batch 17.2).
 ///
 /// Tagged at spawn time rather than sniffed from argv on arrival: two
-/// intents legitimately share a verb (the Bundles view and the inbox
+/// intents legitimately share a verb (the Candidates view and the inbox
 /// screen both load `inbox`), so argv alone cannot say what to do with
 /// the answer.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -45,7 +45,7 @@ enum Intent {
 /// Result of a worker-thread command.
 /// `(argv, intent, quiet, result)` — quiet marks work the user did not
 /// ask for, whose outcome must not land in the feedback line as if they
-/// had (batch 27.3: the root showed `1 bundles` from a startup loader).
+/// had (batch 27.3: the root showed `1 candidates` from a startup loader).
 type WorkerResult = (Vec<String>, Intent, bool, anyhow::Result<serde_json::Value>);
 
 /// Run one CLI verb on a worker thread and post the result back.
@@ -149,7 +149,7 @@ fn run(terminal: &mut ratatui::DefaultTerminal, trace: &mut trace::Trace) -> Res
     // The root tiles preview real rows (batch 27.3), so their loaders
     // run at startup rather than waiting for somebody to open each
     // view. Rows intents store data without navigating.
-    for view in [View::Bundles, View::Lanes, View::Releases, View::Gates] {
+    for view in [View::Candidates, View::Lanes, View::Releases, View::Gates] {
         if let Some(argv) = view.loader() {
             spawn_verb_quiet(&mut app, &tx, &session, argv, Intent::Rows(view));
         }
@@ -374,7 +374,7 @@ fn run(terminal: &mut ratatui::DefaultTerminal, trace: &mut trace::Trace) -> Res
                 spawn_verb(&mut app, &tx, &session, vec!["inbox".into()], Intent::Inbox);
             }
             Some(Action::EnterResolution(target)) => {
-                // `resolve list` may fetch a bundle's tree (batch 16.1),
+                // `resolve list` may fetch a candidate's tree (batch 16.1),
                 // so it runs on the worker like any other remote verb —
                 // the event loop never blocks (arch 15 §3).
                 // `--preview` so the view can show what it is asking
@@ -474,11 +474,12 @@ fn trace_screen(trace: &mut trace::Trace, app: &App) {
             .iter()
             .map(|(label, _)| label.clone())
             .collect(),
-        view @ (View::Bundles | View::Releases | View::Lanes | View::Gates | View::Secrets) => app
-            .rows
-            .get(&view)
-            .map(|rows| rows.iter().map(row_label).collect())
-            .unwrap_or_default(),
+        view @ (View::Candidates | View::Releases | View::Lanes | View::Gates | View::Secrets) => {
+            app.rows
+                .get(&view)
+                .map(|rows| rows.iter().map(row_label).collect())
+                .unwrap_or_default()
+        }
         View::Root | View::Help => Vec::new(),
     };
     trace.screen_view(&screen_id, &selectable, &app.primary_action().0);
@@ -491,18 +492,18 @@ fn trace_screen(trace: &mut trace::Trace, app: &App) {
 /// the divergence the argv contract exists to prevent.
 fn row_label(row: &serde_json::Value) -> String {
     let s = |key: &str| row[key].as_str().unwrap_or("").to_string();
-    if !s("bundle_id").is_empty() && !s("version").is_empty() {
+    if !s("candidate_id").is_empty() && !s("version").is_empty() {
         return format!(
             "{}  {}  by {}  {}",
             s("version"),
-            short_id(&s("bundle_id")),
+            short_id(&s("candidate_id")),
             s("released_by"),
             s("created_at")
         );
     }
-    if !s("bundle_id").is_empty() {
-        // The title leads (operator: bundles "keyed only by the hash
-        // ID... need to be named"). A bundle is a derived artifact, so
+    if !s("candidate_id").is_empty() {
+        // The title leads (operator: candidates "keyed only by the hash
+        // ID... need to be named"). A candidate is a derived artifact, so
         // its name is the newest work inside it; the id stays, short
         // and last, for the moment somebody needs to paste it.
         return format!(
@@ -512,7 +513,7 @@ fn row_label(row: &serde_json::Value) -> String {
             s("recommendation"),
             row["approvals"],
             row["required_approvals"],
-            short_id(&s("bundle_id"))
+            short_id(&s("candidate_id"))
         );
     }
     if !s("lane_id").is_empty() {
@@ -629,9 +630,9 @@ fn absorb_view_rows(
         // news even when its success would have been noise.
         Err(err) => return app.record_result(Err(err)),
     };
-    // The inbox report is an object; its bundles section is the view.
+    // The inbox report is an object; its candidates section is the view.
     let rows = match view {
-        View::Bundles => value["bundles"].as_array().cloned().unwrap_or_default(),
+        View::Candidates => value["candidates"].as_array().cloned().unwrap_or_default(),
         View::Gates => value["gates"].as_array().cloned().unwrap_or_default(),
         _ => value.as_array().cloned().unwrap_or_default(),
     };
@@ -680,8 +681,8 @@ fn absorb_events(
     if count == 0 {
         return;
     }
-    // Summarised by kind: "49 remote event(s): bundle, bundle, bundle,
-    // bundle…" ran off the screen edge saying one thing eleven times
+    // Summarised by kind: "49 remote event(s): candidate, candidate, candidate,
+    // candidate…" ran off the screen edge saying one thing eleven times
     // (batch 27.3 screenshot). Nobody reads a comma list for a tally.
     let kinds = value["kinds"].as_str().unwrap_or("");
     let mut tally: Vec<(String, usize)> = Vec::new();
@@ -951,7 +952,7 @@ fn render(frame: &mut Frame, app: &App) {
                         Style::default()
                     };
                     // The row's action used to be spelled out here,
-                    // full 64-character bundle id and all, so it was
+                    // full 64-character candidate id and all, so it was
                     // always cut off at the right edge. The hint bar
                     // already names what Enter does.
                     let _ = &argv;
@@ -963,7 +964,7 @@ fn render(frame: &mut Frame, app: &App) {
             }
             frame.render_widget(List::new(items).block(view_block(app)), body);
         }
-        view @ (View::Bundles | View::Releases | View::Lanes | View::Gates) => {
+        view @ (View::Candidates | View::Releases | View::Lanes | View::Gates) => {
             let rows = app.rows.get(&view).cloned().unwrap_or_default();
             let selected = app.row_selected.get(&view).copied().unwrap_or(0);
             let mut items: Vec<ListItem> = rows
@@ -980,22 +981,22 @@ fn render(frame: &mut Frame, app: &App) {
                 .collect();
             if items.is_empty() {
                 // Say what empty *means* (batch 22.4). Driving a repo
-                // with eleven bundles in it, this pane read "no bundles
-                // (or not loaded yet)" — because the Bundles view is fed
+                // with eleven candidates in it, this pane read "no candidates
+                // (or not loaded yet)" — because the Candidates view is fed
                 // by `inbox`, which reports only what needs attention,
-                // and every bundle was ready to promote with no
+                // and every candidate was ready to promote with no
                 // approvals required. The name promises a list; the
                 // source is an action queue, and the empty state was the
                 // only place that difference showed.
                 // A list item does not wrap, so long copy is split by
                 // hand rather than silently truncated at the pane edge.
                 for line in match view {
-                    View::Bundles => &[
+                    View::Candidates => &[
                         "nothing needs attention here.",
-                        "this view lists bundles waiting on you — an approval, or a",
-                        "superposition to resolve — not every bundle in the repo.",
+                        "this view lists candidates waiting on you — an approval, or a",
+                        "superposition to resolve — not every candidate in the repo.",
                     ][..],
-                    View::Releases => &["no releases yet.", "  release <bundle> --as 1.0.0"],
+                    View::Releases => &["no releases yet.", "  release <candidate> --as 1.0.0"],
                     View::Lanes => &["no lanes yet."],
                     View::Gates => &["no gate graph loaded."],
                     _ => &["nothing here yet."],
@@ -1079,9 +1080,11 @@ fn render(frame: &mut Frame, app: &App) {
             let mut lines = vec![
                 Line::styled("keys", Style::default().add_modifier(Modifier::BOLD)),
                 Line::raw("  Enter: primary action   Esc: back   q: quit   Tab: complete"),
-                Line::raw("  Alt+h history   Alt+i inbox   Alt+b bundles   Alt+l lanes"),
+                Line::raw("  Alt+h history   Alt+i inbox   Alt+b candidates   Alt+l lanes"),
                 Line::raw("  Alt+e releases  Alt+g gates   Alt+s secrets  Alt+? help   Alt+r root"),
-                Line::raw("  in-view: History m annotate d diff  ·  Bundles p promote e release"),
+                Line::raw(
+                    "  in-view: History m annotate d diff  ·  Candidates p promote e release",
+                ),
                 Line::raw("           Secrets r rotate u unshare"),
                 Line::styled(
                     "  wizards: type a bare `member add`, `fetch`, `release <id>`, `promote <id>`",
@@ -1356,7 +1359,7 @@ fn render(frame: &mut Frame, app: &App) {
         for (k, l) in [
             ("h", "history "),
             ("i", "inbox "),
-            ("b", "bundles "),
+            ("c", "candidates "),
             ("l", "lanes "),
             ("e", "releases "),
             ("g", "gates "),
@@ -1426,7 +1429,7 @@ fn root_tile_preview(app: &App, view: View) -> Vec<Line<'static>> {
             let Some(rows) = app.rows.get(&view).filter(|r| !r.is_empty()) else {
                 return vec![Line::styled(
                     match view {
-                        View::Bundles => "no bundles waiting",
+                        View::Candidates => "no candidates waiting",
                         View::Lanes => "no lane activity",
                         View::Releases => "nothing released yet",
                         View::Gates => "loading…",
@@ -1440,7 +1443,7 @@ fn root_tile_preview(app: &App, view: View) -> Vec<Line<'static>> {
                 .take(4)
                 .map(|row| {
                     let text = match view {
-                        View::Bundles => format!(
+                        View::Candidates => format!(
                             "\"{}\"  {}",
                             row["title"].as_str().unwrap_or(""),
                             row["recommendation"].as_str().unwrap_or("")
@@ -1459,7 +1462,10 @@ fn root_tile_preview(app: &App, view: View) -> Vec<Line<'static>> {
                                 .as_str()
                                 .map(|v| format!("v{v}"))
                                 .unwrap_or_default(),
-                            row["bundle_id"].as_str().map(short_id).unwrap_or_default()
+                            row["candidate_id"]
+                                .as_str()
+                                .map(short_id)
+                                .unwrap_or_default()
                         ),
                         View::Gates => {
                             let upstreams = row["upstreams"]
@@ -1595,7 +1601,7 @@ mod screen_tests {
     fn the_hint_bar_names_each_screens_own_key() {
         for (view, expected) in [
             (View::History, "Enter: restore selected"),
-            (View::Bundles, "Enter: open selected"),
+            (View::Candidates, "Enter: open selected"),
             (View::Secrets, "Enter: (r rotate, u unshare)"),
         ] {
             let mut app = App::default();
@@ -1722,7 +1728,7 @@ mod screen_tests {
         app.load_inbox_entries(&serde_json::json!({
             "lanes": [{"lane_id": "personal/erin", "updated_at": "t"}],
             "publications": [{"publisher": "alice", "gate_id": "intake"}],
-            "bundles": [{"bundle_id": "b2", "gate_id": "intake", "recommendation": "resolve",
+            "candidates": [{"candidate_id": "b2", "gate_id": "intake", "recommendation": "resolve",
                          "approvals": 0, "required_approvals": 0, "contributors": ["carol", "dana"]}]
         }));
         let text = screen(&app, 100, 40).join("\n");
@@ -1772,7 +1778,7 @@ mod screen_tests {
         for line in screen(&app, 100, 40) {
             assert!(
                 !line.contains(&"b".repeat(20)),
-                "a full bundle id reached the dashboard: {line}"
+                "a full candidate id reached the dashboard: {line}"
             );
         }
     }
@@ -1783,7 +1789,7 @@ mod screen_tests {
     fn a_quiet_repo_gets_no_next_section() {
         let mut app = App::default();
         app.load_inbox_entries(&serde_json::json!({
-            "lanes": [], "publications": [], "bundles": []
+            "lanes": [], "publications": [], "candidates": []
         }));
         let text = screen(&app, 100, 40).join("\n");
         assert!(
@@ -1873,22 +1879,22 @@ mod screen_tests {
             "the pick should be visible where the variants are: {text}"
         );
     }
-    /// Batch 22.4: driving a repo with eleven bundles, the Bundles pane
-    /// read "no bundles" — because it is fed by `inbox`, which reports
+    /// Batch 22.4: driving a repo with eleven candidates, the Candidates pane
+    /// read "no candidates" — because it is fed by `inbox`, which reports
     /// only what needs attention. The empty state was the one place that
     /// difference showed, and it said the wrong thing.
     #[test]
-    fn an_empty_bundles_view_explains_what_it_lists() {
+    fn an_empty_candidates_view_explains_what_it_lists() {
         let mut app = App::default();
-        app.frames.push(View::Bundles);
-        app.rows.insert(View::Bundles, Vec::new());
+        app.frames.push(View::Candidates);
+        app.rows.insert(View::Candidates, Vec::new());
         let text = screen(&app, 100, 20).join("\n");
         assert!(
             text.contains("nothing needs attention"),
             "an empty action queue is not an empty repo: {text}"
         );
         assert!(
-            !text.contains("no bundles"),
+            !text.contains("no candidates"),
             "the old message claimed the repo had none: {text}"
         );
     }

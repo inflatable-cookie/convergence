@@ -26,13 +26,13 @@ pub use self::manifest::{
 pub use self::resolution::{Resolution, ResolutionDecision, VariantKey, VariantKeyKind};
 pub use self::snap::{FileRecipe, FileRecipeChunk, SnapRecord, SnapStats, compute_snap_id};
 pub use self::wire::{
-    AddLaneMemberRequest, AddMemberRequest, ApproveRequest, BundleProvenance, BundleRecord,
-    BundleStatus, CreateLaneRequest, CreateRepoRequest, CreateScopeRequest, EventPage, EventRecord,
-    ExchangeIdentityRequest, GateGraph, GateNode, InboxBundle, InboxLane, InboxPublication,
-    InboxReport, IssueTokenRequest, LaneHead, LaneRecord, MemberAdded, MemberRecord, MemberRemoved,
-    NegotiateRequest, NegotiateResponse, ObjectFrame, ObjectSet, Page, PromoteRequest,
-    PublicKeyRecord, PublicationRecord, PublishRequest, RegisterKeyRequest, ReleaseRecord,
-    ReleaseRequest, RetentionPolicy, RevokeTokenRequest, SecretRecord, SecretSummary,
-    SetGatesRequest, SetGatesResponse, SetLaneHeadRequest, SetSecretRequest, TokenIssued,
-    TokenRecord, VerifyReport, WIRE_VERSION,
+    AddLaneMemberRequest, AddMemberRequest, ApproveRequest, CandidateProvenance, CandidateRecord,
+    CandidateStatus, CreateLaneRequest, CreateRepoRequest, CreateScopeRequest, EventPage,
+    EventRecord, ExchangeIdentityRequest, GateGraph, GateNode, InboxCandidate, InboxLane,
+    InboxPublication, InboxReport, IssueTokenRequest, LaneHead, LaneRecord, MemberAdded,
+    MemberRecord, MemberRemoved, NegotiateRequest, NegotiateResponse, ObjectFrame, ObjectSet, Page,
+    PromoteRequest, PublicKeyRecord, PublicationRecord, PublishRequest, RegisterKeyRequest,
+    ReleaseRecord, ReleaseRequest, RetentionPolicy, RevokeTokenRequest, SecretRecord,
+    SecretSummary, SetGatesRequest, SetGatesResponse, SetLaneHeadRequest, SetSecretRequest,
+    TokenIssued, TokenRecord, VerifyReport, WIRE_VERSION,
 };

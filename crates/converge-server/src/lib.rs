@@ -27,5 +27,5 @@ pub use object_fs::FsObjectStore;
 pub use object_s3::S3ObjectStore;
 pub use oidc::{OidcConfig, OidcVerifier};
 pub use storage::{
-    BatchConflict, MetaOp, MetadataStore, ObjectKind, ObjectStore, PartitionState, StoredBundle,
+    BatchConflict, MetaOp, MetadataStore, ObjectKind, ObjectStore, PartitionState, StoredCandidate,
 };

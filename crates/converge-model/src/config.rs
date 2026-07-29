@@ -42,19 +42,19 @@ impl WorkflowProfile {
             }
             WorkflowProfile::Daw => "hint: use release for mastered mixdown candidates",
             WorkflowProfile::GameAssets => {
-                "hint: use release for approved build-ready asset bundles"
+                "hint: use release for approved build-ready asset candidates"
             }
         }
     }
 
     pub fn flow_hint(self) -> &'static str {
         match self {
-            WorkflowProfile::Software => "flow: publish -> bundle -> promote -> release",
+            WorkflowProfile::Software => "flow: publish -> candidate -> promote -> release",
             WorkflowProfile::Daw => {
-                "flow: publish session/assets -> bundle candidate -> promote approvals -> release mastered mixdown"
+                "flow: publish session/assets -> candidate candidate -> promote approvals -> release mastered mixdown"
             }
             WorkflowProfile::GameAssets => {
-                "flow: publish assets -> bundle set -> promote gate checks -> release build-ready pack"
+                "flow: publish assets -> candidate set -> promote gate checks -> release build-ready pack"
             }
         }
     }
@@ -108,10 +108,11 @@ pub struct WorkspaceState {
     #[serde(default)]
     pub lane_sync: std::collections::HashMap<String, LaneSyncRecord>,
 
-    /// Target key -> last bundle id seen for that (repo, scope, gate);
-    /// sent as `base_bundle_id` on publish (doc 17 §2).
+    /// Target key -> last candidate id seen for that (repo, scope, gate);
+    /// sent as `base_candidate_id` on publish (doc 17 §2).
     #[serde(default)]
-    pub last_seen_bundle: std::collections::HashMap<String, String>,
+    #[serde(alias = "last_seen_bundle")]
+    pub last_seen_candidate: std::collections::HashMap<String, String>,
 
     #[serde(default)]
     pub remote_tokens: std::collections::HashMap<String, String>,

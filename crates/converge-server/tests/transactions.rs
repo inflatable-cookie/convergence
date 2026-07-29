@@ -82,10 +82,14 @@ fn concurrent_publishes_serialize_into_consistent_windows() -> Result<()> {
             std::fs::write(ws_dir.path().join(format!("f{i}.txt")), format!("body {i}"))?;
             let snap = ws.create_snap(None)?;
             let client = RemoteClient::new(&base_url, &token);
-            let (bundle, _) = client.publish(
+            let (candidate, _) = client.publish(
                 &ws.store, "repo", "scope", "intake", &snap, None, None, None,
             )?;
-            Ok((bundle.window.0, bundle.window.1, bundle.inputs.len()))
+            Ok((
+                candidate.window.0,
+                candidate.window.1,
+                candidate.inputs.len(),
+            ))
         }));
     }
     let mut results = Vec::new();
@@ -93,9 +97,9 @@ fn concurrent_publishes_serialize_into_consistent_windows() -> Result<()> {
         results.push(handle.join().expect("publisher thread")?);
     }
 
-    // Serialized windows: every bundle starts at seq 1 (floor never moved),
+    // Serialized windows: every candidate starts at seq 1 (floor never moved),
     // the window ends are exactly 1..=N (no duplicate or lost seq), and the
-    // bundle that closed the window at N folded every publication.
+    // candidate that closed the window at N folded every publication.
     let mut ends: Vec<u64> = results.iter().map(|(_, end, _)| *end).collect();
     ends.sort_unstable();
     assert_eq!(
@@ -121,7 +125,7 @@ fn concurrent_publishes_serialize_into_consistent_windows() -> Result<()> {
 
 use converge_client::model::ManifestEntryKind;
 use converge_server::{
-    Capability, Engine, ObjectKind, ObjectStore, PartitionState, StoredBundle, authorize,
+    Capability, Engine, ObjectKind, ObjectStore, PartitionState, StoredCandidate, authorize,
     storage::AssociatingObjects,
 };
 
@@ -172,7 +176,7 @@ fn publish_file(
     meta: &SqliteMetadataStore,
     objects: &FsObjectStore,
     name: &str,
-) -> Result<StoredBundle> {
+) -> Result<StoredCandidate> {
     let ws_dir = tempfile::tempdir()?;
     let ws = Workspace::init(ws_dir.path(), false)?;
     std::fs::write(ws_dir.path().join(name), format!("content of {name}"))?;
@@ -204,7 +208,7 @@ fn publish_file(
         converge_server::PublishInput {
             gate_id: "intake".into(),
             snap,
-            base_bundle_id: None,
+            base_candidate_id: None,
             lane_id: None,
             notes: None,
         },
@@ -212,7 +216,7 @@ fn publish_file(
 }
 
 #[test]
-fn stale_bundle_promote_refused_and_fanout_allowed() -> Result<()> {
+fn stale_candidate_promote_refused_and_fanout_allowed() -> Result<()> {
     let data = tempfile::tempdir()?;
     let meta = guard_setup(data.path())?;
     let objects = FsObjectStore::new(data.path());
@@ -223,25 +227,25 @@ fn stale_bundle_promote_refused_and_fanout_allowed() -> Result<()> {
     let promote_authz =
         || authorize(&meta, "alice", "repo", "scope", Capability::Promote).expect("authz");
 
-    let bundle_a = publish_file(&meta, &objects, "a.txt")?;
-    let bundle_b = publish_file(&meta, &objects, "b.txt")?;
-    assert_eq!(bundle_b.window, (1, 2));
+    let candidate_a = publish_file(&meta, &objects, "a.txt")?;
+    let candidate_b = publish_file(&meta, &objects, "b.txt")?;
+    assert_eq!(candidate_b.window, (1, 2));
 
-    // Newest bundle promotes; the partition floor advances to 2.
-    engine.promote(promote_authz(), &bundle_b.bundle_id, "main")?;
+    // Newest candidate promotes; the partition floor advances to 2.
+    engine.promote(promote_authz(), &candidate_b.candidate_id, "main")?;
     assert_eq!(
         meta.get_partition_state("repo", "scope", "intake")?,
         PartitionState {
             window_floor: 2,
-            base_bundle_id: Some(bundle_b.bundle_id.clone()),
+            base_candidate_id: Some(candidate_b.candidate_id.clone()),
         }
     );
 
-    // Stale bundle (window ends at 1 <= floor 2) is refused loudly.
+    // Stale candidate (window ends at 1 <= floor 2) is refused loudly.
     let err = engine
-        .promote(promote_authz(), &bundle_a.bundle_id, "main")
+        .promote(promote_authz(), &candidate_a.candidate_id, "main")
         .expect_err("stale promote must be refused");
-    assert!(err.to_string().contains("stale bundle"), "got: {err}");
+    assert!(err.to_string().contains("stale candidate"), "got: {err}");
     assert_eq!(
         meta.get_partition_state("repo", "scope", "intake")?
             .window_floor,
@@ -251,15 +255,15 @@ fn stale_bundle_promote_refused_and_fanout_allowed() -> Result<()> {
 
     // Fan-out: the current W re-promotes to another downstream gate
     // without touching partition state.
-    engine.promote(promote_authz(), &bundle_b.bundle_id, "aux")?;
+    engine.promote(promote_authz(), &candidate_b.candidate_id, "aux")?;
     assert_eq!(
         meta.get_partition_state("repo", "scope", "intake")?,
         PartitionState {
             window_floor: 2,
-            base_bundle_id: Some(bundle_b.bundle_id.clone()),
+            base_candidate_id: Some(candidate_b.candidate_id.clone()),
         }
     );
-    assert_eq!(meta.list_promotions(&bundle_b.bundle_id)?.len(), 2);
+    assert_eq!(meta.list_promotions(&candidate_b.candidate_id)?.len(), 2);
     Ok(())
 }
 
@@ -273,30 +277,33 @@ fn wrong_base_promote_refused() -> Result<()> {
         objects: &objects,
     };
 
-    let bundle_b = publish_file(&meta, &objects, "b.txt")?;
+    let candidate_b = publish_file(&meta, &objects, "b.txt")?;
     engine.promote(
         authorize(&meta, "alice", "repo", "scope", Capability::Promote)?,
-        &bundle_b.bundle_id,
+        &candidate_b.candidate_id,
         "main",
     )?;
-    // Built on W = bundle_b, window (2, 2).
-    let bundle_c = publish_file(&meta, &objects, "c.txt")?;
-    assert_eq!(bundle_c.base_bundle_id, Some(bundle_b.bundle_id.clone()));
+    // Built on W = candidate_b, window (2, 2).
+    let candidate_c = publish_file(&meta, &objects, "c.txt")?;
+    assert_eq!(
+        candidate_c.base_candidate_id,
+        Some(candidate_b.candidate_id.clone())
+    );
 
-    // The partition's W changes under bundle_c (simulated divergence).
+    // The partition's W changes under candidate_c (simulated divergence).
     meta.set_partition_state(
         "repo",
         "scope",
         "intake",
         &PartitionState {
             window_floor: 1,
-            base_bundle_id: Some("someone-elses-bundle".into()),
+            base_candidate_id: Some("someone-elses-candidate".into()),
         },
     )?;
     let err = engine
         .promote(
             authorize(&meta, "alice", "repo", "scope", Capability::Promote)?,
-            &bundle_c.bundle_id,
+            &candidate_c.candidate_id,
             "main",
         )
         .expect_err("wrong-base promote must be refused");

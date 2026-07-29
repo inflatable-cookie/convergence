@@ -31,7 +31,7 @@ Current implementation in one paragraph: one binary, one process. Both
 planes share a single metadata store (SQLite embedded, Postgres
 optional) behind one mutex-guarded connection, and one object store
 (local FS embedded, S3 optional). Publishes are handled synchronously —
-the bundle merge runs inside the publish request. There are no edge
+the candidate merge runs inside the publish request. There are no edge
 nodes, no partition workers, and no horizontal scaling. What *is* real:
 the partitioned data model, guarded transactional writes (§3), authz on
 every data-plane operation (§4), deterministic merge (§5), and the
@@ -47,7 +47,7 @@ Two planes, one binary (services enabled by role config):
   data, strong consistency, low write volume. This is what "central server is
   authority" means in the vision — and it is the only part that must be
   globally consistent.
-- **Data plane** — convergence state (publications, bundles, promotions,
+- **Data plane** — convergence state (publications, candidates, promotions,
   releases, lane heads) partitioned by **`(repo, scope, gate)`**, plus content
   storage (blobs/manifests/recipes) in an object store.
 
@@ -64,7 +64,7 @@ no longer mint a partition and fragment windows. **Deferred** (§7):
 horizontal scaling across partitions.
 
 **Deferred** — remote sites get **edge nodes**: read-through caches for
-objects and bundle manifests, upload buffering for publishes. Edges hold no
+objects and candidate manifests, upload buffering for publishes. Edges hold no
 authority — a partitioned edge degrades to read-cached + queued-upload
 operation, it never forks policy decisions. This is deliberate: we take
 Perforce's lesson (proxies/replicas work well) without federated authority's
@@ -99,7 +99,7 @@ config — same binary, "lighter deployments" per the vision:
   g01 discipline, now on both sides of the wire).
 
 Metadata references objects by ID; objects never reference metadata. GC is a
-mark phase (reachability from lane heads, bundles, releases per retention
+mark phase (reachability from lane heads, candidates, releases per retention
 policy) followed by an object-store sweep, protected by upload pins and a
 grace window (roadmap `g02.012`).
 
@@ -122,7 +122,7 @@ caller's point of view.
   serialized per repo. Volume is low; correctness is the product. (Today
   they are serialized globally, which is strictly stronger.)
 - **Partition `(repo, scope, gate)`: serialized writes.** All mutations to
-  one partition (publish intake, bundle production, promotion) commit as one
+  one partition (publish intake, candidate production, promotion) commit as one
   guarded transactional batch: the writer reads partition state, computes in
   memory, then commits writes together with assertions that the partition and
   its publication window are unchanged (`AssertPartitionState`,
@@ -131,22 +131,22 @@ caller's point of view.
   conflict. This optimistic scheme — not a row-lock single writer — is the
   serialization mechanism in both backends (SQLite `BEGIN IMMEDIATE`,
   Postgres explicit transactions). Publications to the same gate from many
-  clients therefore have a total order, which makes bundle input sets
+  clients therefore have a total order, which makes candidate input sets
   deterministic.
 - **Promotion is monotonic.** Promote only advances the window: it requires
-  `bundle.window.last > floor` and that the bundle's base equals the
-  partition's current W. A stale bundle — built before the current W was
+  `candidate.window.last > floor` and that the candidate's base equals the
+  partition's current W. A stale candidate — built before the current W was
   promoted — is refused instead of rewinding the floor and re-opening
   consumed publications. Re-promoting the current W to a further downstream
   gate records the promotion without touching partition state (fan-out).
-  Repeating a promotion into a gate the bundle already reached is a no-op
+  Repeating a promotion into a gate the candidate already reached is a no-op
   that reports success (batch 18.1): the state half was already
   idempotent, and a client whose request timed out has to be able to
   retry without being told the promotion "already happened" — which is
   indistinguishable from a refusal at the point where it matters.
 - **Cross-partition: eventually consistent, converged by gates.** A promotion
   from gate A to gate B is an atomic write in B's partition referencing an
-  immutable bundle from A's. No transaction spans partitions; immutability of
+  immutable candidate from A's. No transaction spans partitions; immutability of
   inputs makes that safe.
 - **A corrupt stored object is a server fault, not a 404** (batch 18.2).
   Reads verify the hash at both ends. When a stored object fails its
@@ -251,26 +251,26 @@ shared helper, and the twenty that did not included member management —
 so a read-scoped token could grant itself admin. A shared check is only
 as good as the paths that go through it.
 
-## 5. Bundle coalescing at scale
+## 5. Candidate coalescing at scale
 
-g01 stubbed the core operation (bundle = input list, no computed manifest).
+g01 stubbed the core operation (candidate = input list, no computed manifest).
 Semantics live in doc 17; the scale posture:
 
-- A bundle build is a **base-aware 3-way merge** folded onto W (the last
-  promoted bundle) over the partition's current **window** of publications
+- A candidate build is a **base-aware 3-way merge** folded onto W (the last
+  promoted candidate) over the partition's current **window** of publications
   (doc 17 §2-3). Windows keep input sets small by construction; promotion
   advances the window floor.
 - Merge cost is bounded by *changed* paths: deltas are computed against
   each publication's declared base with Merkle short-circuit. Window
-  publications are totally ordered (see §3), so bundle builds are
-  deterministic: `bundle_id = hash(gate, W root, window ids, strategy,
+  publications are totally ordered (see §3), so candidate builds are
+  deterministic: `candidate_id = hash(gate, W root, window ids, strategy,
   merged root)`.
 - Divergence resolution is the gate's **coalesce strategy** (doc 17 §4),
-  recorded in bundle provenance.
-- Bundle builds run **synchronously inside the publish request**: the
-  publication and its resulting bundle commit in one guarded batch (§3),
-  so publish latency includes the merge. The `BundleStatus::Building`
-  state exists in the model but is never constructed — a bundle is
+  recorded in candidate provenance.
+- Candidate builds run **synchronously inside the publish request**: the
+  publication and its resulting candidate commit in one guarded batch (§3),
+  so publish latency includes the merge. The `CandidateStatus::Building`
+  state exists in the model but is never constructed — a candidate is
   `Ready` or `Failed` by the time publish returns. **Deferred** (roadmap
   `g02.014` batch 14.2): async partition workers, fast publish
   acknowledgement, and the `building → ready/failed` transition
@@ -278,7 +278,7 @@ Semantics live in doc 17; the scale posture:
 
 ## 5b. Event feed (g02.010)
 
-The server records convergence events (`bundle` built, `lane` head moved,
+The server records convergence events (`candidate` built, `lane` head moved,
 `release` cut) with a per-repo monotonically increasing sequence.
 
 - **Events are hints, never the source of truth**: clients reconcile via
@@ -345,7 +345,7 @@ trigger building it, so the list stays a plan rather than a wish.
 
 | Property | State | Owner / trigger |
 | --- | --- | --- |
-| Async bundle builds, partition workers | not built; publish merges inline | backlog; trigger = measured publish-latency pain (see note below) |
+| Async candidate builds, partition workers | not built; publish merges inline | backlog; trigger = measured publish-latency pain (see note below) |
 | Horizontal scaling across partitions | not built; one process, one metadata connection | backlog; trigger = measured write ceiling from the scale-walls roadmap |
 | Edge nodes (read-through cache, upload buffering) | not built | backlog; trigger = a real multi-site customer with locality pain |
 | Mapping IdP groups to capabilities | not built; SSO establishes identity only (§4b) | backlog; trigger = an organisation that manages Convergence access in its directory |
@@ -361,11 +361,11 @@ that ever shows up as head-of-line blocking, the fix is the same
 worker design below, and worth trying first.
 
 **Why async builds are deferred rather than next.** Publish currently
-commits its publication, its bundle, and its event in a *single* guarded
+commits its publication, its candidate, and its event in a *single* guarded
 batch (§3). Splitting the build out means the publication commits first
-and the bundle lands later, which reintroduces exactly the interleaving
+and the candidate lands later, which reintroduces exactly the interleaving
 window that batch closed and adds a new failure mode (worker dies with
-publications enqueued and no bundle). The gain is publish latency —
+publications enqueued and no candidate). The gain is publish latency —
 already bounded by *changed* paths over a window that promotion keeps
 small. So the trade is a real correctness property for a latency
 improvement nobody has measured a need for. Build it when a deployment
@@ -383,5 +383,5 @@ wanting a status enum to be reachable.
 ## Next Task
 
 First rebuild implementation roadmap builds the storage traits and one
-vertical slice: publish intake → deterministic bundle build → promote, with
+vertical slice: publish intake → deterministic candidate build → promote, with
 authz enforced end to end.

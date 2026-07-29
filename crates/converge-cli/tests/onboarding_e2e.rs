@@ -206,7 +206,7 @@ fn two_person_team_from_bootstrap_to_published_work() -> Result<()> {
     std::fs::write(dana.join("dana.md"), "dana's work")?;
     converge(dana, &["snap", "-m", "dana"]);
     let published = json_data(&converge(dana, &["--json", "publish"]));
-    assert_eq!(published["bundle"]["produced_by_gate_id"], "intake");
+    assert_eq!(published["candidate"]["produced_by_gate_id"], "intake");
 
     // Membership is visible to the team.
     let members = json_data(&converge(dana, &["--json", "member", "list"]));

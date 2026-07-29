@@ -87,12 +87,12 @@ admin rights.
 
 ## 6. When two people change the same file
 
-The publish that lands second produces a superposed bundle. From there:
+The publish that lands second produces a superposed candidate. From there:
 
 ```bash
-converge inbox                    # names the bundle and the command to run
-converge resolve list <bundle>    # the contested paths
-converge resolve apply <bundle> decisions.json
+converge inbox                    # names the candidate and the command to run
+converge resolve list <candidate>    # the contested paths
+converge resolve apply <candidate> decisions.json
 converge publish --snap <the resolution snap>
 ```
 
@@ -117,8 +117,8 @@ the TUI, and the verb is a convenience rather than the real home.
 
 `-m/--message` is the message flag on every verb that takes one (`snap`,
 `annotate`, `publish`, `release`, `resolve apply`); `--notes` still works
-on `publish` and `release` as an alias. Any verb that names a bundle
-(`fetch`, `bundle`, `verify`) accepts an id or `--release latest|<version>|<range>`.
+on `publish` and `release` as an alias. Any verb that names a candidate
+(`fetch`, `candidate`, `verify`) accepts an id or `--release latest|<version>|<range>`.
 
 Human mode prints transfer progress to stderr, so `--json` output stays
 one envelope on stdout and pipelines are safe.

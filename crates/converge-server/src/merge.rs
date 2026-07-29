@@ -9,7 +9,7 @@ use converge_model::{
 
 use crate::storage::{ObjectKind, ObjectStore};
 
-/// One publication's contribution to a bundle build (doc 17 §2).
+/// One publication's contribution to a candidate build (doc 17 §2).
 pub struct MergeInput {
     /// Provenance source shown on superposition variants.
     pub lane: String,
@@ -33,7 +33,7 @@ pub struct MergeOutcome {
     pub root: ObjectId,
     /// A superposition was written (or folded through from an input).
     /// W itself is superposition-free by construction — promote refuses a
-    /// non-promotable bundle — so this is the complete answer.
+    /// non-promotable candidate — so this is the complete answer.
     pub has_superpositions: bool,
 }
 
@@ -528,7 +528,7 @@ fn load_manifest(objects: &dyn ObjectStore, id: &ObjectId) -> Result<Manifest> {
 /// as one of the variants of a superposition there (doc 17 §2)?
 ///
 /// The variant case is what lets a resolution close the loop (batch
-/// 16.1). A publisher who based on a superposed bundle and set a value
+/// 16.1). A publisher who based on a superposed candidate and set a value
 /// saw every variant and decided among them; re-superposing the losing
 /// variants against that decision would make resolution impossible until
 /// the window is promoted. Content is not at risk: the safety condition

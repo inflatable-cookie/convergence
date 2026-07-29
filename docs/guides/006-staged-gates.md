@@ -11,9 +11,9 @@ written; nothing here is aspirational.
 
 ## What a gate is
 
-A gate holds a window of publications and produces bundles from them. A
+A gate holds a window of publications and produces candidates from them. A
 gate graph says which gates accept promotions from which, how many
-approvals a bundle needs before it can leave, and which gates may
+approvals a candidate needs before it can leave, and which gates may
 release.
 
 ```
@@ -28,7 +28,7 @@ release  after review  0 approval(s)  whole-file  releasable
 
 - **entry** means publications land here. At least one gate must be an
   entry gate, or there is nowhere to publish
-- **approvals** are what a bundle needs before it can be promoted *out
+- **approvals** are what a candidate needs before it can be promoted *out
   of* that gate. `review`'s 1 is what makes review mean anything
 - **releasable** is where `converge release` may be run from
 
@@ -70,30 +70,30 @@ release gate nothing can reach.
 
 ```
 converge publish                            # lands in intake
-converge promote <bundle> --to review       # intake requires no approval
-converge approve <bundle>
-converge promote <bundle> --to release      # review requires one
-converge release <bundle> --as 1.0.0
+converge promote <candidate> --to review       # intake requires no approval
+converge approve <candidate>
+converge promote <candidate> --to release      # review requires one
+converge release <candidate> --as 1.0.0
 ```
 
 Skipping a stage is refused: `release` accepts promotions from `review`,
-so a bundle has to have reached review first.
+so a candidate has to have reached review first.
 
-A bundle keeps the gate that produced it for ever. What moves is where
+A candidate keeps the gate that produced it for ever. What moves is where
 it has *reached*, which is what promotion records — so `promote` and
-`release` both ask which gates the bundle has been through, not which
+`release` both ask which gates the candidate has been through, not which
 one built it.
 
 ## Changing a graph that is already in use
 
-Removing or re-parenting a gate can leave bundles and publications that
+Removing or re-parenting a gate can leave candidates and publications that
 nothing addresses. That is refused, with what it holds:
 
 ```
 $ converge gates rm intake
 remove  intake
 move    review: intake -> entry
-  intake holds 8 bundle(s) and 13 open publication(s)
+  intake holds 8 candidate(s) and 13 open publication(s)
 
 this would strand work that nothing else addresses.
 promote or release it first, or add --force.
@@ -111,7 +111,7 @@ only graph change on a keystroke in the TUI (`a` on the gate screen).
 
 ## Why staging affects storage
 
-A gate's window only advances when a bundle is promoted out of it. Until
+A gate's window only advances when a candidate is promoted out of it. Until
 then every publication stays open, and open publications are never
 collected — whatever the retention policy says.
 

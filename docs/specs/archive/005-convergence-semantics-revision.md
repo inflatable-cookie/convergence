@@ -8,7 +8,7 @@ Roadmap: `g02.005`
 
 Operator-approved improvement program (2026-07-24 review) laid out as
 roadmaps `g02.005`-`g02.010` plus backlog. This spec governs `g02.005`, the
-contract-changing tranche: snap lineage, base-aware merge, bundle windows,
+contract-changing tranche: snap lineage, base-aware merge, candidate windows,
 per-gate coalesce strategies — architecture and vision revised before code.
 
 ## Governing Refs

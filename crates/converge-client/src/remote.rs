@@ -3,7 +3,7 @@ use std::collections::BTreeSet;
 use anyhow::{Context, Result, bail};
 
 use crate::model::{
-    AddLaneMemberRequest, ApproveRequest, BundleRecord, CreateLaneRequest, EventRecord,
+    AddLaneMemberRequest, ApproveRequest, CandidateRecord, CreateLaneRequest, EventRecord,
     InboxReport, LaneRecord, Manifest, ManifestEntryKind, NegotiateRequest, NegotiateResponse,
     ObjectFrame, ObjectId, ObjectSet, PromoteRequest, PublishRequest, ReleaseRecord,
     ReleaseRequest, RetentionPolicy, SetLaneHeadRequest, SnapRecord, SuperpositionVariantKind,
@@ -304,10 +304,10 @@ impl RemoteClient {
         scope_id: &str,
         gate_id: &str,
         snap: &SnapRecord,
-        base_bundle_id: Option<String>,
+        base_candidate_id: Option<String>,
         lane_id: Option<String>,
         notes: Option<String>,
-    ) -> Result<(BundleRecord, UploadStats)> {
+    ) -> Result<(CandidateRecord, UploadStats)> {
         let stats = self.upload_tree(store, repo_id, &snap.root_manifest)?;
         let response = Self::check(
             self.http
@@ -319,39 +319,39 @@ impl RemoteClient {
                     scope_id: scope_id.into(),
                     gate_id: gate_id.into(),
                     snap: snap.clone(),
-                    base_bundle_id,
+                    base_candidate_id,
                     lane_id,
                     notes,
                 })
                 .send()
                 .context("publish")?,
         )?;
-        let bundle: BundleRecord = response.json().context("parse publish response")?;
-        Ok((bundle, stats))
+        let candidate: CandidateRecord = response.json().context("parse publish response")?;
+        Ok((candidate, stats))
     }
 
-    pub fn get_bundle(&self, bundle_id: &str) -> Result<BundleRecord> {
+    pub fn get_candidate(&self, candidate_id: &str) -> Result<CandidateRecord> {
         let response = Self::check(
             self.http
-                .get(self.url(&format!("/api/bundles/{bundle_id}")))
+                .get(self.url(&format!("/api/candidates/{candidate_id}")))
                 .bearer_auth(&self.token)
                 .send()
-                .context("get bundle")?,
+                .context("get candidate")?,
         )?;
-        response.json().context("parse bundle")
+        response.json().context("parse candidate")
     }
 
-    /// Download a bundle's tree into the local store; returns the root.
-    pub fn fetch_bundle(
+    /// Download a candidate's tree into the local store; returns the root.
+    pub fn fetch_candidate(
         &self,
         store: &LocalStore,
         repo_id: &str,
-        bundle_id: &str,
+        candidate_id: &str,
     ) -> Result<ObjectId> {
-        let bundle = self.get_bundle(bundle_id)?;
-        let root = bundle
+        let candidate = self.get_candidate(candidate_id)?;
+        let root = candidate
             .root_manifest
-            .context("bundle has no root manifest")?;
+            .context("candidate has no root manifest")?;
         self.fetch_manifest_tree(store, repo_id, &root)?;
         Ok(root)
     }
@@ -1043,10 +1043,10 @@ impl RemoteClient {
         response.json().context("parse inbox")
     }
 
-    pub fn verify(&self, bundle_id: &str) -> Result<VerifyReport> {
+    pub fn verify(&self, candidate_id: &str) -> Result<VerifyReport> {
         let response = Self::check(
             self.http
-                .get(self.url(&format!("/api/bundles/{bundle_id}/verify")))
+                .get(self.url(&format!("/api/candidates/{candidate_id}/verify")))
                 .bearer_auth(&self.token)
                 .send()
                 .context("verify")?,
@@ -1054,10 +1054,10 @@ impl RemoteClient {
         response.json().context("parse verify report")
     }
 
-    pub fn get_provenance(&self, bundle_id: &str) -> Result<crate::model::BundleProvenance> {
+    pub fn get_provenance(&self, candidate_id: &str) -> Result<crate::model::CandidateProvenance> {
         let response = Self::check(
             self.http
-                .get(self.url(&format!("/api/bundles/{bundle_id}/provenance")))
+                .get(self.url(&format!("/api/candidates/{candidate_id}/provenance")))
                 .bearer_auth(&self.token)
                 .send()
                 .context("get provenance")?,
@@ -1065,10 +1065,10 @@ impl RemoteClient {
         response.json().context("parse provenance")
     }
 
-    pub fn approve(&self, bundle_id: &str, repo_id: &str, scope_id: &str) -> Result<()> {
+    pub fn approve(&self, candidate_id: &str, repo_id: &str, scope_id: &str) -> Result<()> {
         Self::check(
             self.http
-                .post(self.url(&format!("/api/bundles/{bundle_id}/approve")))
+                .post(self.url(&format!("/api/candidates/{candidate_id}/approve")))
                 .bearer_auth(&self.token)
                 .json(&ApproveRequest {
                     repo_id: repo_id.into(),
@@ -1082,7 +1082,7 @@ impl RemoteClient {
 
     pub fn release(
         &self,
-        bundle_id: &str,
+        candidate_id: &str,
         repo_id: &str,
         scope_id: &str,
         channel: &str,
@@ -1090,7 +1090,7 @@ impl RemoteClient {
     ) -> Result<ReleaseRecord> {
         let response = Self::check(
             self.http
-                .post(self.url(&format!("/api/bundles/{bundle_id}/release")))
+                .post(self.url(&format!("/api/candidates/{candidate_id}/release")))
                 .bearer_auth(&self.token)
                 .json(&ReleaseRequest {
                     repo_id: repo_id.into(),
@@ -1199,14 +1199,14 @@ impl RemoteClient {
 
     pub fn promote(
         &self,
-        bundle_id: &str,
+        candidate_id: &str,
         repo_id: &str,
         scope_id: &str,
         to_gate: &str,
     ) -> Result<()> {
         Self::check(
             self.http
-                .post(self.url(&format!("/api/bundles/{bundle_id}/promote")))
+                .post(self.url(&format!("/api/candidates/{candidate_id}/promote")))
                 .bearer_auth(&self.token)
                 .json(&PromoteRequest {
                     repo_id: repo_id.into(),

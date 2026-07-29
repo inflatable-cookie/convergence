@@ -21,14 +21,14 @@ Rebuild architecture (g02.002 Batch 2.4, 2026-07-23):
   salvage migration map
 - `14-server-authority-and-distribution.md` — central control plane,
   partitioned data plane, pluggable storage, enforced authz, deterministic
-  bundle coalescing; §0 and §7 separate the shipped single-process server
+  candidate coalescing; §0 and §7 separate the shipped single-process server
   from the deferred distributed target
 - `15-client-and-tui-architecture.md` — CLI as canonical verb surface, TUI
   as thin front-end per the captured UX spec
 - `16-sync-protocol-and-chunking.md` — wire contract and FastCDC
   content-defined chunking
 - `17-lineage-and-merge-semantics.md` — snap DAG and identity, base-aware
-  3-way merge with tombstones, bundle windows, per-gate coalesce
+  3-way merge with tombstones, candidate windows, per-gate coalesce
   strategies (g02.005; authoritative over 14/16 where they overlap)
 - `18-git-interop.md` — export/import mapping contract, mirror-branch
   rules, coexistence boundaries (g02.009)

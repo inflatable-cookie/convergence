@@ -147,7 +147,7 @@ fn snap_identity_separates_every_distinct_lineage() {
     }
 
     for parents in &lineages {
-        for derived in [None, Some("bundle-1"), Some("bundle-2"), Some("")] {
+        for derived in [None, Some("candidate-1"), Some("candidate-2"), Some("")] {
             let id = compute_snap_id(&root, parents, derived);
             let key = (parents.clone(), derived.map(str::to_string));
             if let Some(previous) = seen.insert(id.clone(), key.clone()) {

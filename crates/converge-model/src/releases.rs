@@ -1,6 +1,6 @@
 //! Release versioning rules (g02.028 batch 28.1).
 //!
-//! A release is `<bundle> as v1.2.0` — semver is the identity, and
+//! A release is `<candidate> as v1.2.0` — semver is the identity, and
 //! channels are retired. Gates already do staged promotion, prerelease
 //! tags do pre-release tracks, and `latest` is a computation rather
 //! than a pointer anyone can move.

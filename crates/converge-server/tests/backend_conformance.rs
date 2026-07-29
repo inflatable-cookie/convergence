@@ -8,7 +8,7 @@ use anyhow::Result;
 use converge_model::{GateGraph, GateNode, LaneHead, ObjectId, PublicationRecord, RetentionPolicy};
 use converge_server::{
     BatchConflict, FsObjectStore, MetaOp, MetadataStore, ObjectKind, ObjectStore, PartitionState,
-    SqliteMetadataStore, StoredBundle,
+    SqliteMetadataStore, StoredCandidate,
 };
 
 fn conform_metadata(meta: &dyn MetadataStore) -> Result<()> {
@@ -68,7 +68,7 @@ fn conform_metadata(meta: &dyn MetadataStore) -> Result<()> {
         "s1"
     );
 
-    let seq1 = meta.add_event("conf", "bundle", "b1", "t1")?;
+    let seq1 = meta.add_event("conf", "candidate", "b1", "t1")?;
     let seq2 = meta.add_event("conf", "lane", "l", "t2")?;
     assert!(seq2 > seq1);
     assert_eq!(meta.list_events("conf", seq1)?.len(), 1);
@@ -153,29 +153,29 @@ fn conform_metadata(meta: &dyn MetadataStore) -> Result<()> {
     assert!(meta.sweep_stale_pins(future)? >= 1, "stale pin not cleared");
     assert!(!meta.is_object_pinned(ObjectKind::Blob, &stale, 0)?);
 
-    // release deletion matches the bundle_id field, not a JSON substring
+    // release deletion matches the candidate_id field, not a JSON substring
     // (batch 13.4, audit M1): ids sharing a prefix must not cascade.
-    for (channel, bundle) in [("stable", "bundle-abc"), ("beta", "bundle-abcdef")] {
+    for (channel, candidate) in [("stable", "candidate-abc"), ("beta", "candidate-abcdef")] {
         meta.add_release(&converge_model::ReleaseRecord {
             version: channel.into(),
             yanked: false,
             yank_reason: None,
             repo_id: "conf".into(),
             scope_id: "s".into(),
-            bundle_id: bundle.into(),
+            candidate_id: candidate.into(),
             released_by: "alice".into(),
             notes: None,
             created_at: "2026-07-25T00:00:00Z".into(),
         })?;
     }
-    let dropped = meta.delete_releases_for_bundles("conf", &["bundle-abc".to_string()])?;
-    assert_eq!(dropped, 1, "only the exact bundle's release is deleted");
+    let dropped = meta.delete_releases_for_candidates("conf", &["candidate-abc".to_string()])?;
+    assert_eq!(dropped, 1, "only the exact candidate's release is deleted");
     let survivors: Vec<String> = meta
         .list_releases("conf")?
         .into_iter()
-        .map(|r| r.bundle_id)
+        .map(|r| r.candidate_id)
         .collect();
-    assert_eq!(survivors, vec!["bundle-abcdef".to_string()]);
+    assert_eq!(survivors, vec!["candidate-abcdef".to_string()]);
 
     // atomic batches (batch 13.1): all-or-nothing with guard rollback
     let scope = "batch-scope";
@@ -183,7 +183,7 @@ fn conform_metadata(meta: &dyn MetadataStore) -> Result<()> {
         publication_id: "batch-p1".into(),
         snap_id: "batch-s1".into(),
         root_manifest: ObjectId("cc".repeat(32)),
-        base_bundle_id: None,
+        base_candidate_id: None,
         snap_parents: vec![],
         repo_id: "conf".into(),
         scope_id: scope.into(),
@@ -193,17 +193,17 @@ fn conform_metadata(meta: &dyn MetadataStore) -> Result<()> {
         created_at: "2026-07-25T00:00:00Z".into(),
         notes: None,
     };
-    let bundle = StoredBundle {
-        bundle_id: "batch-b1".into(),
+    let candidate = StoredCandidate {
+        candidate_id: "batch-b1".into(),
         repo_id: "conf".into(),
         scope_id: scope.into(),
         gate_id: "g".into(),
         inputs: vec!["batch-p1".into()],
         root_manifest: None,
-        base_bundle_id: None,
+        base_candidate_id: None,
         window: (1, 1),
         strategy: "whole-file".into(),
-        status: converge_model::BundleStatus::Ready { promotable: true },
+        status: converge_model::CandidateStatus::Ready { promotable: true },
         created_at: "2026-07-25T00:00:00Z".into(),
     };
     meta.apply_batch(&[
@@ -221,21 +221,21 @@ fn conform_metadata(meta: &dyn MetadataStore) -> Result<()> {
             expected: 0,
         },
         MetaOp::AddPublication(publication),
-        MetaOp::PutBundle(bundle),
+        MetaOp::PutCandidate(candidate),
         MetaOp::SetPartitionState {
             repo_id: "conf".into(),
             scope_id: scope.into(),
             gate_id: "g".into(),
             state: PartitionState {
                 window_floor: 1,
-                base_bundle_id: Some("batch-b1".into()),
+                base_candidate_id: Some("batch-b1".into()),
             },
         },
     ])?;
     let listed = meta.list_publications_after("conf", scope, "g", 0)?;
     assert_eq!(listed.len(), 1, "batched publication committed");
     assert_eq!(listed[0].0, 1, "seq assigned inside the transaction");
-    assert_eq!(meta.get_bundle("batch-b1")?.window, (1, 1));
+    assert_eq!(meta.get_candidate("batch-b1")?.window, (1, 1));
     assert_eq!(
         meta.get_partition_state("conf", scope, "g")?.window_floor,
         1
@@ -248,49 +248,52 @@ fn conform_metadata(meta: &dyn MetadataStore) -> Result<()> {
     let listed: Vec<&str> = occupancy.iter().map(|o| o.gate_id.as_str()).collect();
     assert!(listed.contains(&"g"), "gate not reported: {listed:?}");
     let g_occ = occupancy.iter().find(|o| o.gate_id == "g").unwrap();
-    assert!(g_occ.bundles >= 1, "the published bundle was not counted");
+    assert!(
+        g_occ.candidates >= 1,
+        "the published candidate was not counted"
+    );
     assert!(
         !g_occ.is_empty(),
         "an occupied gate must not look safe to remove"
     );
 
-    // Shortened bundle ids resolve (batch 22.4). The CLI prints ids
+    // Shortened candidate ids resolve (batch 22.4). The CLI prints ids
     // truncated to twelve characters, so that is the form people paste
     // back; before this, `verify <printed id>` answered 404 while the
     // hint line beside it spelled out all sixty-four characters.
-    let hex = |id: &str| StoredBundle {
-        bundle_id: id.into(),
+    let hex = |id: &str| StoredCandidate {
+        candidate_id: id.into(),
         repo_id: "conf".into(),
         scope_id: scope.into(),
         gate_id: "g".into(),
         inputs: vec![],
         root_manifest: None,
-        base_bundle_id: None,
+        base_candidate_id: None,
         window: (1, 1),
         strategy: "whole-file".into(),
-        status: converge_model::BundleStatus::Ready { promotable: true },
+        status: converge_model::CandidateStatus::Ready { promotable: true },
         created_at: "2026-07-25T00:00:00Z".into(),
     };
     let long = format!("abcdef01{}", "0".repeat(56));
     let twin = format!("abcdef01{}", "1".repeat(56));
-    meta.apply_batch(&[MetaOp::PutBundle(hex(&long))])?;
+    meta.apply_batch(&[MetaOp::PutCandidate(hex(&long))])?;
     assert_eq!(
-        meta.get_bundle(&long[..12])?.bundle_id,
+        meta.get_candidate(&long[..12])?.candidate_id,
         long,
         "a unique prefix resolves to the whole id"
     );
     assert_eq!(
-        meta.get_bundle(&long)?.bundle_id,
+        meta.get_candidate(&long)?.candidate_id,
         long,
         "full ids still work"
     );
     assert!(
-        meta.get_bundle(&long[..4]).is_err(),
+        meta.get_candidate(&long[..4]).is_err(),
         "too short to be meant seriously"
     );
 
-    meta.apply_batch(&[MetaOp::PutBundle(hex(&twin))])?;
-    let ambiguous = meta.get_bundle("abcdef01").unwrap_err().to_string();
+    meta.apply_batch(&[MetaOp::PutCandidate(hex(&twin))])?;
+    let ambiguous = meta.get_candidate("abcdef01").unwrap_err().to_string();
     assert!(
         ambiguous.contains("ambiguous"),
         "two candidates is an error, never a guess: {ambiguous}"
@@ -301,7 +304,7 @@ fn conform_metadata(meta: &dyn MetadataStore) -> Result<()> {
     let err = meta
         .apply_batch(&[
             MetaOp::RecordPromotion {
-                bundle_id: "batch-b1".into(),
+                candidate_id: "batch-b1".into(),
                 from_gate: "g".into(),
                 to_gate: "g2".into(),
                 at: "2026-07-25T00:00:01Z".into(),

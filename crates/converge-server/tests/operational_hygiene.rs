@@ -30,7 +30,12 @@ fn events_prune_to_the_horizon_and_raise_the_floor() -> Result<()> {
     let objects = FsObjectStore::new(dir.path());
 
     for i in 0..25 {
-        meta.add_event("repo", "bundle", &format!("b{i}"), "2026-07-25T00:00:00Z")?;
+        meta.add_event(
+            "repo",
+            "candidate",
+            &format!("b{i}"),
+            "2026-07-25T00:00:00Z",
+        )?;
     }
     assert_eq!(meta.event_floor("repo")?, 0, "nothing pruned yet");
     assert_eq!(meta.list_events("repo", 0)?.len(), 25);
@@ -75,7 +80,12 @@ fn a_dry_run_prunes_nothing() -> Result<()> {
     let meta = setup(dir.path(), &["repo"])?;
     let objects = FsObjectStore::new(dir.path());
     for i in 0..5 {
-        meta.add_event("repo", "bundle", &format!("b{i}"), "2026-07-25T00:00:00Z")?;
+        meta.add_event(
+            "repo",
+            "candidate",
+            &format!("b{i}"),
+            "2026-07-25T00:00:00Z",
+        )?;
     }
     meta.set_retention(
         "repo",
@@ -132,7 +142,7 @@ fn gc_in_one_repo_keeps_another_repos_objects() -> Result<()> {
         created_at: "2026-07-25T00:00:00Z".into(),
         root_manifest: root.clone(),
         parents: vec![],
-        derived_from_bundle: None,
+        derived_from_candidate: None,
         message: None,
         trigger: "explicit".into(),
         stats: Default::default(),
@@ -198,8 +208,8 @@ fn event_floor_is_per_repo() -> Result<()> {
     let dir = tempfile::tempdir()?;
     let meta = setup(dir.path(), &["repo-a", "repo-b"])?;
     for i in 0..5 {
-        meta.add_event("repo-a", "bundle", &format!("a{i}"), "t")?;
-        meta.add_event("repo-b", "bundle", &format!("b{i}"), "t")?;
+        meta.add_event("repo-a", "candidate", &format!("a{i}"), "t")?;
+        meta.add_event("repo-b", "candidate", &format!("b{i}"), "t")?;
     }
     let pruned = meta.prune_events("repo-a", 2)?;
     assert_eq!(pruned, 3);

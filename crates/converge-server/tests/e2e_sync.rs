@@ -5,7 +5,7 @@ use anyhow::Result;
 
 use converge_client::remote::RemoteClient;
 use converge_client::workspace::Workspace;
-use converge_model::{BundleStatus, GateGraph, GateNode, ManifestEntryKind, ObjectId};
+use converge_model::{CandidateStatus, GateGraph, GateNode, ManifestEntryKind, ObjectId};
 use converge_server::{AppState, FsObjectStore, MetadataStore, SqliteMetadataStore, router};
 
 /// Spin the real HTTP server on an ephemeral port; returns its base URL.
@@ -102,7 +102,7 @@ fn full_vertical_slice_over_http() -> Result<()> {
     let client_b = RemoteClient::new(&base_url, "token-b");
 
     // Publish A, then B — B's identical common.txt must dedup on negotiate.
-    let (bundle_a, stats_a) = client_a.publish(
+    let (candidate_a, stats_a) = client_a.publish(
         &ws_a.store,
         "repo",
         "scope",
@@ -113,9 +113,12 @@ fn full_vertical_slice_over_http() -> Result<()> {
         None,
     )?;
     assert!(stats_a.uploaded > 0);
-    assert_eq!(bundle_a.status, BundleStatus::Ready { promotable: true });
+    assert_eq!(
+        candidate_a.status,
+        CandidateStatus::Ready { promotable: true }
+    );
 
-    let (bundle_b, stats_b) = client_b.publish(
+    let (candidate_b, stats_b) = client_b.publish(
         &ws_b.store,
         "repo",
         "scope",
@@ -132,14 +135,17 @@ fn full_vertical_slice_over_http() -> Result<()> {
         stats_b.uploaded,
         stats_a.uploaded
     );
-    assert_eq!(bundle_b.status, BundleStatus::Ready { promotable: false });
+    assert_eq!(
+        candidate_b.status,
+        CandidateStatus::Ready { promotable: false }
+    );
 
     // Re-upload is idempotent and negotiates to zero (resume behavior).
     let stats_again = client_a.upload_tree(&ws_a.store, "repo", &snap_a.root_manifest)?;
     assert_eq!(stats_again.uploaded, 0, "everything already on server");
 
-    // Fetch the superposed bundle into A's store and resolve locally.
-    let root = client_a.fetch_bundle(&ws_a.store, "repo", &bundle_b.bundle_id)?;
+    // Fetch the superposed candidate into A's store and resolve locally.
+    let root = client_a.fetch_candidate(&ws_a.store, "repo", &candidate_b.candidate_id)?;
     let manifest = ws_a.store.get_manifest(&root)?;
     let superposed = manifest
         .entries
@@ -165,17 +171,17 @@ fn full_vertical_slice_over_http() -> Result<()> {
         id: converge_model::compute_snap_id(
             &resolved_root,
             std::slice::from_ref(&snap_a.id),
-            Some(&bundle_b.bundle_id),
+            Some(&candidate_b.candidate_id),
         ),
         created_at: "2026-07-24T00:00:00Z".into(),
         root_manifest: resolved_root,
         parents: vec![snap_a.id.clone()],
-        derived_from_bundle: Some(bundle_b.bundle_id.clone()),
+        derived_from_candidate: Some(candidate_b.candidate_id.clone()),
         message: None,
         trigger: "explicit".into(),
         stats: converge_model::SnapStats::default(),
     };
-    let (resolved_bundle, _) = client_a.publish(
+    let (resolved_candidate, _) = client_a.publish(
         &ws_a.store,
         "repo",
         "resolved-scope",
@@ -186,25 +192,30 @@ fn full_vertical_slice_over_http() -> Result<()> {
         Some("resolution of shared.txt".into()),
     )?;
     assert_eq!(
-        resolved_bundle.status,
-        BundleStatus::Ready { promotable: true }
+        resolved_candidate.status,
+        CandidateStatus::Ready { promotable: true }
     );
 
     // Approve then promote through the gate graph.
-    client_b.approve(&resolved_bundle.bundle_id, "repo", "resolved-scope")?;
-    client_a.promote(&resolved_bundle.bundle_id, "repo", "resolved-scope", "main")?;
+    client_b.approve(&resolved_candidate.candidate_id, "repo", "resolved-scope")?;
+    client_a.promote(
+        &resolved_candidate.candidate_id,
+        "repo",
+        "resolved-scope",
+        "main",
+    )?;
 
     // Promote without approvals is refused.
     let err = client_a
-        .promote(&bundle_a.bundle_id, "repo", "scope", "main")
+        .promote(&candidate_a.candidate_id, "repo", "scope", "main")
         .unwrap_err();
     assert!(err.to_string().contains("required approvals"));
 
-    // Fetch resolved bundle into a fresh workspace and materialize.
+    // Fetch resolved candidate into a fresh workspace and materialize.
     let ws_c_dir = tempfile::tempdir()?;
     let ws_c = Workspace::init(ws_c_dir.path(), false)?;
     let fetched_root: ObjectId =
-        client_b.fetch_bundle(&ws_c.store, "repo", &resolved_bundle.bundle_id)?;
+        client_b.fetch_candidate(&ws_c.store, "repo", &resolved_candidate.candidate_id)?;
     let out = tempfile::tempdir()?;
     ws_c.materialize_manifest_to(&fetched_root, out.path(), true)?;
     assert_eq!(
@@ -266,7 +277,7 @@ fn batch_cap_splitting_round_trips_a_larger_tree() -> Result<()> {
     std::fs::write(ws_dir.path().join("sub/inner.txt"), "nested")?;
     let snap = ws.create_snap(None)?;
 
-    let (bundle, stats) = client.publish(
+    let (candidate, stats) = client.publish(
         &ws.store,
         "repo",
         "scope",
@@ -277,12 +288,15 @@ fn batch_cap_splitting_round_trips_a_larger_tree() -> Result<()> {
         None,
     )?;
     assert!(stats.uploaded >= 22, "all objects travelled");
-    assert_eq!(bundle.status, BundleStatus::Ready { promotable: true });
+    assert_eq!(
+        candidate.status,
+        CandidateStatus::Ready { promotable: true }
+    );
 
     // Fetch into a fresh store via batch-get waves and materialize.
     let ws_b_dir = tempfile::tempdir()?;
     let ws_b = Workspace::init(ws_b_dir.path(), false)?;
-    let root = client.fetch_bundle(&ws_b.store, "repo", &bundle.bundle_id)?;
+    let root = client.fetch_candidate(&ws_b.store, "repo", &candidate.candidate_id)?;
     let out = tempfile::tempdir()?;
     ws_b.materialize_manifest_to(&root, out.path(), true)?;
     assert_eq!(
@@ -322,7 +336,7 @@ fn torn_server_tree_heals_on_reupload() -> Result<()> {
     std::fs::write(ws_dir.path().join("sub/inner.txt"), "inner content")?;
     let snap = ws.create_snap(None)?;
 
-    let (bundle, _) = client.publish(
+    let (candidate, _) = client.publish(
         &ws.store,
         "repo",
         "scope",
@@ -369,7 +383,7 @@ fn torn_server_tree_heals_on_reupload() -> Result<()> {
     // Full tree fetches and materializes from a fresh store.
     let ws_b_dir = tempfile::tempdir()?;
     let ws_b = Workspace::init(ws_b_dir.path(), false)?;
-    let root_id = client.fetch_bundle(&ws_b.store, "repo", &bundle.bundle_id)?;
+    let root_id = client.fetch_candidate(&ws_b.store, "repo", &candidate.candidate_id)?;
     let out = tempfile::tempdir()?;
     ws_b.materialize_manifest_to(&root_id, out.path(), true)?;
     assert_eq!(

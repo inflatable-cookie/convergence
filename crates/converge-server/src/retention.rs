@@ -6,7 +6,7 @@ use std::collections::{BTreeMap, HashSet};
 
 use converge_model::{ReleaseRecord, RetentionPolicy};
 
-use crate::storage::StoredBundle;
+use crate::storage::StoredCandidate;
 
 /// Releases beyond the newest N (input order = release order). One
 /// count, not per-channel — channels are retired (g02.028). When the
@@ -23,32 +23,35 @@ pub fn releases_to_drop(releases: &[ReleaseRecord], policy: &RetentionPolicy) ->
         if excess == 0 {
             break;
         }
-        drop.push(release.bundle_id.clone());
+        drop.push(release.candidate_id.clone());
         excess -= 1;
     }
     for release in releases.iter().filter(|r| !r.yanked) {
         if excess == 0 {
             break;
         }
-        drop.push(release.bundle_id.clone());
+        drop.push(release.candidate_id.clone());
         excess -= 1;
     }
     drop
 }
 
-/// Bundles beyond the newest N per gate, excluding `protected` (released
-/// bundles, current window bases). Input order = creation order.
-pub fn bundles_to_drop(
-    bundles: &[StoredBundle],
+/// Candidates beyond the newest N per gate, excluding `protected` (released
+/// candidates, current window bases). Input order = creation order.
+pub fn candidates_to_drop(
+    candidates: &[StoredCandidate],
     policy: &RetentionPolicy,
     protected: &HashSet<String>,
 ) -> Vec<String> {
-    let Some(keep) = policy.keep_bundles_per_gate else {
+    let Some(keep) = policy.keep_candidates_per_gate else {
         return Vec::new();
     };
-    let mut by_gate: BTreeMap<&str, Vec<&StoredBundle>> = BTreeMap::new();
-    for bundle in bundles {
-        by_gate.entry(&bundle.gate_id).or_default().push(bundle);
+    let mut by_gate: BTreeMap<&str, Vec<&StoredCandidate>> = BTreeMap::new();
+    for candidate in candidates {
+        by_gate
+            .entry(&candidate.gate_id)
+            .or_default()
+            .push(candidate);
     }
     let mut drop = Vec::new();
     for (_, mut chain) in by_gate {
@@ -56,8 +59,8 @@ pub fn bundles_to_drop(
         drop.extend(
             chain
                 .drain(..excess)
-                .filter(|b| !protected.contains(&b.bundle_id))
-                .map(|b| b.bundle_id.clone()),
+                .filter(|b| !protected.contains(&b.candidate_id))
+                .map(|b| b.candidate_id.clone()),
         );
     }
     drop
@@ -99,34 +102,34 @@ fn cutoff_rfc3339(now: &str, days: u32) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use converge_model::BundleStatus;
+    use converge_model::CandidateStatus;
 
-    fn release(version: &str, bundle: &str) -> ReleaseRecord {
+    fn release(version: &str, candidate: &str) -> ReleaseRecord {
         ReleaseRecord {
             version: version.into(),
             yanked: false,
             yank_reason: None,
             repo_id: "repo".into(),
             scope_id: "scope".into(),
-            bundle_id: bundle.into(),
+            candidate_id: candidate.into(),
             released_by: "alice".into(),
             notes: None,
             created_at: String::new(),
         }
     }
 
-    fn bundle(gate: &str, id: &str) -> StoredBundle {
-        StoredBundle {
-            bundle_id: id.into(),
+    fn candidate(gate: &str, id: &str) -> StoredCandidate {
+        StoredCandidate {
+            candidate_id: id.into(),
             repo_id: "repo".into(),
             scope_id: "scope".into(),
             gate_id: gate.into(),
             inputs: Vec::new(),
             root_manifest: None,
-            base_bundle_id: None,
+            base_candidate_id: None,
             window: (0, 0),
             strategy: "whole-file".into(),
-            status: BundleStatus::Ready { promotable: true },
+            status: CandidateStatus::Ready { promotable: true },
             created_at: String::new(),
         }
     }
@@ -154,22 +157,22 @@ mod tests {
     }
 
     #[test]
-    fn bundles_keep_newest_per_gate_and_respect_protection() {
-        let bundles = vec![
-            bundle("intake", "old"),
-            bundle("intake", "released"),
-            bundle("intake", "mid"),
-            bundle("intake", "new"),
+    fn candidates_keep_newest_per_gate_and_respect_protection() {
+        let candidates = vec![
+            candidate("intake", "old"),
+            candidate("intake", "released"),
+            candidate("intake", "mid"),
+            candidate("intake", "new"),
         ];
         let policy = RetentionPolicy {
-            keep_bundles_per_gate: Some(1),
+            keep_candidates_per_gate: Some(1),
             ..Default::default()
         };
         let protected = HashSet::from(["released".to_string()]);
         assert_eq!(
-            bundles_to_drop(&bundles, &policy, &protected),
+            candidates_to_drop(&candidates, &policy, &protected),
             vec!["old", "mid"],
-            "protected bundle survives inside the excess"
+            "protected candidate survives inside the excess"
         );
     }
 

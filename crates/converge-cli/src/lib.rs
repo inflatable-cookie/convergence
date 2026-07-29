@@ -282,10 +282,10 @@ enum Command {
         #[arg(short, long, alias = "notes")]
         message: Option<String>,
     },
-    /// Fetch a bundle's tree into the local store.
+    /// Fetch a candidate's tree into the local store.
     Fetch {
-        /// Bundle id, or omit with --release to fetch a channel head.
-        bundle_id: Option<String>,
+        /// Candidate id, or omit with --release to fetch a channel head.
+        candidate_id: Option<String>,
         /// Fetch the latest release on this channel.
         #[arg(long)]
         release: Option<String>,
@@ -293,7 +293,7 @@ enum Command {
         /// workspace (a copy; the workspace is untouched).
         #[arg(long)]
         into: Option<PathBuf>,
-        /// Check the bundle out into this workspace and continue from
+        /// Check the candidate out into this workspace and continue from
         /// it: the tree is captured as a snap and head moves.
         #[arg(long)]
         checkout: bool,
@@ -301,17 +301,18 @@ enum Command {
         #[arg(long)]
         force: bool,
     },
-    /// Show a bundle's record.
-    Bundle {
-        /// Bundle id, or omit with --release to name a channel head.
-        bundle_id: Option<String>,
+    /// Show a candidate's record.
+    #[command(alias = "bundle")]
+    Candidate {
+        /// Candidate id, or omit with --release latest|version|range.
+        candidate_id: Option<String>,
         /// Use the latest release on this channel.
         #[arg(long)]
         release: Option<String>,
     },
-    /// Browse a snap or bundle read-only: record plus tree listing.
+    /// Browse a snap or candidate read-only: record plus tree listing.
     Show {
-        /// Local snap id, or a bundle id (fetched if not local yet).
+        /// Local snap id, or a candidate id (fetched if not local yet).
         target: String,
         /// Directory inside the tree to list (default: the root).
         #[arg(long, default_value = "")]
@@ -340,23 +341,23 @@ enum Command {
         #[arg(long, default_value_t = 0)]
         since: u64,
     },
-    /// What needs your attention: lane activity, publications, bundles.
+    /// What needs your attention: lane activity, publications, candidates.
     Inbox {
         /// Only lane activity newer than this RFC3339 timestamp.
         #[arg(long)]
         since: Option<String>,
     },
-    /// Approve a bundle.
-    Approve { bundle_id: String },
-    /// Promote a bundle to a downstream gate.
+    /// Approve a candidate.
+    Approve { candidate_id: String },
+    /// Promote a candidate to a downstream gate.
     Promote {
-        bundle_id: String,
+        candidate_id: String,
         #[arg(long)]
         to: String,
     },
-    /// Release a bundle as a semver version.
+    /// Release a candidate as a semver version.
     Release {
-        bundle_id: String,
+        candidate_id: String,
         /// The version, e.g. 1.2.0 or 2.0.0-beta.1. Unique, immutable;
         /// backports below the newest version are allowed.
         #[arg(long = "as", value_name = "VERSION", alias = "channel")]
@@ -387,10 +388,10 @@ enum Command {
         #[command(subcommand)]
         command: Option<GateCommand>,
     },
-    /// Replay a bundle from provenance and prove its identity.
+    /// Replay a candidate from provenance and prove its identity.
     Verify {
-        /// Bundle id, or omit with --release to name a channel head.
-        bundle_id: Option<String>,
+        /// Candidate id, or omit with --release latest|version|range.
+        candidate_id: Option<String>,
         /// Use the latest release on this channel.
         #[arg(long)]
         release: Option<String>,
@@ -517,7 +518,7 @@ enum RetentionCommand {
         #[arg(long)]
         keep_releases: Option<u32>,
         #[arg(long)]
-        keep_bundles: Option<u32>,
+        keep_candidates: Option<u32>,
         #[arg(long)]
         keep_publication_days: Option<u32>,
         /// Keep the newest N events; older ones prune on GC.
@@ -600,7 +601,7 @@ enum GateCommand {
         approvals: u32,
         #[arg(long, default_value = "whole-file")]
         strategy: String,
-        /// Bundles from this gate may be released to a channel.
+        /// Candidates from this gate may be released to a channel.
         #[arg(long)]
         releasable: bool,
         #[arg(long)]
@@ -800,16 +801,16 @@ enum MemberCommand {
 
 #[derive(Subcommand)]
 enum ResolveCommand {
-    /// List superposition paths and variant counts in a snap or bundle.
+    /// List superposition paths and variant counts in a snap or candidate.
     List {
-        /// Local snap id, or a bundle id (fetched if not local yet).
+        /// Local snap id, or a candidate id (fetched if not local yet).
         target: String,
         /// Include a bounded text preview of each variant, so a chooser
         /// can see what they are choosing between.
         #[arg(long)]
         preview: bool,
     },
-    /// Validate a decisions file against a snap or bundle.
+    /// Validate a decisions file against a snap or candidate.
     Validate {
         target: String,
         /// JSON file: { "<path>": <decision>, ... }
@@ -1101,7 +1102,7 @@ fn run(cli: &Cli, mode: OutputMode, session: &Session) -> Result<serde_json::Val
             let gate = gate.clone().unwrap_or_else(|| remote.gate.clone());
             let base = ws
                 .store
-                .get_last_seen_bundle(&remote, &remote.scope, &gate)?;
+                .get_last_seen_candidate(&remote, &remote.scope, &gate)?;
             let publish_with = |base: Option<String>| {
                 client.publish(
                     &ws.store,
@@ -1114,7 +1115,7 @@ fn run(cli: &Cli, mode: OutputMode, session: &Session) -> Result<serde_json::Val
                     message.clone(),
                 )
             };
-            let (bundle, stats) = match publish_with(base.clone()) {
+            let (candidate, stats) = match publish_with(base.clone()) {
                 Ok(result) => result,
                 // The recorded base is what this workspace last *saw* for
                 // the target (doc 17 §2). A server that has never heard of
@@ -1125,12 +1126,12 @@ fn run(cli: &Cli, mode: OutputMode, session: &Session) -> Result<serde_json::Val
                 //
                 // Found re-pointing a workspace at a rebuilt server, which
                 // is the disaster-recovery path guide 004 §6 documents: a
-                // restore whose bundle history differs would otherwise
+                // restore whose candidate history differs would otherwise
                 // wedge every client that had published before.
-                Err(err) if base.is_some() && format!("{err:#}").contains("base bundle") => {
+                Err(err) if base.is_some() && format!("{err:#}").contains("base candidate") => {
                     if mode == OutputMode::Human {
                         eprintln!(
-                            "note: this server does not know the bundle this workspace last saw \
+                            "note: this server does not know the candidate this workspace last saw \
                              ({}); publishing without a base",
                             base.as_deref()
                                 .unwrap_or("")
@@ -1140,52 +1141,56 @@ fn run(cli: &Cli, mode: OutputMode, session: &Session) -> Result<serde_json::Val
                         );
                     }
                     ws.store
-                        .clear_last_seen_bundle(&remote, &remote.scope, &gate)?;
+                        .clear_last_seen_candidate(&remote, &remote.scope, &gate)?;
                     publish_with(None)?
                 }
                 Err(err) => return Err(err),
             };
             ws.store
                 .set_last_published(&remote, &remote.scope, &gate, &snap.id)?;
-            ws.store
-                .set_last_seen_bundle(&remote, &remote.scope, &gate, &bundle.bundle_id)?;
+            ws.store.set_last_seen_candidate(
+                &remote,
+                &remote.scope,
+                &gate,
+                &candidate.candidate_id,
+            )?;
             #[derive(Serialize)]
             struct PublishSummary {
-                bundle: converge_client::model::BundleRecord,
+                candidate: converge_client::model::CandidateRecord,
                 uploaded_objects: usize,
             }
             emit(
                 mode,
                 PublishSummary {
-                    bundle,
+                    candidate,
                     uploaded_objects: stats.uploaded,
                 },
                 |s| {
                     println!(
-                        "published to {gate}: bundle {} ({}, {} objects uploaded)",
-                        s.bundle.bundle_id,
-                        describe_status(&s.bundle.status),
+                        "published to {gate}: candidate {} ({}, {} objects uploaded)",
+                        s.candidate.candidate_id,
+                        describe_status(&s.candidate.status),
                         s.uploaded_objects
                     );
                 },
             )
         }
         Command::Release {
-            bundle_id,
+            candidate_id,
             version,
             message,
         } => {
             let ws = session.workspace()?;
             let (client, remote) = remote_client(session, &ws, mode)?;
             let release = client.release(
-                bundle_id,
+                candidate_id,
                 &remote.repo_id,
                 &remote.scope,
                 version,
                 message.clone(),
             )?;
             emit(mode, release, |r| {
-                println!("released {} as v{}", r.bundle_id, r.version);
+                println!("released {} as v{}", r.candidate_id, r.version);
             })
         }
         Command::Yank { version, reason } => {
@@ -1235,7 +1240,7 @@ fn run(cli: &Cli, mode: OutputMode, session: &Session) -> Result<serde_json::Val
                         "v{}{}  {}  by {}  {}",
                         r.version,
                         if r.yanked { " (yanked)" } else { "" },
-                        short(&r.bundle_id),
+                        short(&r.candidate_id),
                         r.released_by,
                         r.created_at
                     );
@@ -1282,11 +1287,19 @@ fn run(cli: &Cli, mode: OutputMode, session: &Session) -> Result<serde_json::Val
                 }
             }
         }
-        Command::Verify { bundle_id, release } => {
+        Command::Verify {
+            candidate_id,
+            release,
+        } => {
             let ws = session.workspace()?;
             let (client, remote) = remote_client(session, &ws, mode)?;
-            let bundle_id = bundle_ref(&client, &remote, bundle_id.as_deref(), release.as_deref())?;
-            let report = client.verify(&bundle_id)?;
+            let candidate_id = candidate_ref(
+                &client,
+                &remote,
+                candidate_id.as_deref(),
+                release.as_deref(),
+            )?;
+            let report = client.verify(&candidate_id)?;
             let verified = report.verified;
             emit(mode, report, |r| {
                 if r.verified {
@@ -1309,7 +1322,7 @@ fn run(cli: &Cli, mode: OutputMode, session: &Session) -> Result<serde_json::Val
             let report = client.gc(&remote.repo_id, !execute)?;
             emit(mode, report, |r| {
                 println!(
-                    "{}: dropped {} releases, {} bundles, {} publications; \
+                    "{}: dropped {} releases, {} candidates, {} publications; \
                      {} reachable, swept {} objects ({} bytes)",
                     if r["dry_run"].as_bool().unwrap_or(true) {
                         "dry-run"
@@ -1317,7 +1330,7 @@ fn run(cli: &Cli, mode: OutputMode, session: &Session) -> Result<serde_json::Val
                         "executed"
                     },
                     r["dropped_releases"],
-                    r["dropped_bundles"],
+                    r["dropped_candidates"],
                     r["dropped_publications"],
                     r["reachable_objects"],
                     r["swept_objects"],
@@ -1333,9 +1346,9 @@ fn run(cli: &Cli, mode: OutputMode, session: &Session) -> Result<serde_json::Val
                     let policy = client.get_retention(&remote.repo_id)?;
                     emit(mode, policy, |p| {
                         println!(
-                            "releases: {}  bundles/gate: {}  publication days: {}  events: {}",
+                            "releases: {}  candidates/gate: {}  publication days: {}  events: {}",
                             describe_limit(p.keep_releases),
-                            describe_limit(p.keep_bundles_per_gate),
+                            describe_limit(p.keep_candidates_per_gate),
                             describe_limit(p.keep_publication_days),
                             describe_limit(p.keep_events)
                         );
@@ -1343,13 +1356,13 @@ fn run(cli: &Cli, mode: OutputMode, session: &Session) -> Result<serde_json::Val
                 }
                 RetentionCommand::Set {
                     keep_releases,
-                    keep_bundles,
+                    keep_candidates,
                     keep_publication_days,
                     keep_events,
                 } => {
                     let policy = converge_client::model::RetentionPolicy {
                         keep_releases: *keep_releases,
-                        keep_bundles_per_gate: *keep_bundles,
+                        keep_candidates_per_gate: *keep_candidates,
                         keep_publication_days: *keep_publication_days,
                         keep_events: *keep_events,
                     };
@@ -1361,7 +1374,7 @@ fn run(cli: &Cli, mode: OutputMode, session: &Session) -> Result<serde_json::Val
             }
         }
         Command::Fetch {
-            bundle_id,
+            candidate_id,
             release,
             into,
             checkout,
@@ -1369,24 +1382,29 @@ fn run(cli: &Cli, mode: OutputMode, session: &Session) -> Result<serde_json::Val
         } => {
             let ws = session.workspace()?;
             let (client, remote) = remote_client(session, &ws, mode)?;
-            let bundle_id = bundle_ref(&client, &remote, bundle_id.as_deref(), release.as_deref())?;
+            let candidate_id = candidate_ref(
+                &client,
+                &remote,
+                candidate_id.as_deref(),
+                release.as_deref(),
+            )?;
             if *checkout && into.is_some() {
                 anyhow::bail!("--checkout works on this workspace; --into writes a copy elsewhere");
             }
-            // A fetched bundle for the configured target becomes the new
-            // publish base (doc 17 §2) — see `fetch_bundle_tree`.
-            let root = fetch_bundle_tree(session, &ws, &bundle_id)?;
+            // A fetched candidate for the configured target becomes the new
+            // publish base (doc 17 §2) — see `fetch_candidate_tree`.
+            let root = fetch_candidate_tree(session, &ws, &candidate_id)?;
             if let Some(dir) = into {
                 ws.materialize_manifest_to(&root, dir, true)?;
             }
-            // Checkout is the "continue from this bundle" move: the tree
-            // lands in the workspace and is captured with the bundle as
+            // Checkout is the "continue from this candidate" move: the tree
+            // lands in the workspace and is captured with the candidate as
             // its provenance edge (doc 17 §1).
             let snap = if *checkout {
                 Some(ws.adopt_tree(
                     &root,
-                    Some(format!("checkout of bundle {}", short(&bundle_id))),
-                    Some(&bundle_id),
+                    Some(format!("checkout of candidate {}", short(&candidate_id))),
+                    Some(&candidate_id),
                     *force,
                 )?)
             } else {
@@ -1395,7 +1413,7 @@ fn run(cli: &Cli, mode: OutputMode, session: &Session) -> Result<serde_json::Val
 
             #[derive(Serialize)]
             struct Fetched {
-                bundle_id: String,
+                candidate_id: String,
                 root_manifest: String,
                 snap: Option<String>,
                 materialized_to: Option<String>,
@@ -1404,28 +1422,31 @@ fn run(cli: &Cli, mode: OutputMode, session: &Session) -> Result<serde_json::Val
             emit(
                 mode,
                 Fetched {
-                    bundle_id: bundle_id.clone(),
+                    candidate_id: candidate_id.clone(),
                     root_manifest: root.as_str().to_string(),
                     snap: snap.map(|s| s.id),
                     materialized_to: into.as_ref().map(|d| d.display().to_string()),
                     // A bare fetch is invisible without this (audit P1.4).
-                    next: (!*checkout && into.is_none()).then(|| format!("show {bundle_id}")),
+                    next: (!*checkout && into.is_none()).then(|| format!("show {candidate_id}")),
                 },
                 |f| match (&f.snap, &f.materialized_to) {
                     (Some(snap), _) => {
-                        println!("checked out bundle {} as snap {snap}", short(&f.bundle_id))
+                        println!(
+                            "checked out candidate {} as snap {snap}",
+                            short(&f.candidate_id)
+                        )
                     }
                     (None, Some(dir)) => {
-                        println!("fetched bundle {} into {dir}", short(&f.bundle_id))
+                        println!("fetched candidate {} into {dir}", short(&f.candidate_id))
                     }
                     (None, None) => {
                         println!(
-                            "fetched bundle {} into the local store (nothing materialized)",
-                            short(&f.bundle_id)
+                            "fetched candidate {} into the local store (nothing materialized)",
+                            short(&f.candidate_id)
                         );
                         println!(
                             "next: converge show {} | converge fetch {} --checkout",
-                            f.bundle_id, f.bundle_id
+                            f.candidate_id, f.candidate_id
                         );
                     }
                 },
@@ -1592,7 +1613,7 @@ fn run(cli: &Cli, mode: OutputMode, session: &Session) -> Result<serde_json::Val
         }
         Command::Show { target, path } => {
             let ws = session.workspace()?;
-            let (root, bundle_id) = resolve_target(session, &ws, target)?;
+            let (root, candidate_id) = resolve_target(session, &ws, target)?;
             let listing = list_tree(&ws, &root, path)?;
             let snap = ws.store.get_snap(target).ok();
 
@@ -1601,7 +1622,7 @@ fn run(cli: &Cli, mode: OutputMode, session: &Session) -> Result<serde_json::Val
                 target: String,
                 kind: &'static str,
                 root_manifest: String,
-                derived_from_bundle: Option<String>,
+                derived_from_candidate: Option<String>,
                 message: Option<String>,
                 created_at: Option<String>,
                 path: String,
@@ -1611,12 +1632,12 @@ fn run(cli: &Cli, mode: OutputMode, session: &Session) -> Result<serde_json::Val
                 mode,
                 Shown {
                     target: target.clone(),
-                    kind: if snap.is_some() { "snap" } else { "bundle" },
+                    kind: if snap.is_some() { "snap" } else { "candidate" },
                     root_manifest: root.as_str().to_string(),
-                    derived_from_bundle: snap
+                    derived_from_candidate: snap
                         .as_ref()
-                        .and_then(|s| s.derived_from_bundle.clone())
-                        .or(bundle_id),
+                        .and_then(|s| s.derived_from_candidate.clone())
+                        .or(candidate_id),
                     message: snap.as_ref().and_then(|s| s.message.clone()),
                     created_at: snap.as_ref().map(|s| s.created_at.clone()),
                     path: path.clone(),
@@ -1630,8 +1651,8 @@ fn run(cli: &Cli, mode: OutputMode, session: &Session) -> Result<serde_json::Val
                     if let Some(message) = &s.message {
                         println!("  message: {message}");
                     }
-                    if let Some(bundle) = &s.derived_from_bundle {
-                        println!("  derived from bundle {bundle}");
+                    if let Some(candidate) = &s.derived_from_candidate {
+                        println!("  derived from candidate {candidate}");
                     }
                     println!(
                         "  {}/  ({} entries)",
@@ -1686,23 +1707,31 @@ fn run(cli: &Cli, mode: OutputMode, session: &Session) -> Result<serde_json::Val
                 },
             )
         }
-        Command::Bundle { bundle_id, release } => {
+        Command::Candidate {
+            candidate_id,
+            release,
+        } => {
             let ws = session.workspace()?;
             let (client, remote) = remote_client(session, &ws, mode)?;
-            let bundle_id = bundle_ref(&client, &remote, bundle_id.as_deref(), release.as_deref())?;
-            let provenance = client.get_provenance(&bundle_id)?;
+            let candidate_id = candidate_ref(
+                &client,
+                &remote,
+                candidate_id.as_deref(),
+                release.as_deref(),
+            )?;
+            let provenance = client.get_provenance(&candidate_id)?;
             emit(mode, provenance, |p| {
                 println!(
-                    "bundle {}: {}",
-                    p.bundle.bundle_id,
-                    describe_status(&p.bundle.status)
+                    "candidate {}: {}",
+                    p.candidate.candidate_id,
+                    describe_status(&p.candidate.status)
                 );
                 println!(
                     "  gate {}  strategy {}  {}  base {}",
-                    p.bundle.produced_by_gate_id,
-                    p.bundle.strategy,
-                    describe_window(&p.bundle.window),
-                    p.bundle.base_bundle_id.as_deref().unwrap_or("none")
+                    p.candidate.produced_by_gate_id,
+                    p.candidate.strategy,
+                    describe_window(&p.candidate.window),
+                    p.candidate.base_candidate_id.as_deref().unwrap_or("none")
                 );
                 for input in &p.inputs {
                     println!(
@@ -1710,7 +1739,7 @@ fn run(cli: &Cli, mode: OutputMode, session: &Session) -> Result<serde_json::Val
                         input.publication_id,
                         input.lane_id,
                         input.publisher,
-                        input.base_bundle_id.as_deref().unwrap_or("none"),
+                        input.base_candidate_id.as_deref().unwrap_or("none"),
                         input.snap_parents.len()
                     );
                 }
@@ -1753,19 +1782,19 @@ fn run(cli: &Cli, mode: OutputMode, session: &Session) -> Result<serde_json::Val
                 }
             })
         }
-        Command::Approve { bundle_id } => {
+        Command::Approve { candidate_id } => {
             let ws = session.workspace()?;
             let (client, remote) = remote_client(session, &ws, mode)?;
-            client.approve(bundle_id, &remote.repo_id, &remote.scope)?;
-            emit(mode, bundle_id.clone(), |id| {
+            client.approve(candidate_id, &remote.repo_id, &remote.scope)?;
+            emit(mode, candidate_id.clone(), |id| {
                 println!("approved {id}");
             })
         }
-        Command::Promote { bundle_id, to } => {
+        Command::Promote { candidate_id, to } => {
             let ws = session.workspace()?;
             let (client, remote) = remote_client(session, &ws, mode)?;
-            client.promote(bundle_id, &remote.repo_id, &remote.scope, to)?;
-            emit(mode, format!("{bundle_id} -> {to}"), |m| {
+            client.promote(candidate_id, &remote.repo_id, &remote.scope, to)?;
+            emit(mode, format!("{candidate_id} -> {to}"), |m| {
                 println!("promoted {m}");
             })
         }
@@ -2534,7 +2563,7 @@ fn run(cli: &Cli, mode: OutputMode, session: &Session) -> Result<serde_json::Val
                         "{}/{}/{} @ {}",
                         remote.repo_id, remote.scope, remote.gate, remote.base_url
                     ),
-                    "last_seen_bundle": ws.store.get_last_seen_bundle(
+                    "last_seen_candidate": ws.store.get_last_seen_candidate(
                         remote, &remote.scope, &remote.gate)?,
                     "last_published_snap": ws.store.get_last_published(
                         remote, &remote.scope, &remote.gate)?,
@@ -2668,7 +2697,7 @@ fn latest_snap(ws: &Workspace) -> Result<converge_client::model::SnapRecord> {
 
 /// Can this deployment still hand over the bytes it claims to hold?
 ///
-/// The control-plane checks cannot answer this: SQLite holds bundle
+/// The control-plane checks cannot answer this: SQLite holds candidate
 /// records, release channels and secret ciphertext, while the trees
 /// those records point at live in the object store. Back up one without
 /// the other and every ordinary check still passes.
@@ -2871,8 +2900,8 @@ fn run_gate_change(
         }
         for occupancy in impact.occupancy.iter().filter(|o| !o.is_empty()) {
             println!(
-                "  {} holds {} bundle(s) and {} open publication(s)",
-                occupancy.gate_id, occupancy.bundles, occupancy.open_publications
+                "  {} holds {} candidate(s) and {} open publication(s)",
+                occupancy.gate_id, occupancy.candidates, occupancy.open_publications
             );
         }
         if r.applied {
@@ -2983,12 +3012,12 @@ fn serving_check(
     store: &converge_client::store::LocalStore,
 ) -> Check {
     // A `stable` release is the best thing to ask about, because it is
-    // what other people fetch. Failing that, the bundle this workspace
+    // what other people fetch. Failing that, the candidate this workspace
     // last saw: it is local, needs no extra round trip, and is real
     // published history.
     //
     // Batch 22.4 found why the fallback matters. A repo with twelve
-    // snaps and eleven bundles reported `nothing wrong here`, because a
+    // snaps and eleven candidates reported `nothing wrong here`, because a
     // project in active development has not cut a release yet — so the
     // one check that touches the object store silently did nothing, and
     // said `ok`. A verification tool that passes when it cannot verify
@@ -2998,32 +3027,32 @@ fn serving_check(
     // that names the wrong subject is a false lead for whoever reads it
     // at three in the morning.
     let (subject, head) = match client.resolve_release(&remote.repo_id, "latest") {
-        Ok(record) => ("the latest release", record.bundle_id),
-        Err(_) => match store.get_last_seen_bundle(remote, &remote.scope, &remote.gate) {
-            Ok(Some(bundle_id)) => ("the last bundle this workspace saw", bundle_id),
+        Ok(record) => ("the latest release", record.candidate_id),
+        Err(_) => match store.get_last_seen_candidate(remote, &remote.scope, &remote.gate) {
+            Ok(Some(candidate_id)) => ("the last candidate this workspace saw", candidate_id),
             _ => {
                 return Check::ok(
                     "serving",
                     "not checked: no `stable` release, and this workspace has not \
-                     seen a bundle yet",
+                     seen a candidate yet",
                 );
             }
         },
     };
-    let bundle = match client.get_bundle(&head) {
-        Ok(bundle) => bundle,
+    let candidate = match client.get_candidate(&head) {
+        Ok(candidate) => candidate,
         Err(err) => {
             return Check::bad(
                 "serving",
                 format!(
-                    "{subject} names bundle {} which will not load: {err:#}",
+                    "{subject} names candidate {} which will not load: {err:#}",
                     &head[..12.min(head.len())]
                 ),
                 "restore the deployment from a backup that includes its object store",
             );
         }
     };
-    let Some(root) = bundle.root_manifest else {
+    let Some(root) = candidate.root_manifest else {
         return Check::ok("serving", format!("{subject} has an empty tree"));
     };
     let asking = converge_client::model::ObjectSet {
@@ -3462,7 +3491,7 @@ fn run_resolve(
             no_checkout,
         } => {
             let decisions = read_decisions(decisions)?;
-            let (root, bundle_id) = resolve_target(session, &ws, target)?;
+            let (root, candidate_id) = resolve_target(session, &ws, target)?;
             let resolved = apply_resolution(&ws.store, &root, &decisions)?;
 
             // A resolved tree used to stop here as a manifest id no verb
@@ -3472,16 +3501,16 @@ fn run_resolve(
                 .clone()
                 .or_else(|| Some(format!("resolved {}", short(target))));
             let snap = if *no_checkout {
-                ws.capture_tree(&resolved, message, bundle_id.as_deref())?
+                ws.capture_tree(&resolved, message, candidate_id.as_deref())?
             } else {
-                ws.adopt_tree(&resolved, message, bundle_id.as_deref(), *force)?
+                ws.adopt_tree(&resolved, message, candidate_id.as_deref(), *force)?
             };
 
             #[derive(Serialize)]
             struct ResolutionApplied {
                 snap: String,
                 root_manifest: String,
-                derived_from_bundle: Option<String>,
+                derived_from_candidate: Option<String>,
                 paths_resolved: usize,
                 checked_out: bool,
                 /// The verb that continues the flow — the inbox and the
@@ -3493,7 +3522,7 @@ fn run_resolve(
                 ResolutionApplied {
                     snap: snap.id.clone(),
                     root_manifest: resolved.as_str().to_string(),
-                    derived_from_bundle: bundle_id,
+                    derived_from_candidate: candidate_id,
                     paths_resolved: decisions.len(),
                     checked_out: !*no_checkout,
                     next: format!("publish --snap {}", snap.id),
@@ -4012,30 +4041,32 @@ fn register_key_if_possible(
     Ok(true)
 }
 
-/// Address a bundle by id or by channel head (batch 16.4, audit P3).
+/// Address a candidate by id or by channel head (batch 16.4, audit P3).
 ///
-/// `fetch` accepted `--release` while `bundle` and `verify` demanded an
+/// `fetch` accepted `--release` while `candidate` and `verify` demanded an
 /// id, so inspecting what you had just fetched meant copying a hash by
 /// hand. One helper, one shape, three verbs.
-fn bundle_ref(
+fn candidate_ref(
     client: &converge_client::remote::RemoteClient,
     remote: &converge_client::model::RemoteConfig,
-    bundle_id: Option<&str>,
+    candidate_id: Option<&str>,
     release: Option<&str>,
 ) -> Result<String> {
-    match (bundle_id, release) {
+    match (candidate_id, release) {
         (Some(id), _) => Ok(id.to_string()),
-        (None, Some(request)) => Ok(client.resolve_release(&remote.repo_id, request)?.bundle_id),
-        (None, None) => anyhow::bail!("provide a bundle id or --release <latest|version|range>"),
+        (None, Some(request)) => Ok(client
+            .resolve_release(&remote.repo_id, request)?
+            .candidate_id),
+        (None, None) => anyhow::bail!("provide a candidate id or --release <latest|version|range>"),
     }
 }
 
-/// Human phrasing for a bundle's state (batch 16.4, audit P3).
+/// Human phrasing for a candidate's state (batch 16.4, audit P3).
 ///
 /// `{:?}` leaked Rust enum syntax into the one output a person reads —
 /// `Ready { promotable: false }` says nothing about what to do next.
-fn describe_status(status: &converge_client::model::BundleStatus) -> String {
-    use converge_client::model::BundleStatus as S;
+fn describe_status(status: &converge_client::model::CandidateStatus) -> String {
+    use converge_client::model::CandidateStatus as S;
     match status {
         S::Building => "building".into(),
         S::Ready { promotable: true } => "ready to promote".into(),
@@ -4212,7 +4243,7 @@ fn variant_preview(
         K::File { blob, .. } => match store.get_blob(blob) {
             Ok(bytes) => bytes,
             // A variant whose blob is not local yet is normal for a
-            // bundle fetched lazily; saying so beats an error.
+            // candidate fetched lazily; saying so beats an error.
             Err(_) => return empty("content not in the local store"),
         },
         K::ChunkedFile { recipe, .. } => {
@@ -4273,7 +4304,7 @@ fn variant_preview(
 /// What kind of attention a row wants, which is what orders it.
 ///
 /// The ranking rule is **what blocks other people, first** (batch 23.4).
-/// A superposed bundle stops its gate window for everyone, so it
+/// A superposed candidate stops its gate window for everyone, so it
 /// outranks an approval that only one publisher is waiting on, which in
 /// turn outranks work you could pull but nobody is blocked on, which
 /// outranks pure information.
@@ -4284,11 +4315,11 @@ fn variant_preview(
 #[derive(Serialize, Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 #[serde(rename_all = "kebab-case")]
 pub enum ActionKind {
-    /// A bundle superposed at a gate: nothing downstream moves.
+    /// A candidate superposed at a gate: nothing downstream moves.
     Resolve,
-    /// A bundle waiting on an approval you can give.
+    /// A candidate waiting on an approval you can give.
     Approve,
-    /// A bundle that is ready, approved, and has a stage ahead of it.
+    /// A candidate that is ready, approved, and has a stage ahead of it.
     /// Below `Approve`, which unblocks it, and above lane activity,
     /// because until it moves nothing downstream sees the work.
     Promote,
@@ -4310,13 +4341,22 @@ impl ActionKind {
         };
         match self {
             ActionKind::Resolve => {
-                format!("{} blocked by superpositions", noun("bundle", "bundles"))
+                format!(
+                    "{} blocked by superpositions",
+                    noun("candidate", "candidates")
+                )
             }
             ActionKind::Approve => {
-                format!("{} waiting on your approval", noun("bundle", "bundles"))
+                format!(
+                    "{} waiting on your approval",
+                    noun("candidate", "candidates")
+                )
             }
             ActionKind::Promote => {
-                format!("{} ready for the next stage", noun("bundle", "bundles"))
+                format!(
+                    "{} ready for the next stage",
+                    noun("candidate", "candidates")
+                )
             }
             ActionKind::LanePull => format!("{} with work to pull", noun("lane", "lanes")),
             ActionKind::Publication => {
@@ -4327,7 +4367,7 @@ impl ActionKind {
 
     /// Short label for a hint bar or a primary action.
     ///
-    /// Not the argv: a bundle id is 64 characters and a dashboard that
+    /// Not the argv: a candidate id is 64 characters and a dashboard that
     /// spells one out pushes everything after it off the right edge —
     /// the same defect batch 23.1 found in History and the Inbox. The
     /// full command stays runnable and stays listed, in the Inbox,
@@ -4347,7 +4387,7 @@ impl ActionKind {
     /// The view that shows the whole group.
     pub fn view(&self) -> &'static str {
         match self {
-            ActionKind::Resolve | ActionKind::Approve | ActionKind::Promote => "bundles",
+            ActionKind::Resolve | ActionKind::Approve | ActionKind::Promote => "candidates",
             ActionKind::LanePull => "lanes",
             ActionKind::Publication => "inbox",
         }
@@ -4381,7 +4421,7 @@ pub struct Recommendation {
     pub owners: Vec<String>,
     pub view: &'static str,
     /// Runnable when the group has exactly one runnable member; a
-    /// dashboard should not pick one of five bundles for you.
+    /// dashboard should not pick one of five candidates for you.
     pub argv: Option<Vec<String>>,
 }
 
@@ -4461,33 +4501,33 @@ pub fn inbox_actions(report: &serde_json::Value) -> Vec<InboxAction> {
         });
     }
 
-    for bundle in report["bundles"].as_array().into_iter().flatten() {
-        let id = str_at(bundle, "bundle_id");
-        let recommendation = bundle["recommendation"].as_str().unwrap_or("");
+    for candidate in report["candidates"].as_array().into_iter().flatten() {
+        let id = str_at(candidate, "candidate_id");
+        let recommendation = candidate["recommendation"].as_str().unwrap_or("");
         actions.push(InboxAction {
             label: format!(
                 "\"{}\" @ {} -> {recommendation} ({}/{})",
-                bundle["title"].as_str().unwrap_or("bundle"),
+                candidate["title"].as_str().unwrap_or("candidate"),
                 // Where the work has reached, falling back to where it
                 // was built. `gate_id` never changes, so a promoted
-                // bundle kept reporting the entry gate it left two
+                // candidate kept reporting the entry gate it left two
                 // stages ago (batch 26.5).
-                bundle["from_gate"]
+                candidate["from_gate"]
                     .as_str()
                     .map(str::to_string)
-                    .unwrap_or_else(|| str_at(bundle, "gate_id")),
-                bundle["approvals"],
-                bundle["required_approvals"]
+                    .unwrap_or_else(|| str_at(candidate, "gate_id")),
+                candidate["approvals"],
+                candidate["required_approvals"]
             ),
             argv: match recommendation {
                 "approve" => Some(vec!["approve".into(), id.clone()]),
                 // Superposed: list the contested paths. `resolve` takes a
-                // bundle id directly now, so this runs as written.
+                // candidate id directly now, so this runs as written.
                 "resolve" => Some(vec!["resolve".into(), "list".into(), id.clone()]),
                 // Runnable only when the server named one onward gate;
                 // a fan-out is a choice and gets a label without a
                 // command (batch 23.4's rule, applied to a new verb).
-                "promote" => bundle["next_gate"].as_str().map(|gate| {
+                "promote" => candidate["next_gate"].as_str().map(|gate| {
                     vec![
                         "promote".into(),
                         id.clone(),
@@ -4501,13 +4541,13 @@ pub fn inbox_actions(report: &serde_json::Value) -> Vec<InboxAction> {
                 "resolve" => ActionKind::Resolve,
                 "approve" => ActionKind::Approve,
                 "promote" => ActionKind::Promote,
-                // Anything else about a bundle is news, not a task.
+                // Anything else about a candidate is news, not a task.
                 _ => ActionKind::Publication,
             },
             // Whoever published into it, from the server's bounded
             // contributor list. First name only: the dashboard row has
-            // one line, and the whole list is in the Bundles view.
-            owner: bundle["contributors"]
+            // one line, and the whole list is in the Candidates view.
+            owner: candidate["contributors"]
                 .as_array()
                 .and_then(|c| c.first())
                 .and_then(|c| c.as_str())
@@ -4523,11 +4563,11 @@ pub fn inbox_actions(report: &serde_json::Value) -> Vec<InboxAction> {
 }
 
 /// Resolve a user-supplied ref to a root manifest: a local snap id, or a
-/// bundle id (batch 16.1, audit P1.2).
+/// candidate id (batch 16.1, audit P1.2).
 ///
-/// Bundles are the *reason* superpositions exist, so refusing them here
-/// was the dead end — the inbox recommends resolving a bundle and the
-/// only resolvable thing was a local snap. A bundle whose objects are not
+/// Candidates are the *reason* superpositions exist, so refusing them here
+/// was the dead end — the inbox recommends resolving a candidate and the
+/// only resolvable thing was a local snap. A candidate whose objects are not
 /// local yet is fetched first; that is the same work the user would have
 /// done by hand, and it is idempotent.
 fn resolve_target(
@@ -4536,30 +4576,30 @@ fn resolve_target(
     target: &str,
 ) -> Result<(ObjectId, Option<String>)> {
     if let Ok(snap) = ws.store.get_snap(target) {
-        return Ok((snap.root_manifest, snap.derived_from_bundle));
+        return Ok((snap.root_manifest, snap.derived_from_candidate));
     }
-    let root = fetch_bundle_tree(session, ws, target)
-        .with_context(|| format!("{target} is neither a local snap nor a reachable bundle"))?;
+    let root = fetch_candidate_tree(session, ws, target)
+        .with_context(|| format!("{target} is neither a local snap nor a reachable candidate"))?;
     Ok((root, Some(target.to_string())))
 }
 
-/// Fetch a bundle's tree into the local store and, when the bundle
+/// Fetch a candidate's tree into the local store and, when the candidate
 /// belongs to the configured target, record it as the publish base.
 ///
 /// The base matters more than it looks: a resolution published without
-/// it declares no knowledge of the bundle it resolved, so the fold
+/// it declares no knowledge of the candidate it resolved, so the fold
 /// re-superposes the very paths the user just decided (batch 16.1). Both
 /// `fetch` and `resolve` go through here so neither can forget.
-fn fetch_bundle_tree(session: &Session, ws: &Workspace, bundle_id: &str) -> Result<ObjectId> {
+fn fetch_candidate_tree(session: &Session, ws: &Workspace, candidate_id: &str) -> Result<ObjectId> {
     let (client, remote) = remote_client(session, ws, OutputMode::Capture)?;
-    let bundle = client.get_bundle(bundle_id)?;
-    let root = client.fetch_bundle(&ws.store, &remote.repo_id, bundle_id)?;
-    if bundle.scope_id == remote.scope {
-        ws.store.set_last_seen_bundle(
+    let candidate = client.get_candidate(candidate_id)?;
+    let root = client.fetch_candidate(&ws.store, &remote.repo_id, candidate_id)?;
+    if candidate.scope_id == remote.scope {
+        ws.store.set_last_seen_candidate(
             &remote,
-            &bundle.scope_id,
-            &bundle.produced_by_gate_id,
-            &bundle.bundle_id,
+            &candidate.scope_id,
+            &candidate.produced_by_gate_id,
+            &candidate.candidate_id,
         )?;
     }
     Ok(root)

@@ -71,6 +71,7 @@ it and removes things before anything new is added.
 - [`026-gate-administration.md`](./026-gate-administration.md) — complete
 - [`027-tui-usability.md`](./027-tui-usability.md) — in progress (27.1 done; root redesigned through three rounds of operator feedback)
 - [`028-semver-releases.md`](./028-semver-releases.md) — complete
+- [`029-candidate-rename.md`](./029-candidate-rename.md) — complete: bundle became candidate, everywhere
 
 ## Next Task
 

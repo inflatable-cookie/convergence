@@ -115,13 +115,13 @@ fn uploaded_objects_survive_gc_before_publish_then_publish_succeeds() -> Result<
         converge_server::PublishInput {
             gate_id: "intake".into(),
             snap: snap.clone(),
-            base_bundle_id: None,
+            base_candidate_id: None,
             lane_id: None,
             notes: None,
         },
     )?;
 
-    // Still reachable through the bundle after another zero-grace GC.
+    // Still reachable through the candidate after another zero-grace GC.
     gc_engine.gc(
         &admin(&meta)?,
         false,

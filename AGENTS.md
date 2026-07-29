@@ -7,7 +7,7 @@ Scope: whole `convergence/` repository.
 - Keep AGENTS content lean: scope, hard rules, validation, links.
 - Treat `docs/` as source of truth for vision, architecture, roadmap intent, and rationale history.
 - Keep roadmap checklists in sync with completed implementation work.
-- Keep terminology consistent (`snap`, `publish`, `bundle`, `promote`, `release`, `superposition`).
+- Keep terminology consistent (`snap`, `publish`, `candidate`, `promote`, `release`, `superposition`).
 - Do not recreate retired `docs/roadmap/` or `docs/decisions/` folders.
 
 ## Effigy-First Execution

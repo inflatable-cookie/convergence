@@ -93,10 +93,10 @@ fn publish_to_unregistered_scope_is_refused_and_writes_nothing() -> Result<()> {
     );
 
     // The registered scope publishes fine.
-    let (bundle, _) = client.publish(
+    let (candidate, _) = client.publish(
         &ws.store, "repo", "frontend", "intake", &snap, None, None, None,
     )?;
-    assert_eq!(bundle.scope_id, "frontend");
+    assert_eq!(candidate.scope_id, "frontend");
     Ok(())
 }
 
@@ -121,10 +121,10 @@ fn scopes_can_be_registered_then_used() -> Result<()> {
 
     let ws_dir = tempfile::tempdir()?;
     let (ws, snap) = snap_in(ws_dir.path())?;
-    let (bundle, _) = client.publish(
+    let (candidate, _) = client.publish(
         &ws.store, "repo", "backend", "intake", &snap, None, None, None,
     )?;
-    assert_eq!(bundle.scope_id, "backend");
+    assert_eq!(candidate.scope_id, "backend");
     Ok(())
 }
 

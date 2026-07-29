@@ -44,7 +44,7 @@ pub enum ResolutionDecision {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Resolution {
     pub version: u32,
-    pub bundle_id: String,
+    pub candidate_id: String,
     pub root_manifest: ObjectId,
     pub created_at: String,
 

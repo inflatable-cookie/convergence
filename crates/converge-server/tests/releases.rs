@@ -85,17 +85,17 @@ fn release_policy_channel_heads_and_fetch() -> Result<()> {
     let ws = Workspace::init(ws_dir.path(), false)?;
     std::fs::write(ws_dir.path().join("app.txt"), "v1")?;
     let snap = ws.create_snap(None)?;
-    let (bundle, _) = alice.publish(
+    let (candidate, _) = alice.publish(
         &ws.store, "repo", "scope", "intake", &snap, None, None, None,
     )?;
 
-    // Intake may not release, and the bundle has reached nowhere else.
+    // Intake may not release, and the candidate has reached nowhere else.
     // The refusal names the whole path rather than one gate (batch
     // 26.4), because in a staged graph the interesting question is which
     // of the gates it has been through may release, not which one built
     // it.
     let err = alice
-        .release(&bundle.bundle_id, "repo", "scope", "1.0.0", None)
+        .release(&candidate.candidate_id, "repo", "scope", "1.0.0", None)
         .unwrap_err();
     let text = err.to_string();
     assert!(
@@ -104,15 +104,15 @@ fn release_policy_channel_heads_and_fetch() -> Result<()> {
     );
 
     // Promote to main, then release.
-    alice.promote(&bundle.bundle_id, "repo", "scope", "main")?;
-    // The promoted bundle now sits in intake's history; main's bundle is
+    alice.promote(&candidate.candidate_id, "repo", "scope", "main")?;
+    // The promoted candidate now sits in intake's history; main's candidate is
     // produced by publishing into main... in this slice promotion records
     // movement, releases cut from the *producing* gate. Re-target: publish
     // directly to main (which may release).
-    let (main_bundle, _) =
+    let (main_candidate, _) =
         alice.publish(&ws.store, "repo", "scope", "main", &snap, None, None, None)?;
     let release = alice.release(
-        &main_bundle.bundle_id,
+        &main_candidate.candidate_id,
         "repo",
         "scope",
         // A leading v is accepted and stored bare (g02.028).
@@ -123,44 +123,53 @@ fn release_policy_channel_heads_and_fetch() -> Result<()> {
 
     // A nonsense version is refused before anything is written.
     let err = alice
-        .release(&main_bundle.bundle_id, "repo", "scope", "stable", None)
+        .release(
+            &main_candidate.candidate_id,
+            "repo",
+            "scope",
+            "stable",
+            None,
+        )
         .unwrap_err();
     assert!(err.to_string().contains("not a semver version"), "{err:#}");
 
     // And a duplicate is refused: releases are immutable, fix forward.
     let err = alice
-        .release(&main_bundle.bundle_id, "repo", "scope", "1.0.0", None)
+        .release(&main_candidate.candidate_id, "repo", "scope", "1.0.0", None)
         .unwrap_err();
     assert!(err.to_string().contains("already exists"), "{err:#}");
 
     // Capability enforced: bob (read-only) cannot release.
     let err = bob
-        .release(&main_bundle.bundle_id, "repo", "scope", "1.1.0", None)
+        .release(&main_candidate.candidate_id, "repo", "scope", "1.1.0", None)
         .unwrap_err();
     assert!(err.to_string().contains("authorization denied"));
 
     // Channel head advances with a second release.
     std::fs::write(ws_dir.path().join("app.txt"), "v2")?;
     let snap2 = ws.create_snap(None)?;
-    let (bundle2, _) = alice.publish(
+    let (candidate2, _) = alice.publish(
         &ws.store,
         "repo",
         "scope",
         "main",
         &snap2,
-        Some(main_bundle.bundle_id.clone()),
+        Some(main_candidate.candidate_id.clone()),
         None,
         None,
     )?;
-    alice.release(&bundle2.bundle_id, "repo", "scope", "1.2.0", None)?;
+    alice.release(&candidate2.candidate_id, "repo", "scope", "1.2.0", None)?;
     let head = alice.resolve_release("repo", "latest")?;
-    assert_eq!(head.bundle_id, bundle2.bundle_id, "channel head advanced");
+    assert_eq!(
+        head.candidate_id, candidate2.candidate_id,
+        "channel head advanced"
+    );
     assert_eq!(alice.list_releases("repo")?.len(), 2);
 
     // Fetch by channel into a fresh workspace.
     let ws_b_dir = tempfile::tempdir()?;
     let ws_b = Workspace::init(ws_b_dir.path(), false)?;
-    let root = bob.fetch_bundle(&ws_b.store, "repo", &head.bundle_id)?;
+    let root = bob.fetch_candidate(&ws_b.store, "repo", &head.candidate_id)?;
     let out = tempfile::tempdir()?;
     ws_b.materialize_manifest_to(&root, out.path(), true)?;
     assert_eq!(std::fs::read_to_string(out.path().join("app.txt"))?, "v2");
@@ -168,7 +177,7 @@ fn release_policy_channel_heads_and_fetch() -> Result<()> {
 }
 
 #[test]
-fn superposed_bundle_cannot_release() -> Result<()> {
+fn superposed_candidate_cannot_release() -> Result<()> {
     let server_dir = tempfile::tempdir()?;
     let base_url = start_server(server_dir.path())?;
     let alice = RemoteClient::new(&base_url, "token-a");
@@ -183,10 +192,10 @@ fn superposed_bundle_cannot_release() -> Result<()> {
     let snap_b = b.create_snap(None)?;
 
     alice.publish(&a.store, "repo", "scope", "main", &snap_a, None, None, None)?;
-    let (bundle, _) =
+    let (candidate, _) =
         alice.publish(&b.store, "repo", "scope", "main", &snap_b, None, None, None)?;
     let err = alice
-        .release(&bundle.bundle_id, "repo", "scope", "1.0.0", None)
+        .release(&candidate.candidate_id, "repo", "scope", "1.0.0", None)
         .unwrap_err();
     assert!(err.to_string().contains("unresolved superpositions"));
     Ok(())
@@ -206,7 +215,7 @@ fn retention_config_round_trips_with_admin_gate() -> Result<()> {
 
     let policy = converge_model::RetentionPolicy {
         keep_releases: Some(5),
-        keep_bundles_per_gate: Some(10),
+        keep_candidates_per_gate: Some(10),
         keep_publication_days: Some(30),
         keep_events: Some(1000),
     };
@@ -229,13 +238,14 @@ fn gc_reclaims_unreachable_and_never_touches_reachable() -> Result<()> {
     }
     let alice = RemoteClient::new(&base_url, "token-a");
 
-    // Reachable state: published + released bundle, lane lineage.
+    // Reachable state: published + released candidate, lane lineage.
     let ws_dir = tempfile::tempdir()?;
     let ws = Workspace::init(ws_dir.path(), false)?;
     std::fs::write(ws_dir.path().join("keep.txt"), "released content")?;
     let snap = ws.create_snap(None)?;
-    let (bundle, _) = alice.publish(&ws.store, "repo", "scope", "main", &snap, None, None, None)?;
-    alice.release(&bundle.bundle_id, "repo", "scope", "1.0.0", None)?;
+    let (candidate, _) =
+        alice.publish(&ws.store, "repo", "scope", "main", &snap, None, None, None)?;
+    alice.release(&candidate.candidate_id, "repo", "scope", "1.0.0", None)?;
     alice.push_lineage(&ws.store, "repo", None, &snap.id, false)?;
 
     // Unreachable garbage: objects uploaded but never referenced.
@@ -275,7 +285,7 @@ fn gc_reclaims_unreachable_and_never_touches_reachable() -> Result<()> {
     let head = alice.resolve_release("repo", "latest")?;
     let ws_b_dir = tempfile::tempdir()?;
     let ws_b = Workspace::init(ws_b_dir.path(), false)?;
-    let root = alice.fetch_bundle(&ws_b.store, "repo", &head.bundle_id)?;
+    let root = alice.fetch_candidate(&ws_b.store, "repo", &head.candidate_id)?;
     let out = tempfile::tempdir()?;
     ws_b.materialize_manifest_to(&root, out.path(), true)?;
     assert_eq!(
@@ -323,7 +333,7 @@ fn gc_retention_drops_metadata_and_requires_admin() -> Result<()> {
     std::fs::write(ws_dir.path().join("a.txt"), "v1")?;
     let s1 = ws.create_snap(None)?;
     let (b1, _) = alice.publish(&ws.store, "repo", "scope", "main", &s1, None, None, None)?;
-    alice.release(&b1.bundle_id, "repo", "scope", "1.0.0", None)?;
+    alice.release(&b1.candidate_id, "repo", "scope", "1.0.0", None)?;
     std::fs::write(ws_dir.path().join("a.txt"), "v2")?;
     let s2 = ws.create_snap(None)?;
     let (b2, _) = alice.publish(
@@ -332,11 +342,11 @@ fn gc_retention_drops_metadata_and_requires_admin() -> Result<()> {
         "scope",
         "main",
         &s2,
-        Some(b1.bundle_id.clone()),
+        Some(b1.candidate_id.clone()),
         None,
         None,
     )?;
-    alice.release(&b2.bundle_id, "repo", "scope", "1.1.0", None)?;
+    alice.release(&b2.candidate_id, "repo", "scope", "1.1.0", None)?;
 
     alice.set_retention(
         "repo",
@@ -357,7 +367,7 @@ fn gc_retention_drops_metadata_and_requires_admin() -> Result<()> {
         "old release row gone"
     );
     let head = alice.resolve_release("repo", "latest")?;
-    assert_eq!(head.bundle_id, b2.bundle_id, "channel head survives");
+    assert_eq!(head.candidate_id, b2.candidate_id, "channel head survives");
     Ok(())
 }
 
@@ -367,7 +377,7 @@ fn verify_replays_provenance_and_detects_tamper() -> Result<()> {
     let base_url = start_server(server_dir.path())?;
     let alice = RemoteClient::new(&base_url, "token-a");
 
-    // Two-input bundle (supersession path) — richer replay.
+    // Two-input candidate (supersession path) — richer replay.
     let ws_dir = tempfile::tempdir()?;
     let ws = Workspace::init(ws_dir.path(), false)?;
     std::fs::write(ws_dir.path().join("app.txt"), "v1")?;
@@ -381,13 +391,17 @@ fn verify_replays_provenance_and_detects_tamper() -> Result<()> {
         "scope",
         "main",
         &s2,
-        Some(b1.bundle_id.clone()),
+        Some(b1.candidate_id.clone()),
         None,
         None,
     )?;
 
-    let report = alice.verify(&b2.bundle_id)?;
-    assert!(report.verified, "honest bundle verifies: {}", report.detail);
+    let report = alice.verify(&b2.candidate_id)?;
+    assert!(
+        report.verified,
+        "honest candidate verifies: {}",
+        report.detail
+    );
     assert_eq!(report.recomputed_root, b2.root_manifest);
 
     // Tamper: swap a recorded input root in the publication metadata.
@@ -402,7 +416,7 @@ fn verify_replays_provenance_and_detects_tamper() -> Result<()> {
             rusqlite::params![original, tampered, s2.id],
         )?;
     }
-    let report = alice.verify(&b2.bundle_id)?;
+    let report = alice.verify(&b2.candidate_id)?;
     assert!(!report.verified, "tampered provenance must fail");
     Ok(())
 }
@@ -418,14 +432,15 @@ fn events_flow_with_increasing_seq_and_cursor_filtering() -> Result<()> {
     std::fs::write(ws_dir.path().join("e.txt"), "v1")?;
     let snap = ws.create_snap(None)?;
 
-    // publish -> bundle event; sync push -> lane event; release -> release event.
-    let (bundle, _) = alice.publish(&ws.store, "repo", "scope", "main", &snap, None, None, None)?;
+    // publish -> candidate event; sync push -> lane event; release -> release event.
+    let (candidate, _) =
+        alice.publish(&ws.store, "repo", "scope", "main", &snap, None, None, None)?;
     alice.push_lineage(&ws.store, "repo", None, &snap.id, false)?;
-    alice.release(&bundle.bundle_id, "repo", "scope", "1.0.0", None)?;
+    alice.release(&candidate.candidate_id, "repo", "scope", "1.0.0", None)?;
 
     let events = alice.events("repo", 0)?;
     let kinds: Vec<&str> = events.iter().map(|e| e.kind.as_str()).collect();
-    assert!(kinds.contains(&"bundle"));
+    assert!(kinds.contains(&"candidate"));
     assert!(kinds.contains(&"lane"));
     assert!(kinds.contains(&"release"));
     assert!(
@@ -442,18 +457,18 @@ fn events_flow_with_increasing_seq_and_cursor_filtering() -> Result<()> {
     Ok(())
 }
 
-/// Retention must not drop a bundle a live publication was written
+/// Retention must not drop a candidate a live publication was written
 /// against, or publishing to that gate breaks permanently.
 ///
 /// Batch 22.4 did this to a real repo with two ordinary commands:
-/// `retention set --keep-bundles 5` then `gc --execute`. Publication 2
+/// `retention set --keep-candidates 5` then `gc --execute`. Publication 2
 /// declared a base that GC deleted, so every later fold of the window
 /// failed to load it. Two things made it terminal: publications only
 /// leave a window when it advances, a window only advances on promotion,
 /// and a single-gate repo cannot promote; and the client re-derives its
 /// base and retries, so it never stops asking.
 #[test]
-fn retention_spares_bundles_that_open_publications_declare() -> Result<()> {
+fn retention_spares_candidates_that_open_publications_declare() -> Result<()> {
     let server_dir = tempfile::tempdir()?;
     let base_url = start_server(server_dir.path())?;
     {
@@ -466,12 +481,12 @@ fn retention_spares_bundles_that_open_publications_declare() -> Result<()> {
     let ws = Workspace::init(ws_dir.path(), false)?;
 
     // Enough publications that a tight keep-count wants to drop the
-    // early ones, each declaring the previous bundle as its base.
+    // early ones, each declaring the previous candidate as its base.
     let mut base: Option<String> = None;
     for round in 0..6 {
         std::fs::write(ws_dir.path().join("a.txt"), format!("v{round}"))?;
         let snap = ws.create_snap(Some(format!("v{round}")))?;
-        let (bundle, _) = alice.publish(
+        let (candidate, _) = alice.publish(
             &ws.store,
             "repo",
             "scope",
@@ -482,18 +497,18 @@ fn retention_spares_bundles_that_open_publications_declare() -> Result<()> {
             None,
         )?;
         assert!(
-            !format!("{:?}", bundle.status).contains("ailed"),
+            !format!("{:?}", candidate.status).contains("ailed"),
             "publish {round} failed before retention was even set: {:?}",
-            bundle.status
+            candidate.status
         );
-        base = Some(bundle.bundle_id);
+        base = Some(candidate.candidate_id);
     }
 
     alice.set_retention(
         "repo",
         &converge_model::RetentionPolicy {
             keep_releases: None,
-            keep_bundles_per_gate: Some(2),
+            keep_candidates_per_gate: Some(2),
             keep_publication_days: None,
             keep_events: None,
         },
@@ -503,7 +518,7 @@ fn retention_spares_bundles_that_open_publications_declare() -> Result<()> {
     // The next publish must still fold the window.
     std::fs::write(ws_dir.path().join("a.txt"), "after gc")?;
     let snap = ws.create_snap(Some("after gc".into()))?;
-    let (bundle, _) = alice.publish(
+    let (candidate, _) = alice.publish(
         &ws.store,
         "repo",
         "scope",
@@ -514,9 +529,9 @@ fn retention_spares_bundles_that_open_publications_declare() -> Result<()> {
         None,
     )?;
     assert!(
-        !format!("{:?}", bundle.status).contains("ailed"),
+        !format!("{:?}", candidate.status).contains("ailed"),
         "retention wedged the gate: {:?}",
-        bundle.status
+        candidate.status
     );
     Ok(())
 }
@@ -543,11 +558,11 @@ fn a_pre_semver_deployment_migrates_and_can_still_release() -> Result<()> {
                 record_json TEXT NOT NULL
             );",
         )?;
-        for (bundle, at) in [("b-one", "T1"), ("b-two", "T2")] {
+        for (candidate, at) in [("b-one", "T1"), ("b-two", "T2")] {
             conn.execute(
                 "INSERT INTO releases (repo_id, channel, record_json) VALUES ('repo', 'stable', ?1)",
                 [format!(
-                    r#"{{"channel":"stable","repo_id":"repo","scope_id":"s","bundle_id":"{bundle}","released_by":"tom","notes":null,"created_at":"{at}"}}"#
+                    r#"{{"channel":"stable","repo_id":"repo","scope_id":"s","candidate_id":"{candidate}","released_by":"tom","notes":null,"created_at":"{at}"}}"#
                 )],
             )?;
         }
@@ -558,7 +573,7 @@ fn a_pre_semver_deployment_migrates_and_can_still_release() -> Result<()> {
     assert_eq!(migrated.len(), 2);
     assert_eq!(migrated[0].version, "0.1.0", "numbered by order");
     assert_eq!(migrated[1].version, "0.2.0");
-    assert_eq!(migrated[0].bundle_id, "b-one", "history preserved");
+    assert_eq!(migrated[0].candidate_id, "b-one", "history preserved");
 
     // The half the fixtures could not see: a *new* release on the
     // migrated schema.
@@ -568,12 +583,59 @@ fn a_pre_semver_deployment_migrates_and_can_still_release() -> Result<()> {
         yank_reason: None,
         repo_id: "repo".into(),
         scope_id: "s".into(),
-        bundle_id: "b-three".into(),
+        candidate_id: "b-three".into(),
         released_by: "tom".into(),
         notes: None,
         created_at: "T3".into(),
     })?;
     assert_eq!(meta.list_releases("repo")?.len(), 3);
     assert!(meta.get_release("repo", "0.1.0")?.is_some());
+    Ok(())
+}
+
+/// g02.029: bundle became candidate, schema included. A deployment
+/// created before the rename has `bundles` tables and `bundle_id`
+/// columns; opening it renames in place and loses nothing — and the
+/// empty `candidates` table this open itself creates must not shadow
+/// the legacy data.
+#[test]
+fn a_bundle_era_deployment_migrates_to_candidates() -> Result<()> {
+    let dir = tempfile::tempdir()?;
+    let path = dir.path().join("meta.sqlite");
+    {
+        let conn = rusqlite::Connection::open(&path)?;
+        conn.execute_batch(
+            "CREATE TABLE bundles (
+                bundle_id TEXT PRIMARY KEY, repo_id TEXT NOT NULL,
+                scope_id TEXT NOT NULL, gate_id TEXT NOT NULL,
+                inputs_json TEXT NOT NULL, root_manifest TEXT,
+                base_bundle_id TEXT, window_first INTEGER NOT NULL,
+                window_last INTEGER NOT NULL, strategy TEXT NOT NULL,
+                status_json TEXT NOT NULL, created_at TEXT NOT NULL
+            );
+            INSERT INTO bundles VALUES (
+                'old-bundle-1', 'repo', 's', 'intake', '[]', NULL, NULL,
+                1, 3, 'whole-file', '{\"ready\":{\"promotable\":true}}', 'T1'
+            );
+            CREATE TABLE approvals (
+                bundle_id TEXT NOT NULL, subject TEXT NOT NULL,
+                approved_at TEXT NOT NULL DEFAULT ''
+            );
+            INSERT INTO approvals (bundle_id, subject) VALUES ('old-bundle-1', 'tom');",
+        )?;
+    }
+
+    let meta = SqliteMetadataStore::open(&path)?;
+    let migrated = meta.get_candidate("old-bundle-1")?;
+    assert_eq!(
+        migrated.candidate_id, "old-bundle-1",
+        "data lost in the rename"
+    );
+    assert_eq!(migrated.window, (1, 3));
+    assert_eq!(
+        meta.count_approvals("old-bundle-1")?,
+        1,
+        "approvals did not follow"
+    );
     Ok(())
 }

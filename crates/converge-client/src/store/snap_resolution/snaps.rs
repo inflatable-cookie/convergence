@@ -31,9 +31,9 @@ impl LocalStore {
 
     /// Fetch a snap by id, or by a prefix long enough to be unique.
     ///
-    /// Batch 22.4 fixed the same thing server-side for bundles and left
+    /// Batch 22.4 fixed the same thing server-side for candidates and left
     /// this half live: `converge show <12-char snap id>` still answered
-    /// "neither a local snap nor a reachable bundle", because the local
+    /// "neither a local snap nor a reachable candidate", because the local
     /// lookup is a filename and the prefix was not one. Snap ids are
     /// printed shortened in the TUI and in messages people write, so the
     /// short form is what comes back.

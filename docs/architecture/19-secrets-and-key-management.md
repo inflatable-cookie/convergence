@@ -57,13 +57,13 @@ and the reasons are structural rather than stylistic:
 - **Merge is meaningless.** The fold (doc 17 §2) reasons about content
   it can read. Two encrypted versions of a secret are always "divergent"
   and would superpose forever, offering variants nobody can compare.
-- **Publish is broadcast.** Anything in a snap reaches every bundle,
+- **Publish is broadcast.** Anything in a snap reaches every candidate,
   every `read` grant, and `git export`. A secret on that path is a
   secret leaked to the whole repo by construction.
 
 So: **secrets are a sibling of the object store, not a tree inside it.**
 They have their own record type, their own endpoints, their own
-lifecycle, and they never enter a manifest, a bundle, a window, or a git
+lifecycle, and they never enter a manifest, a candidate, a window, or a git
 stream. The determinism, verify, and merge stories are untouched because
 they never see a secret.
 
@@ -173,7 +173,7 @@ The server must:
 - store ciphertext byte-exact and return it unmodified
 - version every write and refuse a write against a stale version, the
   same guarded-batch pattern publish and promote already use (doc 14 §3)
-- keep secrets out of events, the inbox, GC's object walk, bundles, and
+- keep secrets out of events, the inbox, GC's object walk, candidates, and
   provenance replay
 
 The server must not:
@@ -186,7 +186,7 @@ The server must not:
 
 | Subsystem | Interaction |
 | --- | --- |
-| Snaps, bundles, merge | none — secrets never enter a manifest |
+| Snaps, candidates, merge | none — secrets never enter a manifest |
 | Git export | none — nothing to export, by construction |
 | GC (doc 14 §5) | none — secrets are not objects; they have their own retention |
 | Events feed | `secret.changed` and `secret.read` events carrying subject, key, name and version — never content (§10) |

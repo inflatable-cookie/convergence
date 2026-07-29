@@ -22,7 +22,7 @@ use crate::storage::ObjectKind;
 pub struct GcReport {
     pub dry_run: bool,
     pub dropped_releases: u64,
-    pub dropped_bundles: u64,
+    pub dropped_candidates: u64,
     pub dropped_publications: u64,
     pub pruned_events: u64,
     pub reachable_objects: u64,
@@ -76,31 +76,31 @@ impl Engine<'_> {
         // --- retention: what drops from the triggering repo ---
         let policy = self.meta.get_retention(authz.repo_id())?;
         let releases = self.meta.list_releases(authz.repo_id())?;
-        let dropped_release_bundles = retention::releases_to_drop(&releases, &policy);
+        let dropped_release_candidates = retention::releases_to_drop(&releases, &policy);
 
-        // Bundles referenced by *surviving* releases or serving as window
+        // Candidates referenced by *surviving* releases or serving as window
         // bases are protected.
-        let dropped_release_set: HashSet<&String> = dropped_release_bundles.iter().collect();
+        let dropped_release_set: HashSet<&String> = dropped_release_candidates.iter().collect();
         let mut protected: HashSet<String> = releases
             .iter()
-            .filter(|r| !dropped_release_set.contains(&r.bundle_id))
-            .map(|r| r.bundle_id.clone())
+            .filter(|r| !dropped_release_set.contains(&r.candidate_id))
+            .map(|r| r.candidate_id.clone())
             .collect();
-        let bundles = self.meta.list_bundles_all_scopes(authz.repo_id())?;
-        for bundle in &bundles {
-            if let Some(base) = &bundle.base_bundle_id {
+        let candidates = self.meta.list_candidates_all_scopes(authz.repo_id())?;
+        for candidate in &candidates {
+            if let Some(base) = &candidate.base_candidate_id {
                 protected.insert(base.clone());
             }
         }
 
         // A publication declares the base it was written against, and the
         // merge re-reads that base every time the window is folded. Drop
-        // the bundle it names and the fold cannot complete: every
+        // the candidate it names and the fold cannot complete: every
         // subsequent publish to that gate fails, with the same error,
         // forever.
         //
         // Batch 22.4 did exactly this to a live repo by doing nothing
-        // unusual — `retention set --keep-bundles 5` then `gc --execute`.
+        // unusual — `retention set --keep-candidates 5` then `gc --execute`.
         // Two things made it permanent. Publications only leave a window
         // when it advances, a window only advances on promotion, and a
         // single-gate repo cannot promote (finding 33); and the client
@@ -126,14 +126,14 @@ impl Engine<'_> {
                     self.meta
                         .list_publications_after(authz.repo_id(), scope, &gate.gate_id, 0)?
                 {
-                    if let Some(base) = &publication.base_bundle_id {
+                    if let Some(base) = &publication.base_candidate_id {
                         protected.insert(base.clone());
                     }
                 }
             }
         }
 
-        let dropped_bundles = retention::bundles_to_drop(&bundles, &policy, &protected);
+        let dropped_candidates = retention::candidates_to_drop(&candidates, &policy, &protected);
 
         let mut dropped_publications = Vec::new();
         for (scope, gate, floor) in self.meta.list_partitions(authz.repo_id())? {
@@ -151,15 +151,15 @@ impl Engine<'_> {
             ));
         }
 
-        report.dropped_releases = dropped_release_bundles.len() as u64;
-        report.dropped_bundles = dropped_bundles.len() as u64;
+        report.dropped_releases = dropped_release_candidates.len() as u64;
+        report.dropped_candidates = dropped_candidates.len() as u64;
         report.dropped_publications = dropped_publications.len() as u64;
 
         if !dry_run {
             self.meta
-                .delete_releases_for_bundles(authz.repo_id(), &dropped_release_bundles)?;
+                .delete_releases_for_candidates(authz.repo_id(), &dropped_release_candidates)?;
             self.meta
-                .delete_bundles(authz.repo_id(), &dropped_bundles)?;
+                .delete_candidates(authz.repo_id(), &dropped_candidates)?;
             self.meta
                 .delete_publications(authz.repo_id(), &dropped_publications)?;
             // Events are hints, so they prune on count alone (batch 14.4);
@@ -175,15 +175,15 @@ impl Engine<'_> {
         // repos, so marking only this repo's roots would sweep another
         // repo's live content (doc 14 §2).
         let mut marked: HashSet<(ObjectKind, String)> = HashSet::new();
-        let dropped_bundle_set: HashSet<&String> = dropped_bundles.iter().collect();
+        let dropped_candidate_set: HashSet<&String> = dropped_candidates.iter().collect();
         let dropped_publication_set: HashSet<&String> = dropped_publications.iter().collect();
         for repo in self.meta.list_repos()? {
             let this_repo = repo == authz.repo_id();
-            for bundle in self.meta.list_bundles_all_scopes(&repo)? {
-                if this_repo && dropped_bundle_set.contains(&bundle.bundle_id) {
+            for candidate in self.meta.list_candidates_all_scopes(&repo)? {
+                if this_repo && dropped_candidate_set.contains(&candidate.candidate_id) {
                     continue;
                 }
-                if let Some(root) = &bundle.root_manifest {
+                if let Some(root) = &candidate.root_manifest {
                     self.mark_manifest(root, &mut marked)?;
                 }
             }
@@ -203,11 +203,11 @@ impl Engine<'_> {
                 }
             }
             for release in self.meta.list_releases(&repo)? {
-                if this_repo && dropped_release_set.contains(&release.bundle_id) {
+                if this_repo && dropped_release_set.contains(&release.candidate_id) {
                     continue;
                 }
-                if let Ok(bundle) = self.meta.get_bundle(&release.bundle_id)
-                    && let Some(root) = &bundle.root_manifest
+                if let Ok(candidate) = self.meta.get_candidate(&release.candidate_id)
+                    && let Some(root) = &candidate.root_manifest
                 {
                     self.mark_manifest(root, &mut marked)?;
                 }

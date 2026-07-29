@@ -4,11 +4,11 @@
 use anyhow::Result;
 
 use converge_model::{
-    BundleStatus, GateGraph, GateNode, Manifest, ManifestEntry, ManifestEntryKind, ObjectId,
+    CandidateStatus, GateGraph, GateNode, Manifest, ManifestEntry, ManifestEntryKind, ObjectId,
 };
 use converge_server::{
     Capability, Engine, FsObjectStore, MetadataStore, ObjectKind, ObjectStore, PublishInput,
-    SqliteMetadataStore, StoredBundle, authorize,
+    SqliteMetadataStore, StoredCandidate, authorize,
 };
 
 struct Fixture {
@@ -75,7 +75,7 @@ fn test_snap_record(tag: &str, root: converge_model::ObjectId) -> converge_model
         created_at: "2026-07-24T00:00:00Z".into(),
         root_manifest: root,
         parents: Vec::new(),
-        derived_from_bundle: None,
+        derived_from_candidate: None,
         message: None,
         trigger: "explicit".into(),
         stats: converge_model::SnapStats::default(),
@@ -108,7 +108,7 @@ fn publish(
     snap: &str,
     root: ObjectId,
     base: Option<String>,
-) -> Result<StoredBundle> {
+) -> Result<StoredCandidate> {
     let engine = Engine {
         meta: &fx.meta,
         objects: &fx.objects,
@@ -120,15 +120,15 @@ fn publish(
         PublishInput {
             gate_id: "intake".into(),
             snap: test_snap_record(snap, root),
-            base_bundle_id: base,
+            base_candidate_id: base,
             lane_id: Some(lane.into()),
             notes: None,
         },
     )
 }
 
-fn file_bytes(fx: &Fixture, bundle: &StoredBundle, name: &str) -> Result<Vec<u8>> {
-    let root = bundle.root_manifest.clone().expect("root");
+fn file_bytes(fx: &Fixture, candidate: &StoredCandidate, name: &str) -> Result<Vec<u8>> {
+    let root = candidate.root_manifest.clone().expect("root");
     let manifest: Manifest =
         converge_model::encoding::decode_manifest(&fx.objects.get(ObjectKind::Manifest, &root)?)?;
     match &manifest
@@ -148,7 +148,7 @@ const BASE: &[u8] = b"line one\nline two\nline three\nline four\nline five\n";
 #[test]
 fn disjoint_line_edits_merge_cleanly() -> Result<()> {
     let fx = fixture()?;
-    let bundle1 = publish(
+    let candidate1 = publish(
         &fx,
         "lane-0",
         "snap-0",
@@ -167,27 +167,27 @@ fn disjoint_line_edits_merge_cleanly() -> Result<()> {
         "lane-b",
         "snap-b",
         tree_b,
-        Some(bundle1.bundle_id.clone()),
+        Some(candidate1.candidate_id.clone()),
     )?;
     let tree_c = put_file(
         &fx,
         "code.txt",
         b"line one\nline two\nline three\nline four\nline five EDITED\n",
     )?;
-    let bundle = publish(
+    let candidate = publish(
         &fx,
         "lane-c",
         "snap-c",
         tree_c,
-        Some(bundle1.bundle_id.clone()),
+        Some(candidate1.candidate_id.clone()),
     )?;
 
     assert_eq!(
-        bundle.status,
-        BundleStatus::Ready { promotable: true },
+        candidate.status,
+        CandidateStatus::Ready { promotable: true },
         "disjoint text edits must line-merge, not superpose"
     );
-    let merged = file_bytes(&fx, &bundle, "code.txt")?;
+    let merged = file_bytes(&fx, &candidate, "code.txt")?;
     assert_eq!(
         merged,
         b"line one EDITED\nline two\nline three\nline four\nline five EDITED\n"
@@ -202,7 +202,7 @@ fn disjoint_line_edits_merge_cleanly() -> Result<()> {
 #[test]
 fn overlapping_edits_superpose_original_variants() -> Result<()> {
     let fx = fixture()?;
-    let bundle1 = publish(
+    let candidate1 = publish(
         &fx,
         "lane-0",
         "snap-0",
@@ -220,27 +220,27 @@ fn overlapping_edits_superpose_original_variants() -> Result<()> {
         "lane-b",
         "snap-b",
         tree_b,
-        Some(bundle1.bundle_id.clone()),
+        Some(candidate1.candidate_id.clone()),
     )?;
     let tree_c = put_file(
         &fx,
         "code.txt",
         b"line one C\nline two\nline three\nline four\nline five\n",
     )?;
-    let bundle = publish(
+    let candidate = publish(
         &fx,
         "lane-c",
         "snap-c",
         tree_c,
-        Some(bundle1.bundle_id.clone()),
+        Some(candidate1.candidate_id.clone()),
     )?;
 
     assert_eq!(
-        bundle.status,
-        BundleStatus::Ready { promotable: false },
+        candidate.status,
+        CandidateStatus::Ready { promotable: false },
         "true conflict superposes"
     );
-    let root = bundle.root_manifest.clone().expect("root");
+    let root = candidate.root_manifest.clone().expect("root");
     let manifest: Manifest =
         converge_model::encoding::decode_manifest(&fx.objects.get(ObjectKind::Manifest, &root)?)?;
     match &manifest.entries[0].kind {
@@ -256,7 +256,7 @@ fn overlapping_edits_superpose_original_variants() -> Result<()> {
 fn binary_content_falls_back_to_whole_file() -> Result<()> {
     let fx = fixture()?;
     let base: &[u8] = b"\x00\x01\x02base";
-    let bundle1 = publish(
+    let candidate1 = publish(
         &fx,
         "lane-0",
         "snap-0",
@@ -270,20 +270,20 @@ fn binary_content_falls_back_to_whole_file() -> Result<()> {
         "lane-b",
         "snap-b",
         tree_b,
-        Some(bundle1.bundle_id.clone()),
+        Some(candidate1.candidate_id.clone()),
     )?;
     let tree_c = put_file(&fx, "asset.bin", b"\x00\x01\x02ccc")?;
-    let bundle = publish(
+    let candidate = publish(
         &fx,
         "lane-c",
         "snap-c",
         tree_c,
-        Some(bundle1.bundle_id.clone()),
+        Some(candidate1.candidate_id.clone()),
     )?;
 
     assert_eq!(
-        bundle.status,
-        BundleStatus::Ready { promotable: false },
+        candidate.status,
+        CandidateStatus::Ready { promotable: false },
         "binary divergence superposes under text-line-merge"
     );
     Ok(())
@@ -293,7 +293,7 @@ fn binary_content_falls_back_to_whole_file() -> Result<()> {
 fn text_line_merge_is_deterministic() -> Result<()> {
     let run = || -> Result<(String, ObjectId)> {
         let fx = fixture()?;
-        let bundle1 = publish(
+        let candidate1 = publish(
             &fx,
             "lane-0",
             "snap-0",
@@ -310,21 +310,24 @@ fn text_line_merge_is_deterministic() -> Result<()> {
             "lane-b",
             "snap-b",
             tree_b,
-            Some(bundle1.bundle_id.clone()),
+            Some(candidate1.candidate_id.clone()),
         )?;
         let tree_c = put_file(
             &fx,
             "code.txt",
             b"line one\nline two\nline three\nline four\nline five EDITED\n",
         )?;
-        let bundle = publish(
+        let candidate = publish(
             &fx,
             "lane-c",
             "snap-c",
             tree_c,
-            Some(bundle1.bundle_id.clone()),
+            Some(candidate1.candidate_id.clone()),
         )?;
-        Ok((bundle.strategy.clone(), bundle.root_manifest.expect("root")))
+        Ok((
+            candidate.strategy.clone(),
+            candidate.root_manifest.expect("root"),
+        ))
     };
     let (strategy1, root1) = run()?;
     let (_strategy2, root2) = run()?;

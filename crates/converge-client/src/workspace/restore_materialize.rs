@@ -22,7 +22,7 @@ impl Workspace {
 
     /// Materialize a stored tree into the workspace and capture it as a
     /// snap (batch 16.1) — the "continue from this tree" move that
-    /// `resolve apply` and bundle checkout both need.
+    /// `resolve apply` and candidate checkout both need.
     ///
     /// Doc 17 §1 splits the two halves deliberately: materializing alone
     /// does not move head, so head moves here only because the capture
@@ -31,14 +31,14 @@ impl Workspace {
         &self,
         root_manifest: &ObjectId,
         message: Option<String>,
-        derived_from_bundle: Option<&str>,
+        derived_from_candidate: Option<&str>,
         force: bool,
     ) -> Result<crate::model::SnapRecord> {
         self.ensure_safe_to_overwrite(force)?;
         let preserve = self.preserved_entries();
         let preserve: Vec<&str> = preserve.iter().map(String::as_str).collect();
         materialize_fs::materialize_via_temp(&self.store, root_manifest, &self.root, &preserve)?;
-        let snap = self.capture_tree(root_manifest, message, derived_from_bundle)?;
+        let snap = self.capture_tree(root_manifest, message, derived_from_candidate)?;
         self.store.set_head(Some(&snap.id))?;
         Ok(snap)
     }

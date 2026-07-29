@@ -4,12 +4,12 @@
 use anyhow::Result;
 
 use converge_model::{
-    BundleStatus, GateGraph, GateNode, Manifest, ManifestEntry, ManifestEntryKind, ObjectId,
+    CandidateStatus, GateGraph, GateNode, Manifest, ManifestEntry, ManifestEntryKind, ObjectId,
     SuperpositionVariantKind,
 };
 use converge_server::{
     Capability, Engine, FsObjectStore, MetadataStore, ObjectKind, ObjectStore, PublishInput,
-    SqliteMetadataStore, StoredBundle, authorize,
+    SqliteMetadataStore, StoredCandidate, authorize,
 };
 
 struct Fixture {
@@ -93,7 +93,7 @@ fn test_snap_record(tag: &str, root: converge_model::ObjectId) -> converge_model
         created_at: "2026-07-24T00:00:00Z".into(),
         root_manifest: root,
         parents: Vec::new(),
-        derived_from_bundle: None,
+        derived_from_candidate: None,
         message: None,
         trigger: "explicit".into(),
         stats: converge_model::SnapStats::default(),
@@ -126,7 +126,7 @@ fn publish(
     snap: &str,
     root: ObjectId,
     base: Option<String>,
-) -> Result<StoredBundle> {
+) -> Result<StoredCandidate> {
     let engine = Engine {
         meta: &fx.meta,
         objects: &fx.objects,
@@ -138,24 +138,24 @@ fn publish(
         PublishInput {
             gate_id: "intake".into(),
             snap: test_snap_record(snap, root),
-            base_bundle_id: base,
+            base_candidate_id: base,
             lane_id: Some(lane.into()),
             notes: None,
         },
     )
 }
 
-fn promote(fx: &Fixture, bundle_id: &str) -> Result<()> {
+fn promote(fx: &Fixture, candidate_id: &str) -> Result<()> {
     let engine = Engine {
         meta: &fx.meta,
         objects: &fx.objects,
     };
     let authz = authorize(&fx.meta, "alice", "repo", "scope", Capability::Promote)?;
-    engine.promote(authz, bundle_id, "main")
+    engine.promote(authz, candidate_id, "main")
 }
 
-fn manifest_of(fx: &Fixture, bundle: &StoredBundle) -> Result<Manifest> {
-    let root = bundle.root_manifest.clone().expect("root");
+fn manifest_of(fx: &Fixture, candidate: &StoredCandidate) -> Result<Manifest> {
+    let root = candidate.root_manifest.clone().expect("root");
     converge_model::encoding::decode_manifest(&fx.objects.get(ObjectKind::Manifest, &root)?)
 }
 
@@ -171,25 +171,28 @@ fn entry<'m>(manifest: &'m Manifest, name: &str) -> Option<&'m ManifestEntryKind
 fn sequential_edit_supersedes_instead_of_superposing() -> Result<()> {
     let fx = fixture()?;
     let tree_a = put_tree(&fx, &[("config.txt", b"X"), ("other.txt", b"Y")])?;
-    let bundle1 = publish(&fx, "lane-a", "snap-a", tree_a, None)?;
-    assert_eq!(bundle1.status, BundleStatus::Ready { promotable: true });
+    let candidate1 = publish(&fx, "lane-a", "snap-a", tree_a, None)?;
+    assert_eq!(
+        candidate1.status,
+        CandidateStatus::Ready { promotable: true }
+    );
 
-    // B builds on bundle1 (its base contains A's X) and modifies config.
+    // B builds on candidate1 (its base contains A's X) and modifies config.
     let tree_b = put_tree(&fx, &[("config.txt", b"Z"), ("other.txt", b"Y")])?;
-    let bundle2 = publish(
+    let candidate2 = publish(
         &fx,
         "lane-b",
         "snap-b",
         tree_b,
-        Some(bundle1.bundle_id.clone()),
+        Some(candidate1.candidate_id.clone()),
     )?;
 
     assert_eq!(
-        bundle2.status,
-        BundleStatus::Ready { promotable: true },
+        candidate2.status,
+        CandidateStatus::Ready { promotable: true },
         "sequential edit must not superpose"
     );
-    let manifest = manifest_of(&fx, &bundle2)?;
+    let manifest = manifest_of(&fx, &candidate2)?;
     match entry(&manifest, "config.txt").expect("config present") {
         ManifestEntryKind::File { blob, .. } => {
             assert_eq!(fx.objects.get(ObjectKind::Blob, blob)?, b"Z");
@@ -203,19 +206,19 @@ fn sequential_edit_supersedes_instead_of_superposing() -> Result<()> {
 fn untouched_publisher_never_collides() -> Result<()> {
     let fx = fixture()?;
     let tree_a = put_tree(&fx, &[("app.txt", b"code"), ("doc.txt", b"v1")])?;
-    let bundle1 = publish(&fx, "lane-a", "snap-a", tree_a, None)?;
+    let candidate1 = publish(&fx, "lane-a", "snap-a", tree_a, None)?;
 
-    // B publishes with base=bundle1, touching only doc.txt.
+    // B publishes with base=candidate1, touching only doc.txt.
     let tree_b = put_tree(&fx, &[("app.txt", b"code"), ("doc.txt", b"v2")])?;
-    let bundle2 = publish(
+    let candidate2 = publish(
         &fx,
         "lane-b",
         "snap-b",
         tree_b,
-        Some(bundle1.bundle_id.clone()),
+        Some(candidate1.candidate_id.clone()),
     )?;
 
-    let manifest = manifest_of(&fx, &bundle2)?;
+    let manifest = manifest_of(&fx, &candidate2)?;
     match entry(&manifest, "app.txt").expect("app present") {
         ManifestEntryKind::File { .. } => {}
         other => panic!("untouched path superposed: {other:?}"),
@@ -226,7 +229,10 @@ fn untouched_publisher_never_collides() -> Result<()> {
         }
         other => panic!("expected clean file, got {other:?}"),
     }
-    assert_eq!(bundle2.status, BundleStatus::Ready { promotable: true });
+    assert_eq!(
+        candidate2.status,
+        CandidateStatus::Ready { promotable: true }
+    );
     Ok(())
 }
 
@@ -234,24 +240,27 @@ fn untouched_publisher_never_collides() -> Result<()> {
 fn clean_deletion_removes_path() -> Result<()> {
     let fx = fixture()?;
     let tree_a = put_tree(&fx, &[("keep.txt", b"k"), ("gone.txt", b"g")])?;
-    let bundle1 = publish(&fx, "lane-a", "snap-a", tree_a, None)?;
+    let candidate1 = publish(&fx, "lane-a", "snap-a", tree_a, None)?;
 
     let tree_b = put_tree(&fx, &[("keep.txt", b"k")])?;
-    let bundle2 = publish(
+    let candidate2 = publish(
         &fx,
         "lane-b",
         "snap-b",
         tree_b,
-        Some(bundle1.bundle_id.clone()),
+        Some(candidate1.candidate_id.clone()),
     )?;
 
-    let manifest = manifest_of(&fx, &bundle2)?;
+    let manifest = manifest_of(&fx, &candidate2)?;
     assert!(
         entry(&manifest, "gone.txt").is_none(),
         "deletion propagated"
     );
     assert!(entry(&manifest, "keep.txt").is_some());
-    assert_eq!(bundle2.status, BundleStatus::Ready { promotable: true });
+    assert_eq!(
+        candidate2.status,
+        CandidateStatus::Ready { promotable: true }
+    );
     Ok(())
 }
 
@@ -259,29 +268,32 @@ fn clean_deletion_removes_path() -> Result<()> {
 fn delete_vs_modify_superposes_with_tombstone() -> Result<()> {
     let fx = fixture()?;
     let tree = put_tree(&fx, &[("contested.txt", b"original")])?;
-    let bundle1 = publish(&fx, "lane-a", "snap-a", tree, None)?;
-    promote(&fx, &bundle1.bundle_id)?;
+    let candidate1 = publish(&fx, "lane-a", "snap-a", tree, None)?;
+    promote(&fx, &candidate1.candidate_id)?;
 
-    // Parallel over bundle1: B modifies, C deletes.
+    // Parallel over candidate1: B modifies, C deletes.
     let tree_b = put_tree(&fx, &[("contested.txt", b"modified")])?;
     publish(
         &fx,
         "lane-b",
         "snap-b",
         tree_b,
-        Some(bundle1.bundle_id.clone()),
+        Some(candidate1.candidate_id.clone()),
     )?;
     let tree_c = put_tree(&fx, &[])?;
-    let bundle3 = publish(
+    let candidate3 = publish(
         &fx,
         "lane-c",
         "snap-c",
         tree_c,
-        Some(bundle1.bundle_id.clone()),
+        Some(candidate1.candidate_id.clone()),
     )?;
 
-    assert_eq!(bundle3.status, BundleStatus::Ready { promotable: false });
-    let manifest = manifest_of(&fx, &bundle3)?;
+    assert_eq!(
+        candidate3.status,
+        CandidateStatus::Ready { promotable: false }
+    );
+    let manifest = manifest_of(&fx, &candidate3)?;
     match entry(&manifest, "contested.txt").expect("contested present") {
         ManifestEntryKind::Superposition { variants } => {
             assert_eq!(variants.len(), 2);
@@ -309,36 +321,39 @@ fn promotion_resets_window_and_sets_w() -> Result<()> {
     let tree_a = put_tree(&fx, &[("a.txt", b"1")])?;
     let tree_b = put_tree(&fx, &[("a.txt", b"1"), ("b.txt", b"2")])?;
     publish(&fx, "lane-a", "snap-a", tree_a, None)?;
-    let bundle2 = publish(&fx, "lane-a", "snap-b", tree_b, None)?;
-    assert_eq!(bundle2.window, (1, 2), "window spans both publications");
+    let candidate2 = publish(&fx, "lane-a", "snap-b", tree_b, None)?;
+    assert_eq!(candidate2.window, (1, 2), "window spans both publications");
 
-    promote(&fx, &bundle2.bundle_id)?;
+    promote(&fx, &candidate2.candidate_id)?;
 
     // Post-promotion publish: window contains only the new publication and
-    // folds onto the promoted bundle as W.
+    // folds onto the promoted candidate as W.
     let tree_c = put_tree(&fx, &[("a.txt", b"1"), ("b.txt", b"2"), ("c.txt", b"3")])?;
-    let bundle3 = publish(
+    let candidate3 = publish(
         &fx,
         "lane-c",
         "snap-c",
         tree_c,
-        Some(bundle2.bundle_id.clone()),
+        Some(candidate2.candidate_id.clone()),
     )?;
 
     assert_eq!(
-        bundle3.inputs.len(),
+        candidate3.inputs.len(),
         1,
         "earlier publications left the pool"
     );
-    assert_eq!(bundle3.window, (3, 3));
+    assert_eq!(candidate3.window, (3, 3));
     assert_eq!(
-        bundle3.base_bundle_id.as_deref(),
-        Some(bundle2.bundle_id.as_str()),
-        "promoted bundle is W"
+        candidate3.base_candidate_id.as_deref(),
+        Some(candidate2.candidate_id.as_str()),
+        "promoted candidate is W"
     );
-    let manifest = manifest_of(&fx, &bundle3)?;
+    let manifest = manifest_of(&fx, &candidate3)?;
     assert!(entry(&manifest, "a.txt").is_some(), "W carried through");
     assert!(entry(&manifest, "c.txt").is_some());
-    assert_eq!(bundle3.status, BundleStatus::Ready { promotable: true });
+    assert_eq!(
+        candidate3.status,
+        CandidateStatus::Ready { promotable: true }
+    );
     Ok(())
 }

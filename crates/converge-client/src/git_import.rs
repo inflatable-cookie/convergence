@@ -144,7 +144,7 @@ fn snap_of_tree(
             .context("format created_at")?,
         root_manifest,
         parents,
-        derived_from_bundle: None,
+        derived_from_candidate: None,
         message: Some(message.to_string()),
         trigger: "explicit".to_string(),
         stats,

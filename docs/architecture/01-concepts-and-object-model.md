@@ -17,16 +17,16 @@ A repo is the top-level namespace for:
 - a gate graph
 - scopes
 - lanes (organizational ownership/visibility partitions)
-- bundles/releases produced by gates
+- candidates/releases produced by gates
 - stored blobs/manifests and provenance
 
 ### Workspace
 
 A workspace is a client-side working directory plus local metadata that can:
 - take snaps from the filesystem
-- compute diffs between local state and known base bundles
+- compute diffs between local state and known base candidates
 - publish snaps to the server
-- materialize views of a bundle (optionally with overlays/superpositions)
+- materialize views of a candidate (optionally with overlays/superpositions)
 
 ### Snap
 
@@ -75,8 +75,8 @@ Minimum metadata:
 
 A gate is a policy boundary that:
 - defines what inputs it accepts
-- defines how to coalesce inputs into a bundle
-- defines checks/approvals required for a bundle to be promotable
+- defines how to coalesce inputs into a candidate
+- defines checks/approvals required for a candidate to be promotable
 
 **Research basis**: [Translation Memo 002](../research/translation-memos/002-gate-policy-model.md)
 
@@ -85,40 +85,40 @@ Gates are connected as a DAG that typically converges to a terminal gate for the
 Gate characteristics (informed by research):
 - **Server-authoritative** — Policy lives on and is enforced by the server
 - **Configurable policy** — Not hardcoded (unlike Perforce stream types)
-- **Produces bundles** — Gates consume publications/bundles, output bundles
+- **Produces candidates** — Gates consume publications/candidates, output candidates
 - **Explicit promotion** — User-initiated `promote` operation with policy checking
 
 
-### Bundle
+### Candidate
 
-A `bundle` is the output artifact of a gate.
+A `candidate` is the output artifact of a gate.
 
 Invariants:
-- Bundles are immutable.
-- A bundle may contain unresolved superpositions.
-- A bundle has a promotability status per gate policy.
+- Candidates are immutable.
+- A candidate may contain unresolved superpositions.
+- A candidate has a promotability status per gate policy.
 
 Minimum metadata:
-- `bundle_id`
+- `candidate_id`
 - `produced_by_gate_id`
 - `scope_id`
-- `inputs` (publications and/or upstream bundles)
+- `inputs` (publications and/or upstream candidates)
 - `root_manifest_id`
 - `provenance` (who/when/how; policies executed)
 - `status` (e.g. promotable true/false + reasons)
 
 Phase 3 MVP note:
-- The first implementation uses a simplified bundle record (root manifest + publication ids) and does not yet compute a coalesced manifest from inputs.
+- The first implementation uses a simplified candidate record (root manifest + publication ids) and does not yet compute a coalesced manifest from inputs.
 
 ### Promotion
 
-`promote` is an operation that advances a bundle to a downstream gate.
+`promote` is an operation that advances a candidate to a downstream gate.
 
-Promotion is always policy-checked. A bundle that fails policy is not promotable; it can still exist and be inspected.
+Promotion is always policy-checked. A candidate that fails policy is not promotable; it can still exist and be inspected.
 
 ### Release
 
-A `release` is a bundle designated for consumption under a semver version (g02.028): unique, immutable, withdrawable by `yank` but never re-pointed. `latest` is a computation — highest non-yanked, non-prerelease version — and prerelease tags (`1.2.0-beta.1`) do the job release channels do elsewhere; gates do the rest.
+A `release` is a candidate designated for consumption under a semver version (g02.028): unique, immutable, withdrawable by `yank` but never re-pointed. `latest` is a computation — highest non-yanked, non-prerelease version — and prerelease tags (`1.2.0-beta.1`) do the job release channels do elsewhere; gates do the rest.
 
 Notes:
 - A release is typically cut from the terminal gate of the primary gate graph, but it is not required.
@@ -147,14 +147,14 @@ Key properties:
 
 Superpositions can exist in:
 - workspaces (private)
-- bundles (phase outputs)
+- candidates (phase outputs)
 
 See [04-superpositions-and-resolution.md](./04-superpositions-and-resolution.md) for detailed structure.
 
 ### Lane (breadth partition)
 
 A lane defines the default breadth/visibility partition:
-- who sees whose publications/bundles by default
+- who sees whose publications/candidates by default
 - who is responsible for convergence at which gates
 
 Lanes support organizational scaling by preventing "subscribe to everyone" workflows.
@@ -165,7 +165,7 @@ A scope is a branch-like track for a feature/milestone/release train.
 
 Scopes:
 - flow through the same gate graph
-- contain publications/bundles specific to that track
+- contain publications/candidates specific to that track
 
 ## Identity and authorization (brief)
 

@@ -10,7 +10,7 @@ use axum::{Json, Router};
 use serde_json::json;
 
 use converge_model::{
-    AddLaneMemberRequest, ApproveRequest, BundleProvenance, BundleRecord, CreateLaneRequest,
+    AddLaneMemberRequest, ApproveRequest, CandidateProvenance, CandidateRecord, CreateLaneRequest,
     InboxReport, LaneHead, LaneRecord, NegotiateRequest, NegotiateResponse, ObjectFrame, ObjectId,
     ObjectSet, Page, PromoteRequest, PublishRequest, ReleaseRecord, ReleaseRequest,
     RetentionPolicy, SetLaneHeadRequest, SnapRecord, VerifyReport, WIRE_VERSION,
@@ -18,7 +18,7 @@ use converge_model::{
 
 use crate::authz::{AuthzContext, Capability, authorize};
 use crate::engine::{Engine, PublishInput};
-use crate::storage::{AssociatingObjects, MetadataStore, ObjectKind, ObjectStore, StoredBundle};
+use crate::storage::{AssociatingObjects, MetadataStore, ObjectKind, ObjectStore, StoredCandidate};
 
 pub struct AppState {
     pub meta: Arc<dyn MetadataStore>,
@@ -56,11 +56,11 @@ pub fn router(state: AppState) -> Router {
         .route("/api/repos/:repo/objects/batch", post(put_batch))
         .route("/api/repos/:repo/objects/batch-get", post(get_batch))
         .route("/api/publish", post(publish))
-        .route("/api/bundles/:id", get(get_bundle))
-        .route("/api/bundles/:id/provenance", get(get_provenance))
-        .route("/api/bundles/:id/verify", get(verify_bundle))
-        .route("/api/bundles/:id/approve", post(approve))
-        .route("/api/bundles/:id/promote", post(promote))
+        .route("/api/candidates/:id", get(get_candidate))
+        .route("/api/candidates/:id/provenance", get(get_provenance))
+        .route("/api/candidates/:id/verify", get(verify_candidate))
+        .route("/api/candidates/:id/approve", post(approve))
+        .route("/api/candidates/:id/promote", post(promote))
         .route("/api/repos", post(create_repo))
         .route(
             "/api/repos/:repo/members",
@@ -96,7 +96,7 @@ pub fn router(state: AppState) -> Router {
         .route("/api/repos/:repo/gates", get(get_gates).put(set_gates))
         .route("/api/repos/:repo/inbox", get(inbox))
         .route("/api/repos/:repo/events", get(list_events))
-        .route("/api/bundles/:id/release", post(release))
+        .route("/api/candidates/:id/release", post(release))
         .route("/api/repos/:repo/releases", get(list_releases))
         .route("/api/repos/:repo/release/:version", get(release_lookup))
         .route("/api/repos/:repo/release/:version/yank", post(yank_release))
@@ -317,18 +317,18 @@ fn check_wire_version(version: u32) -> Result<(), ApiError> {
     Ok(())
 }
 
-fn bundle_record(bundle: &StoredBundle) -> BundleRecord {
-    BundleRecord {
-        bundle_id: bundle.bundle_id.clone(),
-        produced_by_gate_id: bundle.gate_id.clone(),
-        scope_id: bundle.scope_id.clone(),
-        inputs: bundle.inputs.clone(),
-        root_manifest: bundle.root_manifest.clone(),
-        base_bundle_id: bundle.base_bundle_id.clone(),
-        window: bundle.window,
-        strategy: bundle.strategy.clone(),
-        status: bundle.status.clone(),
-        created_at: bundle.created_at.clone(),
+fn candidate_record(candidate: &StoredCandidate) -> CandidateRecord {
+    CandidateRecord {
+        candidate_id: candidate.candidate_id.clone(),
+        produced_by_gate_id: candidate.gate_id.clone(),
+        scope_id: candidate.scope_id.clone(),
+        inputs: candidate.inputs.clone(),
+        root_manifest: candidate.root_manifest.clone(),
+        base_candidate_id: candidate.base_candidate_id.clone(),
+        window: candidate.window,
+        strategy: candidate.strategy.clone(),
+        status: candidate.status.clone(),
+        created_at: candidate.created_at.clone(),
     }
 }
 
@@ -562,7 +562,7 @@ async fn publish(
     State(state): State<SharedState>,
     headers: HeaderMap,
     Json(request): Json<PublishRequest>,
-) -> Result<Json<BundleRecord>, ApiError> {
+) -> Result<Json<CandidateRecord>, ApiError> {
     check_wire_version(request.wire_version)?;
     let authz = authorize_scoped(
         &state,
@@ -576,19 +576,19 @@ async fn publish(
         meta: state.meta.as_ref(),
         objects: &scoped,
     };
-    let bundle = engine
+    let candidate = engine
         .publish(
             authz,
             PublishInput {
                 gate_id: request.gate_id,
                 snap: request.snap,
-                base_bundle_id: request.base_bundle_id,
+                base_candidate_id: request.base_candidate_id,
                 lane_id: request.lane_id,
                 notes: request.notes,
             },
         )
         .map_err(|err| bad_request(format!("{err:#}")))?;
-    Ok(Json(bundle_record(&bundle)))
+    Ok(Json(candidate_record(&candidate)))
 }
 
 async fn create_lane(
@@ -1519,8 +1519,8 @@ async fn set_gates(
             .filter(|o| !o.is_empty())
             .map(|o| {
                 format!(
-                    "{} ({} bundle(s), {} open publication(s))",
-                    o.gate_id, o.bundles, o.open_publications
+                    "{} ({} candidate(s), {} open publication(s))",
+                    o.gate_id, o.candidates, o.open_publications
                 )
             })
             .collect::<Vec<_>>()
@@ -1796,46 +1796,54 @@ async fn list_events(
     }))
 }
 
-/// Resolve a bundle-id-keyed read: the bundle names its repo, the caller
-/// must hold `read` there. Unauthorized and absent are both 404 so bundle
+/// Resolve a candidate-id-keyed read: the candidate names its repo, the caller
+/// must hold `read` there. Unauthorized and absent are both 404 so candidate
 /// ids cannot be used as a cross-repo existence oracle.
-fn readable_bundle(
+fn readable_candidate(
     state: &AppState,
     headers: &HeaderMap,
-    bundle_id: &str,
-) -> Result<StoredBundle, ApiError> {
-    let missing = || ApiError(StatusCode::NOT_FOUND, format!("no bundle {bundle_id}"));
-    let bundle = state.meta.get_bundle(bundle_id).map_err(|_| missing())?;
-    // A refusal here is a 404 on purpose (batch 11.3): whether a bundle
+    candidate_id: &str,
+) -> Result<StoredCandidate, ApiError> {
+    let missing = || {
+        ApiError(
+            StatusCode::NOT_FOUND,
+            format!("no candidate {candidate_id}"),
+        )
+    };
+    let candidate = state
+        .meta
+        .get_candidate(candidate_id)
+        .map_err(|_| missing())?;
+    // A refusal here is a 404 on purpose (batch 11.3): whether a candidate
     // exists is itself readable-only information.
     authorize_scoped(
         state,
         headers,
-        &bundle.repo_id,
-        &bundle.scope_id,
+        &candidate.repo_id,
+        &candidate.scope_id,
         Capability::Read,
     )
     .map_err(|_| missing())?;
-    Ok(bundle)
+    Ok(candidate)
 }
 
-async fn get_bundle(
+async fn get_candidate(
     State(state): State<SharedState>,
     Path(id): Path<String>,
     headers: HeaderMap,
-) -> Result<Json<BundleRecord>, ApiError> {
-    let bundle = readable_bundle(&state, &headers, &id)?;
-    Ok(Json(bundle_record(&bundle)))
+) -> Result<Json<CandidateRecord>, ApiError> {
+    let candidate = readable_candidate(&state, &headers, &id)?;
+    Ok(Json(candidate_record(&candidate)))
 }
 
 async fn get_provenance(
     State(state): State<SharedState>,
     Path(id): Path<String>,
     headers: HeaderMap,
-) -> Result<Json<BundleProvenance>, ApiError> {
-    let bundle = readable_bundle(&state, &headers, &id)?;
+) -> Result<Json<CandidateProvenance>, ApiError> {
+    let candidate = readable_candidate(&state, &headers, &id)?;
     let mut inputs = Vec::new();
-    for publication_id in &bundle.inputs {
+    for publication_id in &candidate.inputs {
         if let Some(publication) = state
             .meta
             .get_publication(publication_id)
@@ -1844,18 +1852,18 @@ async fn get_provenance(
             inputs.push(publication);
         }
     }
-    Ok(Json(BundleProvenance {
-        bundle: bundle_record(&bundle),
+    Ok(Json(CandidateProvenance {
+        candidate: candidate_record(&candidate),
         inputs,
     }))
 }
 
-async fn verify_bundle(
+async fn verify_candidate(
     State(state): State<SharedState>,
     Path(id): Path<String>,
     headers: HeaderMap,
 ) -> Result<Json<VerifyReport>, ApiError> {
-    readable_bundle(&state, &headers, &id)?;
+    readable_candidate(&state, &headers, &id)?;
     // Read-only means read-only (batch 11.3): the replay merges into a
     // scratch overlay; the shared store is untouched by this GET.
     let scratch = crate::storage::ScratchObjects::over(state.objects.as_ref());

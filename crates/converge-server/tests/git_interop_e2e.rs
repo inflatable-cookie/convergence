@@ -12,7 +12,7 @@ use converge_client::git_export::export_lineage;
 use converge_client::git_import::{ImportDepth, import};
 use converge_client::remote::RemoteClient;
 use converge_client::workspace::Workspace;
-use converge_model::{BundleStatus, GateGraph, GateNode};
+use converge_model::{CandidateStatus, GateGraph, GateNode};
 use converge_server::{AppState, FsObjectStore, MetadataStore, SqliteMetadataStore, router};
 
 fn git_available() -> bool {
@@ -117,11 +117,14 @@ fn git_repo_imports_works_under_convergence_and_mirrors_back() -> Result<()> {
     // Work under Convergence: change + snap + publish + release.
     std::fs::write(root.join("game.cfg"), "resolution=1440")?;
     let snap = ws.create_snap(Some("bump resolution".into()))?;
-    let (bundle, _) = alice.publish(
+    let (candidate, _) = alice.publish(
         &ws.store, "repo", "scope", "intake", &snap, None, None, None,
     )?;
-    assert_eq!(bundle.status, BundleStatus::Ready { promotable: true });
-    alice.release(&bundle.bundle_id, "repo", "scope", "1.0.0", None)?;
+    assert_eq!(
+        candidate.status,
+        CandidateStatus::Ready { promotable: true }
+    );
+    alice.release(&candidate.candidate_id, "repo", "scope", "1.0.0", None)?;
 
     // Export the full lineage: only the new snap becomes a new commit.
     let export = export_lineage(&ws.store, root, "converge/lane/local", &snap.id)?;

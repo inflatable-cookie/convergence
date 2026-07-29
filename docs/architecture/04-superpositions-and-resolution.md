@@ -10,7 +10,7 @@ A superposition exists when multiple versions compete for the same logical path 
 
 Examples:
 - two publications modify `src/lib.rs` in incompatible ways
-- two bundles both claim different contents for `assets/logo.png`
+- two candidates both claim different contents for `assets/logo.png`
 
 Unlike Git (where conflicts block commits), Convergence treats superpositions as **first-class data** that can be:
 - Stored and versioned
@@ -26,8 +26,8 @@ Unlike Git (where conflicts block commits), Convergence treats superpositions as
 struct Superposition {
     // Identity
     id: Ulid,                    // Time-sortable unique ID
-    bundle_id: Ulid,             // Which bundle contains this
-    path: String,                // File path within bundle
+    candidate_id: Ulid,             // Which candidate contains this
+    path: String,                // File path within candidate
     
     // Variants (conflicting states)
     variants: Vec<SuperpositionVariant>,
@@ -48,7 +48,7 @@ struct SuperpositionVariant {
 }
 
 struct Source {
-    bundle_id: Ulid,
+    candidate_id: Ulid,
     publication_id: Option<Ulid>,
 }
 
@@ -100,12 +100,12 @@ enum ManifestEntryKind {
 
 - User can view all variants of a superposition
 - User can choose a default variant for their workspace without resolving globally
-- Resolution in workspace is local-only (doesn't affect bundle)
+- Resolution in workspace is local-only (doesn't affect candidate)
 
-### Bundle Output
+### Candidate Output
 
-- A gate can emit a bundle containing superpositions (status: `partial`)
-- Bundles with superpositions are valid but limited:
+- A gate can emit a candidate containing superpositions (status: `partial`)
+- Candidates with superpositions are valid but limited:
   - Cannot be promoted to certain gates (policy-dependent)
   - Cannot be released (releases require all superpositions resolved)
 - Promotion can require superpositions be resolved
@@ -113,7 +113,7 @@ enum ManifestEntryKind {
 ### Release Channel
 
 - Releases MUST have all superpositions resolved
-- Release bundles have status: `complete`
+- Release candidates have status: `complete`
 
 ## Resolution
 
@@ -182,9 +182,9 @@ Format:
 
 Resolutions are stored as part of the superposition record.
 
-When a superposition is resolved, the bundle containing it is updated:
+When a superposition is resolved, the candidate containing it is updated:
 - New root manifest with resolved content
-- Previous bundle retained (immutable history)
+- Previous candidate retained (immutable history)
 - Resolution provenance preserved
 
 ## UX Constraints (Large-Org Safe)
@@ -253,10 +253,10 @@ Based on real-world complexity:
 Current:
 - `converge resolve init|pick|clear|show|apply`
 - `converge resolve pick --variant <n>` or `--key <json>`
-- `converge resolve validate --bundle-id <id>`
+- `converge resolve validate --candidate-id <id>`
 
 Planned:
-- `converge superposition list --bundle-id <id>`
+- `converge superposition list --candidate-id <id>`
 - `converge superposition show <superposition-id>`
 - `converge superposition resolve <superposition-id> --method <method>`
 - `converge superposition reopen <superposition-id> --rationale <text>`

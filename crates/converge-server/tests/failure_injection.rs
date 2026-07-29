@@ -152,22 +152,22 @@ fn upload_severed_mid_batch_resumes_cleanly() -> Result<()> {
         match flaky.publish(
             &ws.store, "repo", "scope", "intake", &snap, None, None, None,
         ) {
-            Ok((bundle, _)) => {
-                published = Some(bundle);
+            Ok((candidate, _)) => {
+                published = Some(candidate);
                 break;
             }
             Err(_) => failures += 1,
         }
     }
     assert!(failures > 0, "the proxy never actually cut a connection");
-    let bundle = published.expect("a retry eventually succeeded");
+    let candidate = published.expect("a retry eventually succeeded");
 
     // The tree on the server is complete: fetch it into a fresh store and
     // materialize, which reads every object and verifies each hash.
     let reader = RemoteClient::new(&direct, "token-a");
     let out_dir = tempfile::tempdir()?;
     let out_ws = Workspace::init(out_dir.path(), false)?;
-    let root = reader.fetch_bundle(&out_ws.store, "repo", &bundle.bundle_id)?;
+    let root = reader.fetch_candidate(&out_ws.store, "repo", &candidate.candidate_id)?;
     let materialized = tempfile::tempdir()?;
     out_ws.materialize_manifest_to(&root, materialized.path(), true)?;
     assert_eq!(
@@ -188,7 +188,7 @@ fn corrupted_server_object_is_caught_before_it_reaches_a_workspace() -> Result<(
     let (_dir, ws) = workspace_with_payload(4096)?;
     let snap = ws.create_snap(Some("payload".into()))?;
     let client = RemoteClient::new(&base_url, "token-a");
-    let (bundle, _) = client.publish(
+    let (candidate, _) = client.publish(
         &ws.store, "repo", "scope", "intake", &snap, None, None, None,
     )?;
 
@@ -205,7 +205,7 @@ fn corrupted_server_object_is_caught_before_it_reaches_a_workspace() -> Result<(
     let out_dir = tempfile::tempdir()?;
     let out_ws = Workspace::init(out_dir.path(), false)?;
     let err = client
-        .fetch_bundle(&out_ws.store, "repo", &bundle.bundle_id)
+        .fetch_candidate(&out_ws.store, "repo", &candidate.candidate_id)
         .expect_err("corruption must not be served as content");
     let message = format!("{err:#}").to_lowercase();
     assert!(
@@ -301,10 +301,13 @@ fn gc_interrupted_mid_sweep_keeps_live_objects_and_finishes_later() -> Result<()
         format!("http://{addr}")
     };
     let client = RemoteClient::new(&base_url, "token-a");
-    let (bundle, _) = client.publish(
+    let (candidate, _) = client.publish(
         &ws.store, "repo", "scope", "intake", &snap, None, None, None,
     )?;
-    let live_root = bundle.root_manifest.clone().expect("bundle has a root");
+    let live_root = candidate
+        .root_manifest
+        .clone()
+        .expect("candidate has a root");
 
     let mut garbage = Vec::new();
     for i in 0..6 {

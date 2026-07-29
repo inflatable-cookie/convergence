@@ -193,7 +193,7 @@ fn a_change_that_would_strand_work_is_refused_then_forced() -> Result<()> {
         "the refusal did not name the gate: {err}"
     );
     assert!(
-        err.contains("bundle"),
+        err.contains("candidate"),
         "the refusal did not say what it holds: {err}"
     );
 
@@ -321,11 +321,11 @@ fn an_admins_read_scoped_token_still_cannot_reshape_the_graph() -> Result<()> {
     Ok(())
 }
 
-/// The staged flow, which had never run before batch 26.4: a bundle
+/// The staged flow, which had never run before batch 26.4: a candidate
 /// travelling intake -> review -> release and being released there.
 ///
 /// Three defects made this impossible, all from one assumption — that a
-/// bundle is only ever at the gate that produced it:
+/// candidate is only ever at the gate that produced it:
 ///
 /// - promotion checked the target's upstreams against the *producing*
 ///   gate, so any gate whose upstream was not an entry gate was
@@ -335,7 +335,7 @@ fn an_admins_read_scoped_token_still_cannot_reshape_the_graph() -> Result<()> {
 /// - `release` read `may_release` off the producing gate, which in a
 ///   staged graph is the entry gate
 #[test]
-fn a_bundle_travels_the_whole_staged_graph() -> Result<()> {
+fn a_candidate_travels_the_whole_staged_graph() -> Result<()> {
     let server_dir = tempfile::tempdir()?;
     let base_url = start_server(server_dir.path())?;
     admin(server_dir.path())?;
@@ -353,10 +353,10 @@ fn a_bundle_travels_the_whole_staged_graph() -> Result<()> {
     let ws = Workspace::init(ws_dir.path(), false)?;
     std::fs::write(ws_dir.path().join("a.txt"), "staged")?;
     let snap = ws.create_snap(Some("staged".into()))?;
-    let (bundle, _) = alice.publish(
+    let (candidate, _) = alice.publish(
         &ws.store, "repo", "scope", "intake", &snap, None, None, None,
     )?;
-    let id = bundle.bundle_id.clone();
+    let id = candidate.candidate_id.clone();
 
     // Skipping a stage is still refused: release accepts only review.
     let err = alice.promote(&id, "repo", "scope", "release").unwrap_err();
@@ -379,18 +379,18 @@ fn a_bundle_travels_the_whole_staged_graph() -> Result<()> {
     // And it can be released from the gate it reached, not the one that
     // built it.
     alice.release(&id, "repo", "scope", "1.0.0", None)?;
-    assert_eq!(alice.resolve_release("repo", "latest")?.bundle_id, id);
+    assert_eq!(alice.resolve_release("repo", "latest")?.candidate_id, id);
     Ok(())
 }
 
 /// An id given as a prefix must be stored resolved.
 ///
-/// Batch 22.4 taught the server to accept shortened bundle ids, because
+/// Batch 22.4 taught the server to accept shortened candidate ids, because
 /// the CLI prints them. Batch 26.4 found what that cost: every verb that
 /// *records* an id wrote back whatever the caller typed, so approvals,
 /// promotions and releases all held twelve-character ids referencing no
-/// real bundle. The promotion then failed to match the partition's base
-/// and reported the bundle stale; worse, GC protects released bundles by
+/// real candidate. The promotion then failed to match the partition's base
+/// and reported the candidate stale; worse, GC protects released candidates by
 /// comparing ids, and a truncated id never matches.
 #[test]
 fn a_prefix_is_recorded_as_the_id_it_resolved_to() -> Result<()> {
@@ -409,10 +409,10 @@ fn a_prefix_is_recorded_as_the_id_it_resolved_to() -> Result<()> {
     let ws = Workspace::init(ws_dir.path(), false)?;
     std::fs::write(ws_dir.path().join("a.txt"), "prefix")?;
     let snap = ws.create_snap(Some("prefix".into()))?;
-    let (bundle, _) = alice.publish(
+    let (candidate, _) = alice.publish(
         &ws.store, "repo", "scope", "intake", &snap, None, None, None,
     )?;
-    let full = bundle.bundle_id.clone();
+    let full = candidate.candidate_id.clone();
     let short = &full[..12];
 
     // Everything driven by the short form, the way a person would after
@@ -435,7 +435,7 @@ fn a_prefix_is_recorded_as_the_id_it_resolved_to() -> Result<()> {
     );
     let head = alice.resolve_release("repo", "latest")?;
     assert_eq!(
-        head.bundle_id, full,
+        head.candidate_id, full,
         "the release recorded a truncated id, which GC would not match"
     );
     Ok(())
@@ -468,28 +468,28 @@ fn the_inbox_recommends_the_next_stage() -> Result<()> {
     let ws = Workspace::init(ws_dir.path(), false)?;
     std::fs::write(ws_dir.path().join("a.txt"), "staged")?;
     let snap = ws.create_snap(Some("staged".into()))?;
-    let (bundle, _) = alice.publish(
+    let (candidate, _) = alice.publish(
         &ws.store, "repo", "scope", "intake", &snap, None, None, None,
     )?;
-    let id = bundle.bundle_id.clone();
+    let id = candidate.candidate_id.clone();
 
     let row = |report: converge_model::InboxReport| {
         report
-            .bundles
+            .candidates
             .into_iter()
-            .find(|b| b.bundle_id == id)
-            .expect("the bundle is not in the inbox at all")
+            .find(|b| b.candidate_id == id)
+            .expect("the candidate is not in the inbox at all")
     };
 
     // At intake: promote, and the one onward gate is named so the row is
     // a command rather than a hint.
     let first = row(alice.inbox("repo", "scope", None)?);
-    // A bundle's human name is the newest work inside it (batch 27.3,
-    // operator: bundles were "keyed only by the hash ID"). The snap was
+    // A candidate's human name is the newest work inside it (batch 27.3,
+    // operator: candidates were "keyed only by the hash ID"). The snap was
     // captured with a message, so that message is the title.
     assert_eq!(
         first.title, "staged",
-        "the bundle is not named by its content"
+        "the candidate is not named by its content"
     );
     assert_eq!(first.window, (1, 1));
     assert_eq!(first.recommendation, "promote");
@@ -524,10 +524,10 @@ fn the_inbox_recommends_the_next_stage() -> Result<()> {
     assert!(
         alice
             .inbox("repo", "scope", None)?
-            .bundles
+            .candidates
             .into_iter()
-            .all(|b| b.bundle_id != id),
-        "a bundle with nowhere to go is still nagging"
+            .all(|b| b.candidate_id != id),
+        "a candidate with nowhere to go is still nagging"
     );
     Ok(())
 }

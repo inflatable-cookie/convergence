@@ -101,7 +101,7 @@ fn copy_tree(from: &Path, to: &Path) -> Result<()> {
 struct Deployment {
     _dir: tempfile::TempDir,
     data: std::path::PathBuf,
-    bundle_id: String,
+    candidate_id: String,
 }
 
 /// A deployment with published work, a release, and a secret — the three
@@ -136,9 +136,9 @@ fn deployment(ws: &Path, home: &Path) -> Result<Deployment> {
     );
 
     let published = json(&converge(ws, home, &["--json", "publish"]));
-    let bundle_id = published["bundle"]["bundle_id"]
+    let candidate_id = published["candidate"]["candidate_id"]
         .as_str()
-        .expect("bundle id")
+        .expect("candidate id")
         .to_string();
 
     assert!(
@@ -166,7 +166,7 @@ fn deployment(ws: &Path, home: &Path) -> Result<Deployment> {
     assert!(set.status.success(), "secret set failed");
 
     assert!(
-        converge(ws, home, &["release", &bundle_id, "--as", "1.0.0"])
+        converge(ws, home, &["release", &candidate_id, "--as", "1.0.0"])
             .status
             .success()
     );
@@ -174,7 +174,7 @@ fn deployment(ws: &Path, home: &Path) -> Result<Deployment> {
     Ok(Deployment {
         _dir: dir,
         data,
-        bundle_id,
+        candidate_id,
     })
 }
 
@@ -226,7 +226,7 @@ fn a_restored_deployment_still_serves_trees_provenance_and_secrets() -> Result<(
     assert_eq!(json(&got)["value"], "postgres://user:pw@db/acme");
 
     // Provenance still replays: the objects are there *and* consistent.
-    let verified = converge(ws, home, &["--json", "verify", &live.bundle_id]);
+    let verified = converge(ws, home, &["--json", "verify", &live.candidate_id]);
     assert!(
         verified.status.success(),
         "verification failed after restore: {}",
@@ -330,7 +330,7 @@ fn a_backup_missing_its_objects_passes_every_check_except_the_deep_one() -> Resu
 
     // And the object store being gone is exactly what it is: verify
     // fails too, from any client.
-    let verified = converge(clean, clean_home.path(), &["verify", &live.bundle_id]);
+    let verified = converge(clean, clean_home.path(), &["verify", &live.candidate_id]);
     assert!(!verified.status.success());
     Ok(())
 }

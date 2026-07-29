@@ -38,7 +38,7 @@ fn start_server(data_dir: &std::path::Path, seed_events: u64) -> Result<String> 
     for i in 0..seed_events {
         meta.add_event(
             "repo",
-            "bundle",
+            "candidate",
             &format!("seed-{i}"),
             "2026-07-24T00:00:00Z",
         )?;
@@ -98,14 +98,14 @@ fn verify_leaves_the_object_store_byte_identical() -> Result<()> {
     let ws = Workspace::init(ws_dir.path(), false)?;
     std::fs::write(ws_dir.path().join("f.txt"), "line one\nline two\n")?;
     let snap = ws.create_snap(Some("s".into()))?;
-    let (bundle, _) = alice.publish(
+    let (candidate, _) = alice.publish(
         &ws.store, "repo", "scope", "intake", &snap, None, None, None,
     )?;
 
     let before = object_snapshot(server_dir.path());
     assert!(!before.is_empty(), "publish stored objects");
-    let report = alice.verify(&bundle.bundle_id)?;
-    assert!(report.verified, "replay reproduces the bundle");
+    let report = alice.verify(&candidate.candidate_id)?;
+    assert!(report.verified, "replay reproduces the candidate");
     let after = object_snapshot(server_dir.path());
     assert_eq!(before, after, "verify (a GET) must not mutate the store");
     Ok(())

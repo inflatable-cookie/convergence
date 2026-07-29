@@ -14,7 +14,7 @@ pub enum View {
     Resolution,
     Inbox,
     /// Remote listings loaded through one CLI verb each (batch 17.1).
-    Bundles,
+    Candidates,
     Releases,
     Lanes,
     Gates,
@@ -32,7 +32,7 @@ impl View {
             View::History => "History",
             View::Resolution => "Superpositions",
             View::Inbox => "Inbox",
-            View::Bundles => "Bundles",
+            View::Candidates => "Candidates",
             View::Releases => "Releases",
             View::Lanes => "Lanes",
             View::Gates => "Gate graph",
@@ -46,7 +46,7 @@ impl View {
     /// nothing here can show data a CLI user cannot reach.
     pub fn loader(&self) -> Option<Vec<String>> {
         match self {
-            View::Bundles => Some(vec!["inbox".into()]),
+            View::Candidates => Some(vec!["inbox".into()]),
             View::Releases => Some(vec!["releases".into()]),
             View::Lanes => Some(vec!["lane".into(), "list".into()]),
             View::Gates => Some(vec!["gates".into()]),
@@ -165,12 +165,12 @@ pub struct Validation {
 /// thing g02.027 was opened about.
 pub const COMMANDS: &[(&str, &str)] = &[
     ("annotate", "set or replace a snap's message"),
-    ("approve", "approve a bundle so it can be promoted"),
-    ("bundle", "show a bundle's record"),
+    ("approve", "approve a candidate so it can be promoted"),
+    ("candidate", "show a candidate's record"),
     ("changes", "what changed since your last snap"),
     ("diff", "compare two snaps"),
     ("events", "poll the repo's event feed"),
-    ("fetch", "pull a bundle or release here"),
+    ("fetch", "pull a candidate or release here"),
     ("gates", "show or reshape the pipeline stages"),
     ("gc", "reclaim server storage (dry-run by default)"),
     ("git", "mirror history to or from git"),
@@ -183,10 +183,10 @@ pub const COMMANDS: &[(&str, &str)] = &[
     ("login", "connect this workspace to a server"),
     ("member", "who can do what in this repo"),
     ("profile", "workflow profile (shapes guidance)"),
-    ("promote", "move a bundle to the next gate"),
+    ("promote", "move a candidate to the next gate"),
     ("publish", "send your snaps to the server"),
     ("releases", "list releases by version"),
-    ("release", "cut a release: <bundle> --as 1.2.0"),
+    ("release", "cut a release: <candidate> --as 1.2.0"),
     ("remote", "show the configured server"),
     ("repo", "repo administration"),
     ("resolve", "settle a superposition, path by path"),
@@ -194,12 +194,12 @@ pub const COMMANDS: &[(&str, &str)] = &[
     ("retention", "what the server keeps, and how long"),
     ("scope", "scope registry operations"),
     ("secret", "encrypted values only you can read"),
-    ("show", "browse a snap or bundle read-only"),
+    ("show", "browse a snap or candidate read-only"),
     ("snap", "capture the workspace as it is now"),
     ("status", "workspace state at a glance"),
     ("sync", "push or pull lane work"),
     ("unsnap", "undo the last capture, keep the files"),
-    ("verify", "replay a bundle and prove its identity"),
+    ("verify", "replay a candidate and prove its identity"),
     ("watch", "auto-snap on quiet periods"),
 ];
 
@@ -211,14 +211,14 @@ pub fn is_remote_command(argv: &[String]) -> bool {
         Some(
             "publish"
                 | "fetch"
-                | "bundle"
+                | "candidate"
                 | "login"
                 | "approve"
                 | "promote"
                 | "sync"
                 | "inbox"
                 | "events"
-                // `resolve` and `show` may fetch a bundle before they can
+                // `resolve` and `show` may fetch a candidate before they can
                 // say anything about it (batches 16.1, 16.2).
                 | "resolve"
                 | "show"
@@ -534,11 +534,11 @@ impl Default for App {
 pub const ROOT_TILES: &[(View, &str)] = &[
     (View::Inbox, "inbox"),
     // Order is the operator's: inbox and history first (what needs
-    // doing, what you did), then lanes and bundles (what teammates are
+    // doing, what you did), then lanes and candidates (what teammates are
     // doing, what is moving through the gates), then the outputs.
     (View::History, "history"),
     (View::Lanes, "lanes"),
-    (View::Bundles, "bundles"),
+    (View::Candidates, "candidates"),
     (View::Releases, "releases"),
     (View::Gates, "gates"),
 ];
@@ -552,7 +552,7 @@ impl App {
     ///
     /// Per *screen* is the point, and batch 23.1 found it was per
     /// context: driving the real TUI showed "Enter: history" in the hint
-    /// bar on the History screen, and on Bundles, Releases, Lanes and
+    /// bar on the History screen, and on Candidates, Releases, Lanes and
     /// Gates, where Enter actually runs the selected row's action. A
     /// hint bar that names the wrong key is worse than no hint bar,
     /// because it is believed.
@@ -577,7 +577,7 @@ impl App {
             // Row views act on the selection; `handle_rows_key` runs
             // before this, so naming anything else here would be a lie.
             View::Gates => ("(a add gate)".into(), Action::Enter(View::Gates)),
-            view @ (View::Bundles | View::Releases | View::Lanes) => {
+            view @ (View::Candidates | View::Releases | View::Lanes) => {
                 ("open selected".into(), Action::Enter(view))
             }
             // Enter does nothing here on purpose: every action on a
@@ -665,7 +665,7 @@ impl App {
             View::History => "history",
             View::Resolution => "supers",
             View::Inbox => "inbox",
-            View::Bundles => "bundles",
+            View::Candidates => "candidates",
             View::Releases => "releases",
             View::Lanes => "lanes",
             View::Gates => "gates",
@@ -729,13 +729,13 @@ impl App {
                 let row = self.rows.get(&view)?.get(*selected)?.clone();
                 Some(self.secret_row_action(&row, key.code))
             }
-            // The two things done to a bundle, from the screen that
+            // The two things done to a candidate, from the screen that
             // lists them. Both open a wizard rather than running: each
             // needs a target nobody should have to remember the flag
             // name for.
-            KeyCode::Char('p' | 'e') if view == View::Bundles => {
+            KeyCode::Char('p' | 'e') if view == View::Candidates => {
                 let row = self.rows.get(&view)?.get(*selected)?.clone();
-                let id = row["bundle_id"].as_str()?.to_string();
+                let id = row["candidate_id"].as_str()?.to_string();
                 Some(Some(Action::StartWizard(
                     if key.code == KeyCode::Char('p') {
                         WizardKind::Promote(id)
@@ -900,8 +900,8 @@ impl App {
         }
 
         // Per-view keys first, so a screen's own verbs win over the
-        // global jumps on that screen — `e` releases a bundle on the
-        // Bundles screen and jumps to Releases everywhere else. The
+        // global jumps on that screen — `e` releases a candidate on the
+        // Candidates screen and jumps to Releases everywhere else. The
         // handlers fall through (return None) for keys they do not own.
         if self.current_view() == View::Resolution
             && let Some(action) = self.handle_resolution_key(key)
@@ -920,7 +920,7 @@ impl App {
         }
         if matches!(
             self.current_view(),
-            View::Bundles | View::Releases | View::Lanes | View::Gates | View::Secrets
+            View::Candidates | View::Releases | View::Lanes | View::Gates | View::Secrets
         ) && let Some(action) = self.handle_rows_key(self.current_view(), key)
         {
             return action;
@@ -989,7 +989,9 @@ impl App {
                 self.jump_resolution(true);
                 None
             }
-            KeyCode::Char('b') => self.jump(View::Bundles),
+            // `c` for candidates; `b` stays as the muscle-memory alias
+            // from the bundle era (g02.029).
+            KeyCode::Char('c') | KeyCode::Char('b') => self.jump(View::Candidates),
             KeyCode::Char('l') => self.jump(View::Lanes),
             KeyCode::Char('e') => self.jump(View::Releases),
             KeyCode::Char('g') => self.jump(View::Gates),
@@ -1475,7 +1477,7 @@ mod tests {
     #[test]
     fn adding_a_gate_is_a_keystroke_and_removing_one_is_not() {
         // The asymmetry is the point (batch 26.3). Adding a gate strands
-        // nothing. Removing or re-parenting one can make bundles and
+        // nothing. Removing or re-parenting one can make candidates and
         // open publications unaddressable, which is batch 22.4 finding
         // 34's shape, so those stay at the CLI where the impact report
         // is read before the `--execute` that follows it.
@@ -1537,14 +1539,14 @@ mod tests {
         assert_eq!(app.primary_action().0, "open lanes");
 
         app.handle_key(key(KeyCode::Right));
-        assert_eq!(app.primary_action().0, "open bundles");
+        assert_eq!(app.primary_action().0, "open candidates");
 
         // Enter opens; it never runs a verb from the hub. That was the
         // first 27.3 pass, and the operator called it what it was:
         // removing agency the moment the screen loads.
         let action = app.handle_key(key(KeyCode::Enter));
         assert!(
-            matches!(action, Some(Action::Enter(View::Bundles))),
+            matches!(action, Some(Action::Enter(View::Candidates))),
             "enter did not open the selected tile: {action:?}"
         );
         assert!(
@@ -1568,7 +1570,7 @@ mod tests {
             (View::Root, "open inbox"),
             (View::History, "restore selected"),
             (View::Inbox, "open selected"),
-            (View::Bundles, "open selected"),
+            (View::Candidates, "open selected"),
             (View::Releases, "open selected"),
             (View::Lanes, "open selected"),
             // Gates is not a "open the selected row" screen: entering a
@@ -1738,10 +1740,10 @@ mod tests {
         app.load_inbox_entries(&serde_json::json!({
             "lanes": [{"lane_id": "shared/wip", "head_snap_id": "s", "updated_at": "t"}],
             "publications": [{"publisher": "alice", "gate_id": "intake"}],
-            "bundles": [
-                {"bundle_id": "b1", "gate_id": "intake", "recommendation": "approve",
+            "candidates": [
+                {"candidate_id": "b1", "gate_id": "intake", "recommendation": "approve",
                  "approvals": 0, "required_approvals": 2, "published_by": "bob"},
-                {"bundle_id": "b2", "gate_id": "intake", "recommendation": "resolve",
+                {"candidate_id": "b2", "gate_id": "intake", "recommendation": "resolve",
                  "approvals": 0, "required_approvals": 0, "contributors": ["carol"]}
             ]
         }));
@@ -1749,12 +1751,12 @@ mod tests {
         assert_eq!(
             app.inbox_entries[0].1,
             Some(vec!["resolve".into(), "list".into(), "b2".into()]),
-            "a superposed bundle stops the gate for everyone: it goes first"
+            "a superposed candidate stops the gate for everyone: it goes first"
         );
         assert_eq!(
             app.inbox_entries[1].1,
             Some(vec!["approve".into(), "b1".into()]),
-            "then the one bundle waiting on this person"
+            "then the one candidate waiting on this person"
         );
         assert_eq!(
             app.inbox_entries[2].1,
@@ -1784,15 +1786,15 @@ mod tests {
                 {"publisher": "bob", "gate_id": "intake"},
                 {"publisher": "alice", "gate_id": "intake"}
             ],
-            "bundles": [
-                {"bundle_id": "b1", "gate_id": "intake", "recommendation": "approve",
+            "candidates": [
+                {"candidate_id": "b1", "gate_id": "intake", "recommendation": "approve",
                  "approvals": 0, "required_approvals": 2, "contributors": ["carol"]},
-                {"bundle_id": "b2", "gate_id": "intake", "recommendation": "approve",
+                {"candidate_id": "b2", "gate_id": "intake", "recommendation": "approve",
                  "approvals": 0, "required_approvals": 2, "contributors": ["dana", "erin"]}
             ]
         }));
         let approvals = &app.recommendations[0];
-        assert_eq!(approvals.headline, "2 bundles waiting on your approval");
+        assert_eq!(approvals.headline, "2 candidates waiting on your approval");
         assert_eq!(approvals.owners, vec!["carol", "dana"]);
         assert!(
             approvals.argv.is_none(),
@@ -1820,7 +1822,7 @@ mod tests {
         let mut app = App::default();
         app.load_inbox_entries(&serde_json::json!({
             "lanes": [], "publications": [],
-            "bundles": [{"bundle_id": "b2", "gate_id": "intake", "recommendation": "resolve",
+            "candidates": [{"candidate_id": "b2", "gate_id": "intake", "recommendation": "resolve",
                          "approvals": 0, "required_approvals": 0}]
         }));
         let (label, action) = app.primary_action();
@@ -1837,7 +1839,7 @@ mod tests {
         let mut app = App::default();
         let alt = |c: char| KeyEvent::new(KeyCode::Char(c), KeyModifiers::ALT);
         for (key, view) in [
-            ('b', View::Bundles),
+            ('b', View::Candidates),
             ('l', View::Lanes),
             ('e', View::Releases),
             ('g', View::Gates),
@@ -1859,10 +1861,10 @@ mod tests {
             Some(vec!["lane".to_string(), "list".to_string()])
         );
         assert_eq!(View::Gates.loader(), Some(vec!["gates".to_string()]));
-        // The bundles view is the inbox's bundle section — there is no
-        // bundle list endpoint, and inventing one in the TUI would be a
+        // The candidates view is the inbox's candidate section — there is no
+        // candidate list endpoint, and inventing one in the TUI would be a
         // surface the CLI cannot reach.
-        assert_eq!(View::Bundles.loader(), Some(vec!["inbox".to_string()]));
+        assert_eq!(View::Candidates.loader(), Some(vec!["inbox".to_string()]));
         assert_eq!(View::Help.loader(), None);
         assert_eq!(View::Root.loader(), None);
     }
@@ -2055,15 +2057,17 @@ mod tests {
         );
     }
 
-    /// The Bundles view lists the things promote and release act on, so
+    /// The Candidates view lists the things promote and release act on, so
     /// it is where those verbs should be reachable.
     #[test]
-    fn bundle_rows_open_the_promote_and_release_wizards() {
+    fn candidate_rows_open_the_promote_and_release_wizards() {
         let id = "f".repeat(64);
         let mut app = App::default();
-        app.frames.push(View::Bundles);
-        app.rows
-            .insert(View::Bundles, vec![serde_json::json!({"bundle_id": id})]);
+        app.frames.push(View::Candidates);
+        app.rows.insert(
+            View::Candidates,
+            vec![serde_json::json!({"candidate_id": id})],
+        );
         assert_eq!(
             app.handle_key(key(KeyCode::Char('p'))),
             Some(Action::StartWizard(WizardKind::Promote(id.clone())))
@@ -2080,18 +2084,18 @@ mod tests {
     #[test]
     fn a_minted_token_is_never_truncated_but_ids_still_are() {
         let token = "f7ea9b3361a8".repeat(5);
-        let bundle = "0".repeat(64);
+        let candidate = "0".repeat(64);
         let line = summarize(&serde_json::json!({
             "subject": "dana",
             "token": token,
-            "bundle_id": bundle,
+            "candidate_id": candidate,
         }));
         assert!(
             line.contains(&token),
             "the whole token has to be there or it is not a token: {line}"
         );
         assert!(
-            !line.contains(&bundle),
+            !line.contains(&candidate),
             "ids are still shortened; this is not a licence to print everything: {line}"
         );
     }
@@ -2271,7 +2275,7 @@ mod tests {
             "snap": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
             "paths_resolved": 2,
             "checked_out": true,
-            "derived_from_bundle": null,
+            "derived_from_candidate": null,
             "next": "publish --snap 0123",
         })));
         let LastLine::Output(line) = app.last.last().expect("a line") else {
@@ -2283,7 +2287,10 @@ mod tests {
             line.contains("snap 0123456789ab"),
             "long ids shorten: {line}"
         );
-        assert!(!line.contains("derived_from_bundle"), "nulls drop: {line}");
+        assert!(
+            !line.contains("derived_from_candidate"),
+            "nulls drop: {line}"
+        );
         assert!(line.ends_with("→ converge publish --snap 0123"), "{line}");
         assert!(!line.contains('{'), "no raw JSON: {line}");
     }

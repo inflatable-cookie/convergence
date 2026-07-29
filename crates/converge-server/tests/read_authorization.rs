@@ -1,6 +1,6 @@
 //! Batch 11.1 (audit C1): read endpoints must prove repo membership.
 //! Two repos on one shared object store; a subject granted on repo-b only
-//! must not read repo-a content by hash or bundle id.
+//! must not read repo-a content by hash or candidate id.
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -76,16 +76,16 @@ fn cross_repo_reads_are_denied() -> Result<()> {
     let ws = Workspace::init(ws_dir.path(), false)?;
     std::fs::write(ws_dir.path().join("secret.txt"), "repo-a secret")?;
     let snap = ws.create_snap(Some("secret".into()))?;
-    let (bundle, _) = alice.publish(
+    let (candidate, _) = alice.publish(
         &ws.store, "repo-a", "scope", "intake", &snap, None, None, None,
     )?;
-    let root = bundle.root_manifest.clone().expect("merged root");
+    let root = candidate.root_manifest.clone().expect("merged root");
 
-    // Bob (repo-b only) cannot read repo-a's bundle, provenance, or verify.
+    // Bob (repo-b only) cannot read repo-a's candidate, provenance, or verify.
     for err in [
-        bob.get_bundle(&bundle.bundle_id).unwrap_err(),
-        bob.get_provenance(&bundle.bundle_id).unwrap_err(),
-        bob.verify(&bundle.bundle_id).unwrap_err(),
+        bob.get_candidate(&candidate.candidate_id).unwrap_err(),
+        bob.get_provenance(&candidate.candidate_id).unwrap_err(),
+        bob.verify(&candidate.candidate_id).unwrap_err(),
     ] {
         let msg = format!("{err:#}");
         assert!(msg.contains("404"), "expected 404, got: {msg}");
@@ -100,11 +100,11 @@ fn cross_repo_reads_are_denied() -> Result<()> {
     let fetch_dir = tempfile::tempdir()?;
     let fetch_ws = Workspace::init(fetch_dir.path(), false)?;
     assert!(
-        bob.fetch_bundle(&fetch_ws.store, "repo-a", &bundle.bundle_id)
+        bob.fetch_candidate(&fetch_ws.store, "repo-a", &candidate.candidate_id)
             .is_err()
     );
     assert!(
-        bob.fetch_bundle(&fetch_ws.store, "repo-b", &bundle.bundle_id)
+        bob.fetch_candidate(&fetch_ws.store, "repo-b", &candidate.candidate_id)
             .is_err()
     );
 
@@ -130,14 +130,14 @@ fn cross_repo_reads_are_denied() -> Result<()> {
         .is_err()
     );
 
-    // Alice still reads her own bundle and tree.
+    // Alice still reads her own candidate and tree.
     assert_eq!(
-        alice.get_bundle(&bundle.bundle_id)?.root_manifest,
+        alice.get_candidate(&candidate.candidate_id)?.root_manifest,
         Some(root)
     );
     let ok_dir = tempfile::tempdir()?;
     let ok_ws = Workspace::init(ok_dir.path(), false)?;
-    alice.fetch_bundle(&ok_ws.store, "repo-a", &bundle.bundle_id)?;
+    alice.fetch_candidate(&ok_ws.store, "repo-a", &candidate.candidate_id)?;
     Ok(())
 }
 
@@ -160,7 +160,7 @@ fn shared_object_readable_from_both_repos_when_uploaded_to_both() -> Result<()> 
     let (_dir_ws_a, ws_a, snap_a) = mk("a")?;
     let (_dir_ws_b, ws_b, snap_b) = mk("b")?;
 
-    let (bundle_a, _) = alice.publish(
+    let (candidate_a, _) = alice.publish(
         &ws_a.store,
         "repo-a",
         "scope",
@@ -170,7 +170,7 @@ fn shared_object_readable_from_both_repos_when_uploaded_to_both() -> Result<()> 
         None,
         None,
     )?;
-    let (bundle_b, _) = bob.publish(
+    let (candidate_b, _) = bob.publish(
         &ws_b.store,
         "repo-b",
         "scope",
@@ -183,10 +183,10 @@ fn shared_object_readable_from_both_repos_when_uploaded_to_both() -> Result<()> 
 
     let dir_a = tempfile::tempdir()?;
     let fetch_a = Workspace::init(dir_a.path(), false)?;
-    alice.fetch_bundle(&fetch_a.store, "repo-a", &bundle_a.bundle_id)?;
+    alice.fetch_candidate(&fetch_a.store, "repo-a", &candidate_a.candidate_id)?;
 
     let dir_b = tempfile::tempdir()?;
     let fetch_b = Workspace::init(dir_b.path(), false)?;
-    bob.fetch_bundle(&fetch_b.store, "repo-b", &bundle_b.bundle_id)?;
+    bob.fetch_candidate(&fetch_b.store, "repo-b", &candidate_b.candidate_id)?;
     Ok(())
 }

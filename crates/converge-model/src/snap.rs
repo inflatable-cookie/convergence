@@ -20,9 +20,12 @@ pub struct SnapRecord {
     /// Ordered, deduplicated; first parent is the primary lineage.
     #[serde(default)]
     pub parents: Vec<String>,
-    /// Provenance edge when the tree came from a fetched bundle.
+    /// Provenance edge when the tree came from a fetched candidate.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub derived_from_bundle: Option<String>,
+    /// Renamed from `derived_from_bundle` (g02.029); snap records
+    /// already on disk carry the old field name.
+    #[serde(alias = "derived_from_bundle")]
+    pub derived_from_candidate: Option<String>,
     pub message: Option<String>,
     /// Why captured: "explicit" (user verb) or "automatic" (watcher).
     /// Metadata only — never part of identity.
@@ -57,7 +60,7 @@ pub struct FileRecipe {
 pub fn compute_snap_id(
     root_manifest: &ObjectId,
     parents: &[String],
-    derived_from_bundle: Option<&str>,
+    derived_from_candidate: Option<&str>,
 ) -> String {
     let mut hasher = blake3::Hasher::new();
     hasher.update(b"converge-snap-v4\n");
@@ -76,8 +79,8 @@ pub fn compute_snap_id(
     // provenance edge shared an id with an honest record that claimed
     // none. Records are write-once, so the malformed one would have
     // squatted the id and locked the real snap out.
-    hasher.update(&[u8::from(derived_from_bundle.is_some())]);
-    let derived = derived_from_bundle.unwrap_or("");
+    hasher.update(&[u8::from(derived_from_candidate.is_some())]);
+    let derived = derived_from_candidate.unwrap_or("");
     hasher.update(&(derived.len() as u64).to_le_bytes());
     hasher.update(derived.as_bytes());
     hasher.finalize().to_hex().to_string()

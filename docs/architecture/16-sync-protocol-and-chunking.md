@@ -23,19 +23,19 @@ Publish/sync sequence (carried shape):
    record. All writes idempotent (`write_if_absent`); interrupted uploads
    resume by re-negotiating.
 3. **Commit intent** — client creates the publication (or lane-head update)
-   naming `(repo, scope, gate)` and carrying `base_bundle_id`, the last
-   bundle it saw for that target (doc 17 §2; the client records it from
+   naming `(repo, scope, gate)` and carrying `base_candidate_id`, the last
+   candidate it saw for that target (doc 17 §2; the client records it from
    publish responses and fetches). Server authz-checks, validates the base
-   against partition history, and builds the bundle in-request — the
-   response carries the finished bundle (doc 14 §4-5; async coalescing is
+   against partition history, and builds the candidate in-request — the
+   response carries the finished candidate (doc 14 §4-5; async coalescing is
    deferred, see doc 14 §7).
 
 Wire deltas from doc 17 §5: `SnapRecord` v2 (`parents`,
-`derived_from_bundle`, lineage-derived identity), `base_bundle_id` on
-publish/publication, `window` + `strategy` + `base_bundle_id` on
-`BundleRecord`, `strategy` on `GateNode`.
+`derived_from_candidate`, lineage-derived identity), `base_candidate_id` on
+publish/publication, `window` + `strategy` + `base_candidate_id` on
+`CandidateRecord`, `strategy` on `GateNode`.
 
-Fetch is the mirror: resolve a bundle/release/lane ref → walk manifest →
+Fetch is the mirror: resolve a candidate/release/lane ref → walk manifest →
 request missing objects → materialize. When edge nodes exist they will
 serve steps 1-2 from cache; none are built (doc 14 §7).
 
@@ -100,7 +100,7 @@ Every listing endpoint is a cursor page, so no response is unbounded:
 
 The inbox is a composite report, not a listing: each section is capped
 and the report sets `truncated` when a cap cut it. It reads at most one
-bundle per gate rather than scanning the scope.
+candidate per gate rather than scanning the scope.
 
 ## 1d. Repo-scoped object access (g02.011)
 
@@ -115,9 +115,9 @@ in metadata.
 - `negotiate` reports present-but-unassociated objects as **missing**;
   the client's idempotent re-put is cheap and repairs the association —
   cross-repo dedup still avoids re-storing bytes, never re-transfer
-- bundle-id-keyed reads (`/api/bundles/{id}`, provenance, verify)
-  resolve the bundle's repo and require `read` there; unauthorized and
-  absent are both 404 so bundle ids are not an existence oracle
+- candidate-id-keyed reads (`/api/candidates/{id}`, provenance, verify)
+  resolve the candidate's repo and require `read` there; unauthorized and
+  absent are both 404 so candidate ids are not an existence oracle
 - GC sweep removes an object's associations with the object
 
 ## 2. Content-defined chunking

@@ -11,10 +11,10 @@ impl Workspace {
         self.create_snap_with(message, "explicit")
     }
 
-    /// Capture a tree that is already in the store — a fetched bundle or
+    /// Capture a tree that is already in the store — a fetched candidate or
     /// the output of a resolution — as a snap (batch 16.1).
     ///
-    /// Doc 17 §1: the bundle is a provenance edge (`derived_from_bundle`),
+    /// Doc 17 §1: the candidate is a provenance edge (`derived_from_candidate`),
     /// never a parent; the first parent is the workspace head, because
     /// this is the workspace continuing, not a new history.
     ///
@@ -27,7 +27,7 @@ impl Workspace {
         &self,
         root_manifest: &ObjectId,
         message: Option<String>,
-        derived_from_bundle: Option<&str>,
+        derived_from_candidate: Option<&str>,
     ) -> Result<SnapRecord> {
         let parents: Vec<String> = self.store.get_head()?.into_iter().collect();
         let message = message
@@ -37,13 +37,13 @@ impl Workspace {
         if let Some(head_id) = parents.first() {
             let head = self.store.get_snap(head_id)?;
             if &head.root_manifest == root_manifest
-                && head.derived_from_bundle.as_deref() == derived_from_bundle
+                && head.derived_from_candidate.as_deref() == derived_from_candidate
             {
                 return Ok(head);
             }
         }
 
-        let id = compute_snap_id(root_manifest, &parents, derived_from_bundle);
+        let id = compute_snap_id(root_manifest, &parents, derived_from_candidate);
         let snap = SnapRecord {
             version: 2,
             id,
@@ -52,7 +52,7 @@ impl Workspace {
                 .context("format created_at")?,
             root_manifest: root_manifest.clone(),
             parents,
-            derived_from_bundle: derived_from_bundle.map(str::to_string),
+            derived_from_candidate: derived_from_candidate.map(str::to_string),
             message,
             trigger: "explicit".to_string(),
             stats: self.stats_for_root(root_manifest)?,
@@ -145,7 +145,7 @@ impl Workspace {
             created_at,
             root_manifest,
             parents,
-            derived_from_bundle: None,
+            derived_from_candidate: None,
             message,
             trigger: trigger.to_string(),
             stats,

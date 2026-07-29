@@ -9,11 +9,11 @@ use anyhow::{Context, Result, anyhow};
 use postgres::{Client, NoTls};
 
 use converge_model::{
-    BundleStatus, EventRecord, GateGraph, LaneHead, LaneRecord, ObjectId, PublicationRecord,
+    CandidateStatus, EventRecord, GateGraph, LaneHead, LaneRecord, ObjectId, PublicationRecord,
     ReleaseRecord, RetentionPolicy, SnapRecord,
 };
 
-use crate::storage::{BatchConflict, MetaOp, MetadataStore, PartitionState, StoredBundle};
+use crate::storage::{BatchConflict, MetaOp, MetadataStore, PartitionState, StoredCandidate};
 
 pub struct PostgresMetadataStore {
     client: Mutex<Client>,
@@ -78,17 +78,17 @@ impl PostgresMetadataStore {
                 publication_id TEXT PRIMARY KEY, repo_id TEXT NOT NULL,
                 scope_id TEXT NOT NULL, gate_id TEXT NOT NULL,
                 seq BIGINT NOT NULL, record_json TEXT NOT NULL);
-            CREATE TABLE IF NOT EXISTS bundles (
-                bundle_id TEXT PRIMARY KEY, repo_id TEXT NOT NULL,
+            CREATE TABLE IF NOT EXISTS candidates (
+                candidate_id TEXT PRIMARY KEY, repo_id TEXT NOT NULL,
                 scope_id TEXT NOT NULL, gate_id TEXT NOT NULL,
                 inputs_json TEXT NOT NULL, root_manifest TEXT,
-                base_bundle_id TEXT, window_first BIGINT NOT NULL DEFAULT 0,
+                base_candidate_id TEXT, window_first BIGINT NOT NULL DEFAULT 0,
                 window_last BIGINT NOT NULL DEFAULT 0,
                 strategy TEXT NOT NULL DEFAULT 'whole-file',
                 status_json TEXT NOT NULL, created_at TEXT NOT NULL);
             CREATE TABLE IF NOT EXISTS approvals (
-                bundle_id TEXT NOT NULL, approver TEXT NOT NULL,
-                PRIMARY KEY (bundle_id, approver));
+                candidate_id TEXT NOT NULL, approver TEXT NOT NULL,
+                PRIMARY KEY (candidate_id, approver));
             CREATE TABLE IF NOT EXISTS lanes (
                 repo_id TEXT NOT NULL, lane_id TEXT NOT NULL,
                 record_json TEXT NOT NULL, PRIMARY KEY (repo_id, lane_id));
@@ -102,7 +102,7 @@ impl PostgresMetadataStore {
             CREATE TABLE IF NOT EXISTS partitions (
                 repo_id TEXT NOT NULL, scope_id TEXT NOT NULL,
                 gate_id TEXT NOT NULL, window_floor BIGINT NOT NULL DEFAULT 0,
-                base_bundle_id TEXT, PRIMARY KEY (repo_id, scope_id, gate_id));
+                base_candidate_id TEXT, PRIMARY KEY (repo_id, scope_id, gate_id));
             CREATE TABLE IF NOT EXISTS events (
                 seq BIGSERIAL PRIMARY KEY, repo_id TEXT NOT NULL,
                 kind TEXT NOT NULL, subject_id TEXT NOT NULL,
@@ -119,7 +119,7 @@ impl PostgresMetadataStore {
             ALTER TABLE releases
                 ADD COLUMN IF NOT EXISTS version TEXT NOT NULL DEFAULT '';
             CREATE TABLE IF NOT EXISTS promotions (
-                bundle_id TEXT NOT NULL, from_gate TEXT NOT NULL,
+                candidate_id TEXT NOT NULL, from_gate TEXT NOT NULL,
                 to_gate TEXT NOT NULL, promoted_at TEXT NOT NULL);
             CREATE TABLE IF NOT EXISTS object_repos (
                 repo_id TEXT NOT NULL, kind TEXT NOT NULL,
@@ -137,6 +137,51 @@ impl PostgresMetadataStore {
             ",
             )
             .context("init postgres schema")?;
+        {
+            // g02.029: bundle became candidate, schema included. Same
+            // shape as the sqlite side: legacy data wins over the empty
+            // table this open just created, columns rename in place,
+            // record_json field names are read through serde aliases.
+            let legacy: i64 = client
+                .query_one(
+                    "SELECT COUNT(*) FROM information_schema.tables
+                     WHERE table_name = 'bundles'",
+                    &[],
+                )?
+                .get(0);
+            if legacy > 0 {
+                let fresh_rows: i64 = client
+                    .query_one("SELECT COUNT(*) FROM candidates", &[])?
+                    .get(0);
+                if fresh_rows == 0 {
+                    client.batch_execute(
+                        "DROP TABLE IF EXISTS candidates;
+                         ALTER TABLE bundles RENAME TO candidates;",
+                    )?;
+                }
+            }
+            for (table, from, to) in [
+                ("candidates", "bundle_id", "candidate_id"),
+                ("candidates", "base_bundle_id", "base_candidate_id"),
+                ("partitions", "base_bundle_id", "base_candidate_id"),
+                ("promotions", "bundle_id", "candidate_id"),
+                ("approvals", "bundle_id", "candidate_id"),
+            ] {
+                let has_old: i64 = client
+                    .query_one(
+                        "SELECT COUNT(*) FROM information_schema.columns
+                         WHERE table_name = $1 AND column_name = $2",
+                        &[&table, &from],
+                    )?
+                    .get(0);
+                if has_old > 0 {
+                    client.execute(
+                        &format!("ALTER TABLE {table} RENAME COLUMN {from} TO {to}"),
+                        &[],
+                    )?;
+                }
+            }
+        }
         {
             // Number unversioned (pre-semver) releases 0.<n>.0 by order
             // (g02.028): real numbers rather than a legacy caste.
@@ -166,20 +211,20 @@ impl PostgresMetadataStore {
     }
 }
 
-/// Expand a unique bundle-id prefix to the full id.
+/// Expand a unique candidate-id prefix to the full id.
 ///
-/// The CLI prints shortened bundle ids everywhere it reports one, so a
+/// The CLI prints shortened candidate ids everywhere it reports one, so a
 /// short id is the form people copy. Batch 22.4 caught the consequence:
 /// `fetch` printed `cb59de7525b6` and then `verify cb59de7525b6` came
 /// back 404, and the "next:" hint beside it spelled out the full id
 /// because whoever wrote the hint already knew short ids did not work.
 ///
 /// Resolving here rather than per-handler means every route that takes a
-/// bundle id accepts what was printed. Exact ids skip the extra query.
+/// candidate id accepts what was printed. Exact ids skip the extra query.
 /// Ambiguity is an error, never a guess: silently picking one of two
-/// candidates would approve or promote the wrong bundle. The hex check
+/// candidates would approve or promote the wrong candidate. The hex check
 /// is load-bearing — it keeps LIKE wildcards out of the pattern.
-fn resolve_bundle_prefix(c: &mut postgres::Client, given: &str) -> Result<String> {
+fn resolve_candidate_prefix(c: &mut postgres::Client, given: &str) -> Result<String> {
     const SHORTEST: usize = 8;
     if given.len() >= 64 || given.len() < SHORTEST || !given.chars().all(|c| c.is_ascii_hexdigit())
     {
@@ -187,14 +232,14 @@ fn resolve_bundle_prefix(c: &mut postgres::Client, given: &str) -> Result<String
     }
     let pattern = format!("{given}%");
     let found = c.query(
-        "SELECT bundle_id FROM bundles WHERE bundle_id LIKE $1 LIMIT 2",
+        "SELECT candidate_id FROM candidates WHERE candidate_id LIKE $1 LIMIT 2",
         &[&pattern],
     )?;
     match found.len() {
         1 => Ok(found[0].get(0)),
         0 => Ok(given.to_string()),
         _ => Err(anyhow!(
-            "bundle id {given} is ambiguous: it matches more than one bundle, use more characters"
+            "candidate id {given} is ambiguous: it matches more than one candidate, use more characters"
         )),
     }
 }
@@ -528,9 +573,9 @@ impl MetadataStore for PostgresMetadataStore {
         let mut c = self.client.lock().expect("pg lock");
         let mut out = Vec::new();
         for gate in &graph.gates {
-            let bundles: i64 = c
+            let candidates: i64 = c
                 .query_one(
-                    "SELECT COUNT(*) FROM bundles WHERE repo_id = $1 AND gate_id = $2",
+                    "SELECT COUNT(*) FROM candidates WHERE repo_id = $1 AND gate_id = $2",
                     &[&repo_id, &gate.gate_id],
                 )?
                 .get(0);
@@ -558,7 +603,7 @@ impl MetadataStore for PostgresMetadataStore {
                 .get(0);
             out.push(converge_model::gates::GateOccupancy {
                 gate_id: gate.gate_id.clone(),
-                bundles: bundles as u64,
+                candidates: candidates as u64,
                 open_publications: open_publications as u64,
                 has_partition_state: partitions > 0,
             });
@@ -718,19 +763,23 @@ impl MetadataStore for PostgresMetadataStore {
             .collect()
     }
 
-    fn latest_bundles_per_gate(&self, repo_id: &str, scope_id: &str) -> Result<Vec<StoredBundle>> {
+    fn latest_candidates_per_gate(
+        &self,
+        repo_id: &str,
+        scope_id: &str,
+    ) -> Result<Vec<StoredCandidate>> {
         let ids: Vec<String> = {
             let mut c = self.client.lock().expect("pg lock");
-            // One row per gate: the newest bundle by (created_at, id).
+            // One row per gate: the newest candidate by (created_at, id).
             let rows = c.query(
-                "SELECT DISTINCT ON (gate_id) bundle_id FROM bundles
+                "SELECT DISTINCT ON (gate_id) candidate_id FROM candidates
                  WHERE repo_id = $1 AND scope_id = $2
-                 ORDER BY gate_id, created_at DESC, bundle_id DESC",
+                 ORDER BY gate_id, created_at DESC, candidate_id DESC",
                 &[&repo_id, &scope_id],
             )?;
             rows.iter().map(|r| r.get(0)).collect()
         };
-        ids.iter().map(|id| self.get_bundle(id)).collect()
+        ids.iter().map(|id| self.get_candidate(id)).collect()
     }
 
     fn add_lane_member(&self, repo_id: &str, lane_id: &str, member: &str) -> Result<()> {
@@ -935,12 +984,16 @@ impl MetadataStore for PostgresMetadataStore {
         Ok(true)
     }
 
-    fn delete_releases_for_bundles(&self, repo_id: &str, bundle_ids: &[String]) -> Result<u64> {
+    fn delete_releases_for_candidates(
+        &self,
+        repo_id: &str,
+        candidate_ids: &[String],
+    ) -> Result<u64> {
         // Exact field match (audit M1): a substring match over the record
-        // JSON deletes releases of other bundles whose ids merely share a
+        // JSON deletes releases of other candidates whose ids merely share a
         // prefix, and GC then sweeps objects those releases still hold.
         let wanted: std::collections::HashSet<&str> =
-            bundle_ids.iter().map(|id| id.as_str()).collect();
+            candidate_ids.iter().map(|id| id.as_str()).collect();
         let mut c = self.client.lock().expect("pg lock");
         let rows = c.query(
             "SELECT seq, record_json FROM releases WHERE repo_id = $1",
@@ -950,7 +1003,7 @@ impl MetadataStore for PostgresMetadataStore {
         for row in rows {
             let release: ReleaseRecord =
                 serde_json::from_str(row.get(1)).context("parse release")?;
-            if wanted.contains(release.bundle_id.as_str()) {
+            if wanted.contains(release.candidate_id.as_str()) {
                 doomed.push(row.get::<_, i64>(0));
             }
         }
@@ -961,15 +1014,18 @@ impl MetadataStore for PostgresMetadataStore {
         Ok(deleted)
     }
 
-    fn delete_bundles(&self, repo_id: &str, bundle_ids: &[String]) -> Result<u64> {
+    fn delete_candidates(&self, repo_id: &str, candidate_ids: &[String]) -> Result<u64> {
         let mut c = self.client.lock().expect("pg lock");
         let mut deleted = 0u64;
-        for bundle_id in bundle_ids {
+        for candidate_id in candidate_ids {
             deleted += c.execute(
-                "DELETE FROM bundles WHERE repo_id = $1 AND bundle_id = $2",
-                &[&repo_id, &bundle_id],
+                "DELETE FROM candidates WHERE repo_id = $1 AND candidate_id = $2",
+                &[&repo_id, &candidate_id],
             )?;
-            c.execute("DELETE FROM approvals WHERE bundle_id = $1", &[&bundle_id])?;
+            c.execute(
+                "DELETE FROM approvals WHERE candidate_id = $1",
+                &[&candidate_id],
+            )?;
         }
         Ok(deleted)
     }
@@ -988,20 +1044,20 @@ impl MetadataStore for PostgresMetadataStore {
 
     fn record_promotion(
         &self,
-        bundle_id: &str,
+        candidate_id: &str,
         from_gate: &str,
         to_gate: &str,
         at: &str,
     ) -> Result<()> {
         let mut c = self.client.lock().expect("pg lock");
-        record_promotion_pg(&mut *c, bundle_id, from_gate, to_gate, at)
+        record_promotion_pg(&mut *c, candidate_id, from_gate, to_gate, at)
     }
 
-    fn list_promotions(&self, bundle_id: &str) -> Result<Vec<(String, String, String)>> {
+    fn list_promotions(&self, candidate_id: &str) -> Result<Vec<(String, String, String)>> {
         let mut c = self.client.lock().expect("pg lock");
         let rows = c.query(
-            "SELECT from_gate, to_gate, promoted_at FROM promotions WHERE bundle_id = $1",
-            &[&bundle_id],
+            "SELECT from_gate, to_gate, promoted_at FROM promotions WHERE candidate_id = $1",
+            &[&candidate_id],
         )?;
         Ok(rows
             .iter()
@@ -1103,43 +1159,43 @@ impl MetadataStore for PostgresMetadataStore {
         Ok(n > 0)
     }
 
-    fn put_bundle(&self, bundle: &StoredBundle) -> Result<()> {
+    fn put_candidate(&self, candidate: &StoredCandidate) -> Result<()> {
         let mut c = self.client.lock().expect("pg lock");
-        put_bundle_pg(&mut *c, bundle)
+        put_candidate_pg(&mut *c, candidate)
     }
 
-    fn get_bundle(&self, bundle_id: &str) -> Result<StoredBundle> {
+    fn get_candidate(&self, candidate_id: &str) -> Result<StoredCandidate> {
         let mut c = self.client.lock().expect("pg lock");
-        let bundle_id = &resolve_bundle_prefix(&mut c, bundle_id)?;
+        let candidate_id = &resolve_candidate_prefix(&mut c, candidate_id)?;
         let row = c
             .query_opt(
-                "SELECT bundle_id, repo_id, scope_id, gate_id, inputs_json, root_manifest,
-                        base_bundle_id, window_first, window_last, strategy,
+                "SELECT candidate_id, repo_id, scope_id, gate_id, inputs_json, root_manifest,
+                        base_candidate_id, window_first, window_last, strategy,
                         status_json, created_at
-                 FROM bundles WHERE bundle_id = $1",
-                &[&bundle_id],
+                 FROM candidates WHERE candidate_id = $1",
+                &[&candidate_id],
             )?
-            .ok_or_else(|| anyhow!("no bundle {bundle_id}"))?;
-        Ok(StoredBundle {
-            bundle_id: row.get(0),
+            .ok_or_else(|| anyhow!("no candidate {candidate_id}"))?;
+        Ok(StoredCandidate {
+            candidate_id: row.get(0),
             repo_id: row.get(1),
             scope_id: row.get(2),
             gate_id: row.get(3),
             inputs: serde_json::from_str(row.get(4))?,
             root_manifest: row.get::<_, Option<String>>(5).map(ObjectId),
-            base_bundle_id: row.get(6),
+            base_candidate_id: row.get(6),
             window: (row.get::<_, i64>(7) as u64, row.get::<_, i64>(8) as u64),
             strategy: row.get(9),
-            status: serde_json::from_str::<BundleStatus>(row.get(10))?,
+            status: serde_json::from_str::<CandidateStatus>(row.get(10))?,
             created_at: row.get(11),
         })
     }
 
-    fn list_bundles(&self, repo_id: &str, scope_id: &str) -> Result<Vec<StoredBundle>> {
+    fn list_candidates(&self, repo_id: &str, scope_id: &str) -> Result<Vec<StoredCandidate>> {
         let ids: Vec<String> = {
             let mut c = self.client.lock().expect("pg lock");
             c.query(
-                "SELECT bundle_id FROM bundles
+                "SELECT candidate_id FROM candidates
                  WHERE repo_id = $1 AND scope_id = $2 ORDER BY created_at ASC",
                 &[&repo_id, &scope_id],
             )?
@@ -1147,21 +1203,21 @@ impl MetadataStore for PostgresMetadataStore {
             .map(|r| r.get(0))
             .collect()
         };
-        ids.iter().map(|id| self.get_bundle(id)).collect()
+        ids.iter().map(|id| self.get_candidate(id)).collect()
     }
 
-    fn list_bundles_all_scopes(&self, repo_id: &str) -> Result<Vec<StoredBundle>> {
+    fn list_candidates_all_scopes(&self, repo_id: &str) -> Result<Vec<StoredCandidate>> {
         let ids: Vec<String> = {
             let mut c = self.client.lock().expect("pg lock");
             c.query(
-                "SELECT bundle_id FROM bundles WHERE repo_id = $1 ORDER BY created_at ASC",
+                "SELECT candidate_id FROM candidates WHERE repo_id = $1 ORDER BY created_at ASC",
                 &[&repo_id],
             )?
             .iter()
             .map(|r| r.get(0))
             .collect()
         };
-        ids.iter().map(|id| self.get_bundle(id)).collect()
+        ids.iter().map(|id| self.get_candidate(id)).collect()
     }
 
     fn list_partitions(&self, repo_id: &str) -> Result<Vec<(String, String, u64)>> {
@@ -1189,14 +1245,14 @@ impl MetadataStore for PostgresMetadataStore {
     ) -> Result<PartitionState> {
         let mut c = self.client.lock().expect("pg lock");
         let row = c.query_opt(
-            "SELECT window_floor, base_bundle_id FROM partitions
+            "SELECT window_floor, base_candidate_id FROM partitions
              WHERE repo_id = $1 AND scope_id = $2 AND gate_id = $3",
             &[&repo_id, &scope_id, &gate_id],
         )?;
         Ok(row
             .map(|r| PartitionState {
                 window_floor: r.get::<_, i64>(0) as u64,
-                base_bundle_id: r.get(1),
+                base_candidate_id: r.get(1),
             })
             .unwrap_or_default())
     }
@@ -1212,21 +1268,21 @@ impl MetadataStore for PostgresMetadataStore {
         set_partition_state_pg(&mut *c, repo_id, scope_id, gate_id, state)
     }
 
-    fn add_approval(&self, bundle_id: &str, approver: &str) -> Result<()> {
+    fn add_approval(&self, candidate_id: &str, approver: &str) -> Result<()> {
         let mut c = self.client.lock().expect("pg lock");
         c.execute(
-            "INSERT INTO approvals (bundle_id, approver) VALUES ($1, $2)
+            "INSERT INTO approvals (candidate_id, approver) VALUES ($1, $2)
              ON CONFLICT DO NOTHING",
-            &[&bundle_id, &approver],
+            &[&candidate_id, &approver],
         )?;
         Ok(())
     }
 
-    fn count_approvals(&self, bundle_id: &str) -> Result<u32> {
+    fn count_approvals(&self, candidate_id: &str) -> Result<u32> {
         let mut c = self.client.lock().expect("pg lock");
         let row = c.query_one(
-            "SELECT COUNT(*) FROM approvals WHERE bundle_id = $1",
-            &[&bundle_id],
+            "SELECT COUNT(*) FROM approvals WHERE candidate_id = $1",
+            &[&candidate_id],
         )?;
         Ok(row.get::<_, i64>(0) as u32)
     }
@@ -1239,7 +1295,7 @@ impl MetadataStore for PostgresMetadataStore {
 fn apply_op_pg(c: &mut impl postgres::GenericClient, op: &MetaOp) -> Result<()> {
     match op {
         MetaOp::AddPublication(publication) => add_publication_pg(c, publication),
-        MetaOp::PutBundle(bundle) => put_bundle_pg(c, bundle),
+        MetaOp::PutCandidate(candidate) => put_candidate_pg(c, candidate),
         MetaOp::SetPartitionState {
             repo_id,
             scope_id,
@@ -1247,11 +1303,11 @@ fn apply_op_pg(c: &mut impl postgres::GenericClient, op: &MetaOp) -> Result<()> 
             state,
         } => set_partition_state_pg(c, repo_id, scope_id, gate_id, state),
         MetaOp::RecordPromotion {
-            bundle_id,
+            candidate_id,
             from_gate,
             to_gate,
             at,
-        } => record_promotion_pg(c, bundle_id, from_gate, to_gate, at),
+        } => record_promotion_pg(c, candidate_id, from_gate, to_gate, at),
         MetaOp::AddEvent {
             repo_id,
             kind,
@@ -1341,23 +1397,23 @@ fn apply_op_pg(c: &mut impl postgres::GenericClient, op: &MetaOp) -> Result<()> 
             expected,
         } => {
             let row = c.query_opt(
-                "SELECT window_floor, base_bundle_id FROM partitions
+                "SELECT window_floor, base_candidate_id FROM partitions
                  WHERE repo_id = $1 AND scope_id = $2 AND gate_id = $3",
                 &[repo_id, scope_id, gate_id],
             )?;
             let actual = row
                 .map(|r| PartitionState {
                     window_floor: r.get::<_, i64>(0) as u64,
-                    base_bundle_id: r.get(1),
+                    base_candidate_id: r.get(1),
                 })
                 .unwrap_or_default();
             if actual != *expected {
                 return Err(BatchConflict(format!(
                     "partition {repo_id}/{scope_id}/{gate_id} moved: expected floor {} base {:?}, found floor {} base {:?}",
                     expected.window_floor,
-                    expected.base_bundle_id,
+                    expected.base_candidate_id,
                     actual.window_floor,
-                    actual.base_bundle_id
+                    actual.base_candidate_id
                 ))
                 .into());
             }
@@ -1416,35 +1472,38 @@ fn add_publication_pg(
     Ok(())
 }
 
-fn put_bundle_pg(c: &mut impl postgres::GenericClient, bundle: &StoredBundle) -> Result<()> {
-    let inputs = serde_json::to_string(&bundle.inputs)?;
-    let status = serde_json::to_string(&bundle.status)?;
-    let root = bundle
+fn put_candidate_pg(
+    c: &mut impl postgres::GenericClient,
+    candidate: &StoredCandidate,
+) -> Result<()> {
+    let inputs = serde_json::to_string(&candidate.inputs)?;
+    let status = serde_json::to_string(&candidate.status)?;
+    let root = candidate
         .root_manifest
         .as_ref()
         .map(|id| id.as_str().to_string());
     c.execute(
-        "INSERT INTO bundles
-           (bundle_id, repo_id, scope_id, gate_id, inputs_json, root_manifest,
-            base_bundle_id, window_first, window_last, strategy,
+        "INSERT INTO candidates
+           (candidate_id, repo_id, scope_id, gate_id, inputs_json, root_manifest,
+            base_candidate_id, window_first, window_last, strategy,
             status_json, created_at)
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
-         ON CONFLICT (bundle_id) DO UPDATE SET
+         ON CONFLICT (candidate_id) DO UPDATE SET
            root_manifest = EXCLUDED.root_manifest,
            status_json = EXCLUDED.status_json",
         &[
-            &bundle.bundle_id,
-            &bundle.repo_id,
-            &bundle.scope_id,
-            &bundle.gate_id,
+            &candidate.candidate_id,
+            &candidate.repo_id,
+            &candidate.scope_id,
+            &candidate.gate_id,
             &inputs,
             &root,
-            &bundle.base_bundle_id,
-            &(bundle.window.0 as i64),
-            &(bundle.window.1 as i64),
-            &bundle.strategy,
+            &candidate.base_candidate_id,
+            &(candidate.window.0 as i64),
+            &(candidate.window.1 as i64),
+            &candidate.strategy,
             &status,
-            &bundle.created_at,
+            &candidate.created_at,
         ],
     )?;
     Ok(())
@@ -1458,17 +1517,17 @@ fn set_partition_state_pg(
     state: &PartitionState,
 ) -> Result<()> {
     c.execute(
-        "INSERT INTO partitions (repo_id, scope_id, gate_id, window_floor, base_bundle_id)
+        "INSERT INTO partitions (repo_id, scope_id, gate_id, window_floor, base_candidate_id)
          VALUES ($1, $2, $3, $4, $5)
          ON CONFLICT (repo_id, scope_id, gate_id) DO UPDATE SET
            window_floor = EXCLUDED.window_floor,
-           base_bundle_id = EXCLUDED.base_bundle_id",
+           base_candidate_id = EXCLUDED.base_candidate_id",
         &[
             &repo_id,
             &scope_id,
             &gate_id,
             &(state.window_floor as i64),
-            &state.base_bundle_id,
+            &state.base_candidate_id,
         ],
     )?;
     Ok(())
@@ -1476,15 +1535,15 @@ fn set_partition_state_pg(
 
 fn record_promotion_pg(
     c: &mut impl postgres::GenericClient,
-    bundle_id: &str,
+    candidate_id: &str,
     from_gate: &str,
     to_gate: &str,
     at: &str,
 ) -> Result<()> {
     c.execute(
-        "INSERT INTO promotions (bundle_id, from_gate, to_gate, promoted_at)
+        "INSERT INTO promotions (candidate_id, from_gate, to_gate, promoted_at)
          VALUES ($1, $2, $3, $4)",
-        &[&bundle_id, &from_gate, &to_gate, &at],
+        &[&candidate_id, &from_gate, &to_gate, &at],
     )?;
     Ok(())
 }

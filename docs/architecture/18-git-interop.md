@@ -15,12 +15,12 @@ Git hashes and Convergence ids never coincide (different hash domains).
 Correspondence is carried explicitly:
 
 - exported commits carry trailers: `Converge-Snap: <snap_id>` or
-  `Converge-Bundle: <bundle_id>`, plus `Converge-Derived-From-Bundle`
+  `Converge-Candidate: <candidate_id>`, plus `Converge-Derived-From-Candidate`
   when set
 - imported snaps record their source in the message trailer
   `Converge-Imported-Commit: <sha>`
 - the exporter maintains a local mapping table
-  (`.converge/git-map.json`: snap/bundle id -> exported mark/sha) so
+  (`.converge/git-map.json`: snap/candidate id -> exported mark/sha) so
   re-exports are incremental and stable
 
 ## 2. Export mapping (Convergence -> git)
@@ -34,14 +34,14 @@ Correspondence is carried explicitly:
   (missing record) is omitted and counted in a
   `Converge-Thinned-Parents: <n>` trailer — gaps are visible, never
   faked.
-- **Bundle -> merge commit.** Parents = the mapped commits of the
-  bundle's input snaps (plus the previous export of the same branch, if
-  any). Trailer carries the bundle id; the message includes gate,
+- **Candidate -> merge commit.** Parents = the mapped commits of the
+  candidate's input snaps (plus the previous export of the same branch, if
+  any). Trailer carries the candidate id; the message includes gate,
   strategy, and window from provenance.
 - **Tombstones/deletions.** Absent paths — git-native.
 - **Superpositions are unrepresentable in git.** Export **refuses** any
   tree containing a superposition ("resolve before export"). Only
-  promotable bundles and superposition-free snaps export. No conflict
+  promotable candidates and superposition-free snaps export. No conflict
   markers, no lossy flattening.
 
 ### Branches
@@ -59,7 +59,7 @@ bidirectional sync).
 ### Fidelity contract
 
 `git checkout` of an exported commit produces a tree byte-identical to
-`converge fetch`/materialize of the corresponding snap or bundle. That
+`converge fetch`/materialize of the corresponding snap or candidate. That
 equality is the 9.2 test.
 
 ## 3. Import mapping (git -> Convergence)

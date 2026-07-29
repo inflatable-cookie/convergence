@@ -59,7 +59,8 @@ pub struct PublishRequest {
     /// into lineage without a separate sync.
     pub snap: crate::snap::SnapRecord,
     #[serde(default)]
-    pub base_bundle_id: Option<String>,
+    #[serde(alias = "base_bundle_id")]
+    pub base_candidate_id: Option<String>,
     /// `None` -> the publisher's auto-provisioned personal lane.
     #[serde(default)]
     pub lane_id: Option<String>,
@@ -84,9 +85,10 @@ pub struct PublicationRecord {
     pub publication_id: String,
     pub snap_id: String,
     pub root_manifest: ObjectId,
-    /// The bundle the publisher last saw for the target (doc 17 §2).
+    /// The candidate the publisher last saw for the target (doc 17 §2).
     #[serde(default)]
-    pub base_bundle_id: Option<String>,
+    #[serde(alias = "base_bundle_id")]
+    pub base_candidate_id: Option<String>,
     /// The published snap's parents — provenance links into lineage.
     #[serde(default)]
     pub snap_parents: Vec<String>,
@@ -101,29 +103,31 @@ pub struct PublicationRecord {
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
-pub enum BundleStatus {
+pub enum CandidateStatus {
     Building,
     Ready { promotable: bool },
     Failed { reason: String },
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct BundleRecord {
-    pub bundle_id: String,
+pub struct CandidateRecord {
+    #[serde(alias = "bundle_id")]
+    pub candidate_id: String,
     pub produced_by_gate_id: String,
     pub scope_id: String,
     pub inputs: Vec<String>,
     pub root_manifest: Option<ObjectId>,
-    /// W: the promoted bundle this build folded onto (doc 17 §3).
+    /// W: the promoted candidate this build folded onto (doc 17 §3).
     #[serde(default)]
-    pub base_bundle_id: Option<String>,
+    #[serde(alias = "base_bundle_id")]
+    pub base_candidate_id: Option<String>,
     /// (first_seq, last_seq) of the publication window.
     #[serde(default)]
     pub window: (u64, u64),
     /// Coalesce strategy recorded in provenance (doc 17 §4).
     #[serde(default)]
     pub strategy: String,
-    pub status: BundleStatus,
+    pub status: CandidateStatus,
     pub created_at: String,
 }
 
@@ -359,7 +363,7 @@ pub struct LaneHead {
 pub struct InboxReport {
     pub lanes: Vec<InboxLane>,
     pub publications: Vec<InboxPublication>,
-    pub bundles: Vec<InboxBundle>,
+    pub candidates: Vec<InboxCandidate>,
     /// A section hit its cap and was cut (g02.015 batch 15.2). The report
     /// stays bounded on a large repo; this says so rather than passing a
     /// partial list off as the whole picture.
@@ -384,9 +388,10 @@ pub struct InboxPublication {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct InboxBundle {
-    pub bundle_id: String,
-    /// A bundle is a derived artifact, like a merge commit, so its
+pub struct InboxCandidate {
+    #[serde(alias = "bundle_id")]
+    pub candidate_id: String,
+    /// A candidate is a derived artifact, like a merge commit, so its
     /// human name comes from what went into it (batch 27.3, operator:
     /// "keyed only by the hash ID... they need to be named"). The
     /// newest input's snap message, else its publish note, else the
@@ -394,19 +399,19 @@ pub struct InboxBundle {
     #[serde(default)]
     pub title: String,
     /// Publication window `(first, last)` — "publications 12–14" is the
-    /// bundle's span in a form a person can relate to the inbox.
+    /// candidate's span in a form a person can relate to the inbox.
     #[serde(default)]
     pub window: (u64, u64),
     pub gate_id: String,
     /// "resolve" (superposed), "approve" (short of approvals), or
     /// "promote" (ready, approved, and a stage ahead of it).
     pub recommendation: String,
-    /// The gate this bundle would be promoted *out of*: where the work
+    /// The gate this candidate would be promoted *out of*: where the work
     /// has actually got to, as opposed to `gate_id`, which is where it
     /// was built and never changes.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub from_gate: Option<String>,
-    /// The gate to promote into, when exactly one accepts this bundle.
+    /// The gate to promote into, when exactly one accepts this candidate.
     ///
     /// `None` when several do — a fan-out is a choice, and the dashboard
     /// reports rather than picks (batch 23.4).
@@ -414,7 +419,7 @@ pub struct InboxBundle {
     pub next_gate: Option<String>,
     pub approvals: u32,
     pub required_approvals: u32,
-    /// Who published into this bundle, deduped — the people actually
+    /// Who published into this candidate, deduped — the people actually
     /// waiting on it (g02.023 batch 23.4). Bounded: see the server's
     /// `INBOX_CONTRIBUTOR_SCAN`, because a wide window would otherwise
     /// make one inbox call read a hundred publication records to
@@ -434,9 +439,9 @@ pub struct RetentionPolicy {
     /// the wire so a stored policy predating the rename still parses.
     #[serde(alias = "keep_releases_per_channel")]
     pub keep_releases: Option<u32>,
-    /// Keep the newest N bundles per gate (None = keep all).
+    /// Keep the newest N candidates per gate (None = keep all).
     #[serde(default)]
-    pub keep_bundles_per_gate: Option<u32>,
+    pub keep_candidates_per_gate: Option<u32>,
     /// Drop consumed publications older than N days (None = keep all).
     #[serde(default)]
     pub keep_publication_days: Option<u32>,
@@ -470,7 +475,7 @@ pub struct EventPage {
     pub gap: bool,
 }
 
-/// A release: a bundle designated for consumption on a named channel.
+/// A release: a candidate designated for consumption on a named channel.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ReleaseRecord {
     /// Semver, stored bare (no leading `v`), unique per repo (g02.028).
@@ -486,7 +491,8 @@ pub struct ReleaseRecord {
     pub yank_reason: Option<String>,
     pub repo_id: String,
     pub scope_id: String,
-    pub bundle_id: String,
+    #[serde(alias = "bundle_id")]
+    pub candidate_id: String,
     pub released_by: String,
     pub notes: Option<String>,
     pub created_at: String,
@@ -505,9 +511,9 @@ pub struct ReleaseRequest {
 pub struct EventRecord {
     pub seq: u64,
     pub repo_id: String,
-    /// "bundle" | "lane" | "release"
+    /// "candidate" | "lane" | "release"
     pub kind: String,
-    /// bundle id, lane id, or channel name.
+    /// candidate id, lane id, or channel name.
     pub subject_id: String,
     pub created_at: String,
 }
@@ -516,17 +522,18 @@ pub struct EventRecord {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct VerifyReport {
     pub verified: bool,
-    pub bundle_id: String,
+    #[serde(alias = "bundle_id")]
+    pub candidate_id: String,
     pub recorded_root: Option<ObjectId>,
     pub recomputed_root: Option<ObjectId>,
     pub recomputed_id: String,
     pub detail: String,
 }
 
-/// A bundle plus its input publications — readable provenance.
+/// A candidate plus its input publications — readable provenance.
 #[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct BundleProvenance {
-    pub bundle: BundleRecord,
+pub struct CandidateProvenance {
+    pub candidate: CandidateRecord,
     pub inputs: Vec<PublicationRecord>,
 }
 
@@ -551,7 +558,7 @@ pub struct GateNode {
     /// "text-line-merge".
     #[serde(default = "default_strategy")]
     pub strategy: String,
-    /// Whether bundles produced by this gate may be released to channels.
+    /// Whether candidates produced by this gate may be released to channels.
     #[serde(default)]
     pub may_release: bool,
 }

@@ -143,7 +143,7 @@ fn superposed_tree_refuses_to_export() -> Result<()> {
         created_at: "2026-07-25T00:00:00Z".into(),
         root_manifest,
         parents: Vec::new(),
-        derived_from_bundle: None,
+        derived_from_candidate: None,
         message: None,
         trigger: "explicit".into(),
         stats: SnapStats::default(),

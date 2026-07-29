@@ -292,7 +292,7 @@ fn reachable_from_entries(graph: &GateGraph) -> BTreeSet<&str> {
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct GateOccupancy {
     pub gate_id: String,
-    pub bundles: u64,
+    pub candidates: u64,
     /// Publications above the window floor: the ones a fold still reads.
     pub open_publications: u64,
     pub has_partition_state: bool,
@@ -300,7 +300,7 @@ pub struct GateOccupancy {
 
 impl GateOccupancy {
     pub fn is_empty(&self) -> bool {
-        self.bundles == 0 && self.open_publications == 0 && !self.has_partition_state
+        self.candidates == 0 && self.open_publications == 0 && !self.has_partition_state
     }
 }
 
@@ -320,7 +320,7 @@ pub struct GraphImpact {
 impl GraphImpact {
     /// Would this change strand work that exists?
     ///
-    /// Removing an empty gate is housekeeping. Removing one with bundles
+    /// Removing an empty gate is housekeeping. Removing one with candidates
     /// in it makes them unaddressable — the same shape as batch 22.4
     /// finding 34, where a dangling reference wedged a partition with no
     /// way back through the CLI.
@@ -564,7 +564,7 @@ mod tests {
         let after = graph(vec![gate("intake", &[]), gate("review", &["intake"])]);
         let occupancy = vec![GateOccupancy {
             gate_id: "intake".into(),
-            bundles: 11,
+            candidates: 11,
             open_publications: 12,
             has_partition_state: false,
         }];
@@ -583,14 +583,14 @@ mod tests {
         let after = graph(vec![gate("intake", &[])]);
         let occupancy = vec![GateOccupancy {
             gate_id: "review".into(),
-            bundles: 3,
+            candidates: 3,
             open_publications: 2,
             has_partition_state: true,
         }];
         let impact = impact_of(&before, &after, &occupancy);
         assert_eq!(impact.removed, vec!["review".to_string()]);
         assert!(impact.strands_work());
-        assert_eq!(impact.occupancy[0].bundles, 3);
+        assert_eq!(impact.occupancy[0].candidates, 3);
     }
 
     #[test]

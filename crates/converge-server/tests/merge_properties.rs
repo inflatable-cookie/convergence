@@ -92,7 +92,7 @@ fn inputs_for(w: &ObjectId, trees: &[ObjectId]) -> Vec<MergeInput> {
 }
 
 /// The fold is a function of its inputs: same window, same result, every
-/// time. Determinism is what makes `bundle_id` meaningful — a bundle id
+/// time. Determinism is what makes `candidate_id` meaningful — a candidate id
 /// that did not pin the merged tree would be a label, not an identity.
 #[test]
 fn merge_is_deterministic_and_idempotent_over_generated_windows() -> Result<()> {

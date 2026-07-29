@@ -20,7 +20,7 @@ fn snap_for_root(ws: &Workspace, root: ObjectId) -> Result<String> {
         created_at: "2026-07-24T00:00:00Z".into(),
         root_manifest: root,
         parents: vec![],
-        derived_from_bundle: None,
+        derived_from_candidate: None,
         message: Some("hostile".into()),
         trigger: "explicit".into(),
         stats: Default::default(),

@@ -25,7 +25,7 @@ impl LocalStore {
             .cloned())
     }
 
-    pub fn get_last_seen_bundle(
+    pub fn get_last_seen_candidate(
         &self,
         remote: &RemoteConfig,
         scope: &str,
@@ -33,33 +33,33 @@ impl LocalStore {
     ) -> Result<Option<String>> {
         let st = self.read_state()?;
         Ok(st
-            .last_seen_bundle
+            .last_seen_candidate
             .get(&self.publish_key(remote, scope, gate))
             .cloned())
     }
 
-    pub fn set_last_seen_bundle(
+    pub fn set_last_seen_candidate(
         &self,
         remote: &RemoteConfig,
         scope: &str,
         gate: &str,
-        bundle_id: &str,
+        candidate_id: &str,
     ) -> Result<()> {
         let key = self.publish_key(remote, scope, gate);
         self.mutate_state(|st| {
-            st.last_seen_bundle.insert(key, bundle_id.to_string());
+            st.last_seen_candidate.insert(key, candidate_id.to_string());
             Ok(())
         })
     }
 
-    /// Forget the bundle this workspace last saw for a target.
+    /// Forget the candidate this workspace last saw for a target.
     ///
     /// Used when the server does not recognise it (batch 22.4) — after a
-    /// rebuild or a restore whose bundle history differs. The recorded
+    /// rebuild or a restore whose candidate history differs. The recorded
     /// base is a claim about what *this* client saw; a server that never
     /// issued it cannot act on the claim, so keeping it only wedges the
     /// next publish.
-    pub fn clear_last_seen_bundle(
+    pub fn clear_last_seen_candidate(
         &self,
         remote: &RemoteConfig,
         scope: &str,
@@ -67,7 +67,7 @@ impl LocalStore {
     ) -> Result<()> {
         let key = self.publish_key(remote, scope, gate);
         self.mutate_state(|st| {
-            st.last_seen_bundle.remove(&key);
+            st.last_seen_candidate.remove(&key);
             Ok(())
         })
     }
@@ -107,7 +107,7 @@ impl LocalStore {
                     map.insert(k.replacen(&old_prefix, &new_prefix, 1), v);
                 }
             };
-            rekey(&mut state.last_seen_bundle);
+            rekey(&mut state.last_seen_candidate);
             rekey(&mut state.last_published);
             // lane_sync is keyed by lane id alone, so it survives a URL
             // change untouched.

@@ -110,7 +110,7 @@ fn lane_lifecycle_and_publish_enforcement() -> Result<()> {
     assert!(err.to_string().contains("not registered"));
 
     // Members may publish to the lane; provenance names it.
-    let (bundle, _) = bob.publish(
+    let (candidate, _) = bob.publish(
         &ws.store,
         "repo",
         "scope",
@@ -120,7 +120,7 @@ fn lane_lifecycle_and_publish_enforcement() -> Result<()> {
         Some("feature/audio".into()),
         None,
     )?;
-    assert!(bundle.inputs.len() == 1);
+    assert!(candidate.inputs.len() == 1);
 
     Ok(())
 }
@@ -273,7 +273,7 @@ fn inbox_reports_visible_activity_and_recommendations() -> Result<()> {
         false,
     )?;
 
-    // Divergent publishes -> superposed bundle needing resolution.
+    // Divergent publishes -> superposed candidate needing resolution.
     let ws_b_dir = tempfile::tempdir()?;
     let ws_b = Workspace::init(ws_b_dir.path(), false)?;
     std::fs::write(ws_b_dir.path().join("f.txt"), "other")?;
@@ -293,7 +293,7 @@ fn inbox_reports_visible_activity_and_recommendations() -> Result<()> {
     )?;
 
     // Bob's inbox: sees the shared lane but not alice's personal lane;
-    // sees the superposed bundle with a resolve recommendation.
+    // sees the superposed candidate with a resolve recommendation.
     let report = bob.inbox("repo", "scope", None)?;
     let lane_ids: Vec<&str> = report.lanes.iter().map(|l| l.lane_id.as_str()).collect();
     assert!(lane_ids.contains(&"shared/wip"));
@@ -306,8 +306,8 @@ fn inbox_reports_visible_activity_and_recommendations() -> Result<()> {
         2,
         "open window publications listed"
     );
-    assert_eq!(report.bundles.len(), 1);
-    assert_eq!(report.bundles[0].recommendation, "resolve");
+    assert_eq!(report.candidates.len(), 1);
+    assert_eq!(report.candidates[0].recommendation, "resolve");
 
     // Alice's inbox additionally shows her personal lane.
     let report = alice.inbox("repo", "scope", None)?;
@@ -346,9 +346,9 @@ fn inbox_recommends_approval_when_short() -> Result<()> {
     )?;
 
     let report = alice.inbox("repo", "scope", None)?;
-    assert_eq!(report.bundles.len(), 1);
-    assert_eq!(report.bundles[0].recommendation, "approve");
-    assert_eq!(report.bundles[0].required_approvals, 2);
+    assert_eq!(report.candidates.len(), 1);
+    assert_eq!(report.candidates[0].recommendation, "approve");
+    assert_eq!(report.candidates[0].required_approvals, 2);
     Ok(())
 }
 
@@ -363,7 +363,7 @@ fn provenance_chain_is_complete_and_variant_sources_are_lanes() -> Result<()> {
     let ws_a_dir = tempfile::tempdir()?;
     let snap_a = snap_in(ws_a_dir.path(), "alice version")?;
     let ws_a = workspace(ws_a_dir.path())?;
-    let (bundle_a, _) = alice.publish(
+    let (candidate_a, _) = alice.publish(
         &ws_a.store,
         "repo",
         "scope",
@@ -377,19 +377,19 @@ fn provenance_chain_is_complete_and_variant_sources_are_lanes() -> Result<()> {
     let ws_b_dir = tempfile::tempdir()?;
     let snap_b = snap_in(ws_b_dir.path(), "bob version")?;
     let ws_b = workspace(ws_b_dir.path())?;
-    let (bundle, _) = bob.publish(
+    let (candidate, _) = bob.publish(
         &ws_b.store,
         "repo",
         "scope",
         "intake",
         &snap_b,
-        Some(bundle_a.bundle_id.clone()),
+        Some(candidate_a.candidate_id.clone()),
         None,
         None,
     )?;
 
     // Provenance answers who / where-from / on-what for every input.
-    let provenance = alice.get_provenance(&bundle.bundle_id)?;
+    let provenance = alice.get_provenance(&candidate.candidate_id)?;
     assert_eq!(provenance.inputs.len(), 2);
     let by_publisher: std::collections::HashMap<&str, &converge_model::PublicationRecord> =
         provenance
@@ -399,8 +399,8 @@ fn provenance_chain_is_complete_and_variant_sources_are_lanes() -> Result<()> {
             .collect();
     assert_eq!(by_publisher["alice"].lane_id, "personal/alice");
     assert_eq!(
-        by_publisher["bob"].base_bundle_id.as_deref(),
-        Some(bundle_a.bundle_id.as_str())
+        by_publisher["bob"].base_candidate_id.as_deref(),
+        Some(candidate_a.candidate_id.as_str())
     );
     assert_eq!(by_publisher["alice"].snap_id, snap_a.id);
 
@@ -418,14 +418,14 @@ fn provenance_chain_is_complete_and_variant_sources_are_lanes() -> Result<()> {
         .into_iter()
         .map(|l| l.lane_id)
         .collect();
-    let root = bundle.root_manifest.expect("root");
+    let root = candidate.root_manifest.expect("root");
     let ws_check_dir = tempfile::tempdir()?;
     let ws_check = Workspace::init(ws_check_dir.path(), false)?;
     alice
         .pull_lane(&ws_check.store, "repo", "personal/alice")
         .ok();
-    // Fetch the bundle tree and inspect variants.
-    alice.fetch_bundle(&ws_check.store, "repo", &bundle.bundle_id)?;
+    // Fetch the candidate tree and inspect variants.
+    alice.fetch_candidate(&ws_check.store, "repo", &candidate.candidate_id)?;
     let manifest = ws_check.store.get_manifest(&root)?;
     for entry in &manifest.entries {
         if let converge_client::model::ManifestEntryKind::Superposition { variants } = &entry.kind {

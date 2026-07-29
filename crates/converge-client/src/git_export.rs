@@ -239,8 +239,8 @@ fn write_commit(
         .clone()
         .unwrap_or_else(|| format!("snap {}", &snap.id[..12.min(snap.id.len())]));
     message.push_str(&format!("\n\nConverge-Snap: {}\n", snap.id));
-    if let Some(bundle) = &snap.derived_from_bundle {
-        message.push_str(&format!("Converge-Derived-From-Bundle: {bundle}\n"));
+    if let Some(candidate) = &snap.derived_from_candidate {
+        message.push_str(&format!("Converge-Derived-From-Candidate: {candidate}\n"));
     }
     let thinned = snap
         .parents

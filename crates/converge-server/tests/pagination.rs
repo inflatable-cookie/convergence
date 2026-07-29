@@ -165,47 +165,47 @@ fn scope_cursor_pages_in_key_order() -> Result<()> {
 }
 
 /// Audit 4.4 / L6: the inbox answered a question about a handful of
-/// gates by reading every bundle ever built in the scope. It now asks
-/// the store for at most one bundle per gate.
+/// gates by reading every candidate ever built in the scope. It now asks
+/// the store for at most one candidate per gate.
 #[test]
-fn inbox_reads_one_bundle_per_gate_not_the_whole_scope() -> Result<()> {
-    use converge_model::BundleStatus;
-    use converge_server::StoredBundle;
+fn inbox_reads_one_candidate_per_gate_not_the_whole_scope() -> Result<()> {
+    use converge_model::CandidateStatus;
+    use converge_server::StoredCandidate;
 
     let dir = tempfile::tempdir()?;
     let meta = SqliteMetadataStore::open(&dir.path().join("meta.sqlite"))?;
     meta.create_repo("repo")?;
     meta.create_scope("repo", "scope", "t")?;
 
-    // Many bundles across two gates; only the newest of each is current.
+    // Many candidates across two gates; only the newest of each is current.
     for i in 0..50 {
         for gate in ["intake", "main"] {
-            meta.put_bundle(&StoredBundle {
-                bundle_id: format!("{gate}-{i:03}"),
+            meta.put_candidate(&StoredCandidate {
+                candidate_id: format!("{gate}-{i:03}"),
                 repo_id: "repo".into(),
                 scope_id: "scope".into(),
                 gate_id: gate.into(),
                 inputs: vec![],
                 root_manifest: None,
-                base_bundle_id: None,
+                base_candidate_id: None,
                 window: (0, 0),
                 strategy: "whole-file".into(),
-                status: BundleStatus::Ready { promotable: true },
+                status: CandidateStatus::Ready { promotable: true },
                 created_at: format!("2026-07-25T00:00:{i:02}Z"),
             })?;
         }
     }
 
-    let latest = meta.latest_bundles_per_gate("repo", "scope")?;
+    let latest = meta.latest_candidates_per_gate("repo", "scope")?;
     assert_eq!(latest.len(), 2, "one row per gate, not 100");
-    let mut ids: Vec<&str> = latest.iter().map(|b| b.bundle_id.as_str()).collect();
+    let mut ids: Vec<&str> = latest.iter().map(|b| b.candidate_id.as_str()).collect();
     ids.sort_unstable();
     assert_eq!(
         ids,
         vec!["intake-049", "main-049"],
-        "the newest bundle of each gate"
+        "the newest candidate of each gate"
     );
     // The unpaged scan is still available for GC, and still sees all.
-    assert_eq!(meta.list_bundles("repo", "scope")?.len(), 100);
+    assert_eq!(meta.list_candidates("repo", "scope")?.len(), 100);
     Ok(())
 }

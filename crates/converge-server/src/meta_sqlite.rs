@@ -5,11 +5,11 @@ use anyhow::{Context, Result, anyhow};
 use rusqlite::{Connection, params};
 
 use converge_model::{
-    BundleStatus, EventRecord, GateGraph, LaneHead, LaneRecord, ObjectId, PublicationRecord,
+    CandidateStatus, EventRecord, GateGraph, LaneHead, LaneRecord, ObjectId, PublicationRecord,
     ReleaseRecord, RetentionPolicy, SnapRecord,
 };
 
-use crate::storage::{BatchConflict, MetaOp, MetadataStore, PartitionState, StoredBundle};
+use crate::storage::{BatchConflict, MetaOp, MetadataStore, PartitionState, StoredCandidate};
 
 /// Embedded metadata store. A single mutex-guarded connection serializes all
 /// writers, which trivially satisfies the per-partition write serialization
@@ -102,14 +102,14 @@ impl SqliteMetadataStore {
                 seq INTEGER NOT NULL,
                 record_json TEXT NOT NULL
             );
-            CREATE TABLE IF NOT EXISTS bundles (
-                bundle_id TEXT PRIMARY KEY,
+            CREATE TABLE IF NOT EXISTS candidates (
+                candidate_id TEXT PRIMARY KEY,
                 repo_id TEXT NOT NULL,
                 scope_id TEXT NOT NULL,
                 gate_id TEXT NOT NULL,
                 inputs_json TEXT NOT NULL,
                 root_manifest TEXT,
-                base_bundle_id TEXT,
+                base_candidate_id TEXT,
                 window_first INTEGER NOT NULL DEFAULT 0,
                 window_last INTEGER NOT NULL DEFAULT 0,
                 strategy TEXT NOT NULL DEFAULT 'whole-file',
@@ -117,9 +117,9 @@ impl SqliteMetadataStore {
                 created_at TEXT NOT NULL
             );
             CREATE TABLE IF NOT EXISTS approvals (
-                bundle_id TEXT NOT NULL,
+                candidate_id TEXT NOT NULL,
                 approver TEXT NOT NULL,
-                PRIMARY KEY (bundle_id, approver)
+                PRIMARY KEY (candidate_id, approver)
             );
             CREATE TABLE IF NOT EXISTS lanes (
                 repo_id TEXT NOT NULL,
@@ -145,7 +145,7 @@ impl SqliteMetadataStore {
                 scope_id TEXT NOT NULL,
                 gate_id TEXT NOT NULL,
                 window_floor INTEGER NOT NULL DEFAULT 0,
-                base_bundle_id TEXT,
+                base_candidate_id TEXT,
                 PRIMARY KEY (repo_id, scope_id, gate_id)
             );
             CREATE TABLE IF NOT EXISTS events (
@@ -170,7 +170,7 @@ impl SqliteMetadataStore {
                 record_json TEXT NOT NULL
             );
             CREATE TABLE IF NOT EXISTS promotions (
-                bundle_id TEXT NOT NULL,
+                candidate_id TEXT NOT NULL,
                 from_gate TEXT NOT NULL,
                 to_gate TEXT NOT NULL,
                 promoted_at TEXT NOT NULL
@@ -232,6 +232,46 @@ impl SqliteMetadataStore {
             conn.execute("ALTER TABLE releases DROP COLUMN channel", [])
                 .context("drop releases.channel")?;
         }
+
+        // g02.029: bundle became candidate, everywhere, including the
+        // schema — a concept with two names in one codebase is the
+        // drift trap this project has now documented four times. A
+        // deployment created before the rename has the old table and
+        // column names; renames are cheap and preserve everything.
+        // record_json field names inside rows stay as written — serde
+        // aliases read them, and rows re-serialize on their next write.
+        let legacy_table = conn.prepare("SELECT 1 FROM bundles LIMIT 1").is_ok();
+        if legacy_table {
+            // Schema init above has already created an empty
+            // `candidates` on this same open; the legacy data wins.
+            let fresh_rows: i64 = conn
+                .query_row("SELECT COUNT(*) FROM candidates", [], |row| row.get(0))
+                .unwrap_or(0);
+            if fresh_rows == 0 {
+                conn.execute("DROP TABLE IF EXISTS candidates", [])
+                    .context("drop empty candidates table")?;
+                conn.execute("ALTER TABLE bundles RENAME TO candidates", [])
+                    .context("rename bundles table")?;
+            }
+        }
+        for (table, from, to) in [
+            ("candidates", "bundle_id", "candidate_id"),
+            ("candidates", "base_bundle_id", "base_candidate_id"),
+            ("partitions", "base_bundle_id", "base_candidate_id"),
+            ("promotions", "bundle_id", "candidate_id"),
+            ("approvals", "bundle_id", "candidate_id"),
+        ] {
+            let has_old = conn
+                .prepare(&format!("SELECT {from} FROM {table} LIMIT 1"))
+                .is_ok();
+            if has_old {
+                conn.execute(
+                    &format!("ALTER TABLE {table} RENAME COLUMN {from} TO {to}"),
+                    [],
+                )
+                .with_context(|| format!("rename {table}.{from}"))?;
+            }
+        }
         let mut stmt = conn
             .prepare("SELECT seq, record_json FROM releases WHERE version = '' ORDER BY seq ASC")?;
         let unversioned: Vec<(i64, String)> = stmt
@@ -255,37 +295,37 @@ impl SqliteMetadataStore {
     }
 }
 
-/// Expand a unique bundle-id prefix to the full id.
+/// Expand a unique candidate-id prefix to the full id.
 ///
-/// The CLI prints shortened bundle ids everywhere it reports one, so a
+/// The CLI prints shortened candidate ids everywhere it reports one, so a
 /// short id is the form people copy. Batch 22.4 caught the consequence:
 /// `fetch` printed `cb59de7525b6` and then `verify cb59de7525b6` came
 /// back 404, and the "next:" hint beside it spelled out the full id
 /// because whoever wrote the hint already knew short ids did not work.
 ///
 /// Resolving here rather than per-handler means every route that takes a
-/// bundle id accepts what was printed. Exact ids skip the extra query.
+/// candidate id accepts what was printed. Exact ids skip the extra query.
 /// Ambiguity is an error, never a guess: silently picking one of two
-/// candidates would approve or promote the wrong bundle. The hex check
+/// candidates would approve or promote the wrong candidate. The hex check
 /// is load-bearing — it keeps LIKE wildcards out of the pattern.
-fn resolve_bundle_prefix(conn: &rusqlite::Connection, given: &str) -> Result<String> {
+fn resolve_candidate_prefix(conn: &rusqlite::Connection, given: &str) -> Result<String> {
     const SHORTEST: usize = 8;
     if given.len() >= 64 || given.len() < SHORTEST || !given.chars().all(|c| c.is_ascii_hexdigit())
     {
         return Ok(given.to_string());
     }
-    let mut stmt =
-        conn.prepare("SELECT bundle_id FROM bundles WHERE bundle_id LIKE ?1 || '%' LIMIT 2")?;
+    let mut stmt = conn
+        .prepare("SELECT candidate_id FROM candidates WHERE candidate_id LIKE ?1 || '%' LIMIT 2")?;
     let found: Vec<String> = stmt
         .query_map(params![given], |row| row.get(0))?
         .collect::<std::result::Result<_, _>>()?;
     match found.as_slice() {
         [only] => Ok(only.clone()),
-        // Fall through to the caller's own "no bundle" error rather than
+        // Fall through to the caller's own "no candidate" error rather than
         // inventing a second way to say the same thing.
         [] => Ok(given.to_string()),
         _ => Err(anyhow!(
-            "bundle id {given} is ambiguous: it matches more than one bundle, use more characters"
+            "candidate id {given} is ambiguous: it matches more than one candidate, use more characters"
         )),
     }
 }
@@ -644,8 +684,8 @@ impl MetadataStore for SqliteMetadataStore {
         let conn = self.conn.lock().expect("meta lock");
         let mut out = Vec::new();
         for gate in &graph.gates {
-            let bundles: u64 = conn.query_row(
-                "SELECT COUNT(*) FROM bundles WHERE repo_id = ?1 AND gate_id = ?2",
+            let candidates: u64 = conn.query_row(
+                "SELECT COUNT(*) FROM candidates WHERE repo_id = ?1 AND gate_id = ?2",
                 params![repo_id, gate.gate_id],
                 |row| row.get::<_, i64>(0),
             )? as u64;
@@ -672,7 +712,7 @@ impl MetadataStore for SqliteMetadataStore {
             )? as u64;
             out.push(converge_model::gates::GateOccupancy {
                 gate_id: gate.gate_id.clone(),
-                bundles,
+                candidates,
                 open_publications,
                 has_partition_state,
             });
@@ -854,21 +894,25 @@ impl MetadataStore for SqliteMetadataStore {
         Ok(out)
     }
 
-    fn latest_bundles_per_gate(&self, repo_id: &str, scope_id: &str) -> Result<Vec<StoredBundle>> {
+    fn latest_candidates_per_gate(
+        &self,
+        repo_id: &str,
+        scope_id: &str,
+    ) -> Result<Vec<StoredCandidate>> {
         let ids: Vec<String> = {
             let conn = self.conn.lock().expect("meta lock");
-            // One row per gate: the newest bundle by (created_at, id).
+            // One row per gate: the newest candidate by (created_at, id).
             let mut stmt = conn.prepare(
-                "SELECT bundle_id FROM bundles b
+                "SELECT candidate_id FROM candidates b
                  WHERE repo_id = ?1 AND scope_id = ?2
-                   AND created_at || bundle_id = (
-                     SELECT MAX(created_at || bundle_id) FROM bundles
+                   AND created_at || candidate_id = (
+                     SELECT MAX(created_at || candidate_id) FROM candidates
                       WHERE repo_id = ?1 AND scope_id = ?2 AND gate_id = b.gate_id)",
             )?;
             let rows = stmt.query_map(params![repo_id, scope_id], |row| row.get(0))?;
             rows.collect::<std::result::Result<_, _>>()?
         };
-        ids.iter().map(|id| self.get_bundle(id)).collect()
+        ids.iter().map(|id| self.get_candidate(id)).collect()
     }
 
     fn add_lane_member(&self, repo_id: &str, lane_id: &str, member: &str) -> Result<()> {
@@ -947,7 +991,7 @@ impl MetadataStore for SqliteMetadataStore {
         let conn = self.conn.lock().expect("meta lock");
         let row = conn
             .query_row(
-                "SELECT window_floor, base_bundle_id FROM partitions
+                "SELECT window_floor, base_candidate_id FROM partitions
                  WHERE repo_id = ?1 AND scope_id = ?2 AND gate_id = ?3",
                 params![repo_id, scope_id, gate_id],
                 |row| Ok((row.get::<_, i64>(0)?, row.get::<_, Option<String>>(1)?)),
@@ -956,7 +1000,7 @@ impl MetadataStore for SqliteMetadataStore {
         Ok(row
             .map(|(floor, base)| PartitionState {
                 window_floor: floor as u64,
-                base_bundle_id: base,
+                base_candidate_id: base,
             })
             .unwrap_or_default())
     }
@@ -972,20 +1016,20 @@ impl MetadataStore for SqliteMetadataStore {
         set_partition_state_conn(&conn, repo_id, scope_id, gate_id, state)
     }
 
-    fn put_bundle(&self, bundle: &StoredBundle) -> Result<()> {
+    fn put_candidate(&self, candidate: &StoredCandidate) -> Result<()> {
         let conn = self.conn.lock().expect("meta lock");
-        put_bundle_conn(&conn, bundle)
+        put_candidate_conn(&conn, candidate)
     }
 
-    fn get_bundle(&self, bundle_id: &str) -> Result<StoredBundle> {
+    fn get_candidate(&self, candidate_id: &str) -> Result<StoredCandidate> {
         let conn = self.conn.lock().expect("meta lock");
-        let bundle_id = &resolve_bundle_prefix(&conn, bundle_id)?;
+        let candidate_id = &resolve_candidate_prefix(&conn, candidate_id)?;
         conn.query_row(
-            "SELECT bundle_id, repo_id, scope_id, gate_id, inputs_json, root_manifest,
-                    base_bundle_id, window_first, window_last, strategy,
+            "SELECT candidate_id, repo_id, scope_id, gate_id, inputs_json, root_manifest,
+                    base_candidate_id, window_first, window_last, strategy,
                     status_json, created_at
-             FROM bundles WHERE bundle_id = ?1",
-            params![bundle_id],
+             FROM candidates WHERE candidate_id = ?1",
+            params![candidate_id],
             |row| {
                 Ok((
                     row.get::<_, String>(0)?,
@@ -1003,50 +1047,50 @@ impl MetadataStore for SqliteMetadataStore {
                 ))
             },
         )
-        .map_err(|_| anyhow!("no bundle {bundle_id}"))
+        .map_err(|_| anyhow!("no candidate {candidate_id}"))
         .and_then(
             |(id, repo, scope, gate, inputs, root, base, wf, wl, strategy, status, created)| {
-                Ok(StoredBundle {
-                    bundle_id: id,
+                Ok(StoredCandidate {
+                    candidate_id: id,
                     repo_id: repo,
                     scope_id: scope,
                     gate_id: gate,
                     inputs: serde_json::from_str(&inputs)?,
                     root_manifest: root.map(ObjectId),
-                    base_bundle_id: base,
+                    base_candidate_id: base,
                     window: (wf as u64, wl as u64),
                     strategy,
-                    status: serde_json::from_str::<BundleStatus>(&status)?,
+                    status: serde_json::from_str::<CandidateStatus>(&status)?,
                     created_at: created,
                 })
             },
         )
     }
 
-    fn list_bundles(&self, repo_id: &str, scope_id: &str) -> Result<Vec<StoredBundle>> {
+    fn list_candidates(&self, repo_id: &str, scope_id: &str) -> Result<Vec<StoredCandidate>> {
         let ids: Vec<String> = {
             let conn = self.conn.lock().expect("meta lock");
             let mut stmt = conn.prepare(
-                "SELECT bundle_id FROM bundles
+                "SELECT candidate_id FROM candidates
                  WHERE repo_id = ?1 AND scope_id = ?2
                  ORDER BY created_at ASC",
             )?;
             let rows = stmt.query_map(params![repo_id, scope_id], |row| row.get(0))?;
             rows.collect::<std::result::Result<_, _>>()?
         };
-        ids.iter().map(|id| self.get_bundle(id)).collect()
+        ids.iter().map(|id| self.get_candidate(id)).collect()
     }
 
-    fn list_bundles_all_scopes(&self, repo_id: &str) -> Result<Vec<StoredBundle>> {
+    fn list_candidates_all_scopes(&self, repo_id: &str) -> Result<Vec<StoredCandidate>> {
         let ids: Vec<String> = {
             let conn = self.conn.lock().expect("meta lock");
             let mut stmt = conn.prepare(
-                "SELECT bundle_id FROM bundles WHERE repo_id = ?1 ORDER BY created_at ASC",
+                "SELECT candidate_id FROM candidates WHERE repo_id = ?1 ORDER BY created_at ASC",
             )?;
             let rows = stmt.query_map(params![repo_id], |row| row.get(0))?;
             rows.collect::<std::result::Result<_, _>>()?
         };
-        ids.iter().map(|id| self.get_bundle(id)).collect()
+        ids.iter().map(|id| self.get_candidate(id)).collect()
     }
 
     fn list_partitions(&self, repo_id: &str) -> Result<Vec<(String, String, u64)>> {
@@ -1074,20 +1118,20 @@ impl MetadataStore for SqliteMetadataStore {
         Ok(out)
     }
 
-    fn add_approval(&self, bundle_id: &str, approver: &str) -> Result<()> {
+    fn add_approval(&self, candidate_id: &str, approver: &str) -> Result<()> {
         let conn = self.conn.lock().expect("meta lock");
         conn.execute(
-            "INSERT OR IGNORE INTO approvals (bundle_id, approver) VALUES (?1, ?2)",
-            params![bundle_id, approver],
+            "INSERT OR IGNORE INTO approvals (candidate_id, approver) VALUES (?1, ?2)",
+            params![candidate_id, approver],
         )?;
         Ok(())
     }
 
-    fn count_approvals(&self, bundle_id: &str) -> Result<u32> {
+    fn count_approvals(&self, candidate_id: &str) -> Result<u32> {
         let conn = self.conn.lock().expect("meta lock");
         let n: u32 = conn.query_row(
-            "SELECT COUNT(*) FROM approvals WHERE bundle_id = ?1",
-            params![bundle_id],
+            "SELECT COUNT(*) FROM approvals WHERE candidate_id = ?1",
+            params![candidate_id],
             |row| row.get(0),
         )?;
         Ok(n)
@@ -1249,12 +1293,16 @@ impl MetadataStore for SqliteMetadataStore {
         Ok(true)
     }
 
-    fn delete_releases_for_bundles(&self, repo_id: &str, bundle_ids: &[String]) -> Result<u64> {
+    fn delete_releases_for_candidates(
+        &self,
+        repo_id: &str,
+        candidate_ids: &[String],
+    ) -> Result<u64> {
         // Exact field match (audit M1): a substring match over the record
-        // JSON deletes releases of other bundles whose ids merely share a
+        // JSON deletes releases of other candidates whose ids merely share a
         // prefix, and GC then sweeps objects those releases still hold.
         let wanted: std::collections::HashSet<&str> =
-            bundle_ids.iter().map(|id| id.as_str()).collect();
+            candidate_ids.iter().map(|id| id.as_str()).collect();
         let conn = self.conn.lock().expect("meta lock");
         let mut stmt = conn.prepare("SELECT seq, record_json FROM releases WHERE repo_id = ?1")?;
         let rows = stmt.query_map(params![repo_id], |row| {
@@ -1264,7 +1312,7 @@ impl MetadataStore for SqliteMetadataStore {
         for row in rows {
             let (seq, json) = row?;
             let release: ReleaseRecord = serde_json::from_str(&json).context("parse release")?;
-            if wanted.contains(release.bundle_id.as_str()) {
+            if wanted.contains(release.candidate_id.as_str()) {
                 doomed.push(seq);
             }
         }
@@ -1276,17 +1324,17 @@ impl MetadataStore for SqliteMetadataStore {
         Ok(deleted)
     }
 
-    fn delete_bundles(&self, repo_id: &str, bundle_ids: &[String]) -> Result<u64> {
+    fn delete_candidates(&self, repo_id: &str, candidate_ids: &[String]) -> Result<u64> {
         let conn = self.conn.lock().expect("meta lock");
         let mut deleted = 0u64;
-        for bundle_id in bundle_ids {
+        for candidate_id in candidate_ids {
             deleted += conn.execute(
-                "DELETE FROM bundles WHERE repo_id = ?1 AND bundle_id = ?2",
-                params![repo_id, bundle_id],
+                "DELETE FROM candidates WHERE repo_id = ?1 AND candidate_id = ?2",
+                params![repo_id, candidate_id],
             )? as u64;
             conn.execute(
-                "DELETE FROM approvals WHERE bundle_id = ?1",
-                params![bundle_id],
+                "DELETE FROM approvals WHERE candidate_id = ?1",
+                params![candidate_id],
             )?;
         }
         Ok(deleted)
@@ -1306,21 +1354,21 @@ impl MetadataStore for SqliteMetadataStore {
 
     fn record_promotion(
         &self,
-        bundle_id: &str,
+        candidate_id: &str,
         from_gate: &str,
         to_gate: &str,
         at: &str,
     ) -> Result<()> {
         let conn = self.conn.lock().expect("meta lock");
-        record_promotion_conn(&conn, bundle_id, from_gate, to_gate, at)
+        record_promotion_conn(&conn, candidate_id, from_gate, to_gate, at)
     }
 
-    fn list_promotions(&self, bundle_id: &str) -> Result<Vec<(String, String, String)>> {
+    fn list_promotions(&self, candidate_id: &str) -> Result<Vec<(String, String, String)>> {
         let conn = self.conn.lock().expect("meta lock");
         let mut stmt = conn.prepare(
-            "SELECT from_gate, to_gate, promoted_at FROM promotions WHERE bundle_id = ?1",
+            "SELECT from_gate, to_gate, promoted_at FROM promotions WHERE candidate_id = ?1",
         )?;
-        let rows = stmt.query_map(params![bundle_id], |row| {
+        let rows = stmt.query_map(params![candidate_id], |row| {
             Ok((row.get(0)?, row.get(1)?, row.get(2)?))
         })?;
         let mut out = Vec::new();
@@ -1434,7 +1482,7 @@ impl MetadataStore for SqliteMetadataStore {
 fn apply_op_conn(conn: &Connection, op: &MetaOp) -> Result<()> {
     match op {
         MetaOp::AddPublication(publication) => add_publication_conn(conn, publication),
-        MetaOp::PutBundle(bundle) => put_bundle_conn(conn, bundle),
+        MetaOp::PutCandidate(candidate) => put_candidate_conn(conn, candidate),
         MetaOp::SetPartitionState {
             repo_id,
             scope_id,
@@ -1442,11 +1490,11 @@ fn apply_op_conn(conn: &Connection, op: &MetaOp) -> Result<()> {
             state,
         } => set_partition_state_conn(conn, repo_id, scope_id, gate_id, state),
         MetaOp::RecordPromotion {
-            bundle_id,
+            candidate_id,
             from_gate,
             to_gate,
             at,
-        } => record_promotion_conn(conn, bundle_id, from_gate, to_gate, at),
+        } => record_promotion_conn(conn, candidate_id, from_gate, to_gate, at),
         MetaOp::AddEvent {
             repo_id,
             kind,
@@ -1536,9 +1584,9 @@ fn apply_op_conn(conn: &Connection, op: &MetaOp) -> Result<()> {
                 return Err(BatchConflict(format!(
                     "partition {repo_id}/{scope_id}/{gate_id} moved: expected floor {} base {:?}, found floor {} base {:?}",
                     expected.window_floor,
-                    expected.base_bundle_id,
+                    expected.base_candidate_id,
                     actual.window_floor,
-                    actual.base_bundle_id
+                    actual.base_candidate_id
                 ))
                 .into());
             }
@@ -1595,34 +1643,34 @@ fn add_publication_conn(conn: &Connection, publication: &PublicationRecord) -> R
     Ok(())
 }
 
-fn put_bundle_conn(conn: &Connection, bundle: &StoredBundle) -> Result<()> {
-    let inputs = serde_json::to_string(&bundle.inputs)?;
-    let status = serde_json::to_string(&bundle.status)?;
+fn put_candidate_conn(conn: &Connection, candidate: &StoredCandidate) -> Result<()> {
+    let inputs = serde_json::to_string(&candidate.inputs)?;
+    let status = serde_json::to_string(&candidate.status)?;
     conn.execute(
-        "INSERT INTO bundles
-           (bundle_id, repo_id, scope_id, gate_id, inputs_json, root_manifest,
-            base_bundle_id, window_first, window_last, strategy,
+        "INSERT INTO candidates
+           (candidate_id, repo_id, scope_id, gate_id, inputs_json, root_manifest,
+            base_candidate_id, window_first, window_last, strategy,
             status_json, created_at)
          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)
-         ON CONFLICT(bundle_id) DO UPDATE SET
+         ON CONFLICT(candidate_id) DO UPDATE SET
            root_manifest = excluded.root_manifest,
            status_json = excluded.status_json",
         params![
-            bundle.bundle_id,
-            bundle.repo_id,
-            bundle.scope_id,
-            bundle.gate_id,
+            candidate.candidate_id,
+            candidate.repo_id,
+            candidate.scope_id,
+            candidate.gate_id,
             inputs,
-            bundle
+            candidate
                 .root_manifest
                 .as_ref()
                 .map(|id| id.as_str().to_string()),
-            bundle.base_bundle_id,
-            bundle.window.0 as i64,
-            bundle.window.1 as i64,
-            bundle.strategy,
+            candidate.base_candidate_id,
+            candidate.window.0 as i64,
+            candidate.window.1 as i64,
+            candidate.strategy,
             status,
-            bundle.created_at
+            candidate.created_at
         ],
     )?;
     Ok(())
@@ -1636,17 +1684,17 @@ fn set_partition_state_conn(
     state: &PartitionState,
 ) -> Result<()> {
     conn.execute(
-        "INSERT INTO partitions (repo_id, scope_id, gate_id, window_floor, base_bundle_id)
+        "INSERT INTO partitions (repo_id, scope_id, gate_id, window_floor, base_candidate_id)
          VALUES (?1, ?2, ?3, ?4, ?5)
          ON CONFLICT(repo_id, scope_id, gate_id) DO UPDATE SET
            window_floor = excluded.window_floor,
-           base_bundle_id = excluded.base_bundle_id",
+           base_candidate_id = excluded.base_candidate_id",
         params![
             repo_id,
             scope_id,
             gate_id,
             state.window_floor as i64,
-            state.base_bundle_id
+            state.base_candidate_id
         ],
     )?;
     Ok(())
@@ -1660,7 +1708,7 @@ fn get_partition_state_conn(
 ) -> Result<PartitionState> {
     let row = conn
         .query_row(
-            "SELECT window_floor, base_bundle_id FROM partitions
+            "SELECT window_floor, base_candidate_id FROM partitions
              WHERE repo_id = ?1 AND scope_id = ?2 AND gate_id = ?3",
             params![repo_id, scope_id, gate_id],
             |row| Ok((row.get::<_, i64>(0)?, row.get::<_, Option<String>>(1)?)),
@@ -1669,22 +1717,22 @@ fn get_partition_state_conn(
     Ok(row
         .map(|(floor, base)| PartitionState {
             window_floor: floor as u64,
-            base_bundle_id: base,
+            base_candidate_id: base,
         })
         .unwrap_or_default())
 }
 
 fn record_promotion_conn(
     conn: &Connection,
-    bundle_id: &str,
+    candidate_id: &str,
     from_gate: &str,
     to_gate: &str,
     at: &str,
 ) -> Result<()> {
     conn.execute(
-        "INSERT INTO promotions (bundle_id, from_gate, to_gate, promoted_at)
+        "INSERT INTO promotions (candidate_id, from_gate, to_gate, promoted_at)
          VALUES (?1, ?2, ?3, ?4)",
-        params![bundle_id, from_gate, to_gate, at],
+        params![candidate_id, from_gate, to_gate, at],
     )?;
     Ok(())
 }
