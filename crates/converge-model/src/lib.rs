@@ -5,6 +5,7 @@ pub mod format;
 pub mod gates;
 mod ids;
 mod manifest;
+pub mod overwrite;
 pub mod releases;
 mod resolution;
 mod snap;

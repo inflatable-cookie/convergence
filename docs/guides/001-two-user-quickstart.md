@@ -98,6 +98,45 @@ converge publish --snap <the resolution snap>
 
 Details of that loop: `docs/architecture/17-lineage-and-merge-semantics.md`.
 
+## 7. Taking someone else's work into your workspace
+
+Fetching and overwriting are separate acts, and only the second one can
+cost you anything:
+
+```bash
+converge sync pull --lane alex                  # objects only; tree untouched
+converge sync pull --lane alex --materialize    # replaces the working tree
+```
+
+If the second would cost you something, it says what and stops:
+
+```
+error: this would replace your working tree:
+  1 uncaptured change (f.txt)
+  your head aec75a907c5e would be left behind
+
+ways forward:
+  keep mine      converge sync pull --lane alex --materialize --snap-first   (recommended)
+     capture my change as a snap first, then take theirs
+  take theirs    converge sync pull --lane alex --materialize --force
+     replace my tree — 1 uncaptured change would be lost for good
+  stay           (do nothing)
+     the objects are downloaded; my workspace is untouched
+```
+
+`--snap-first` is the one to reach for. It captures what you have as a
+snap before overwriting, so both versions exist afterwards and you do
+not have to decide anything under pressure. The distinction the other
+two draw is real: a snap you left behind comes back with `restore`,
+while an edit you never snapped is gone.
+
+The same three options are on `converge restore` and
+`converge fetch --checkout`, which replace the tree the same way. Add
+`--preflight` to any of them to see the report without doing anything.
+
+In the TUI this is a screen rather than a paragraph: Enter on a lane
+brings it in, and asks only when something is at stake.
+
 ## The terminal UI
 
 Everything above is the CLI, which is the semantic contract — every

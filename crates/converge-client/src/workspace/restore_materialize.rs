@@ -57,6 +57,66 @@ impl Workspace {
         preserve
     }
 
+    /// What replacing this workspace's tree with `target` would cost.
+    ///
+    /// The one place the question is answered, for all three verbs that
+    /// ask it (batch 27.5). Judgement lives in
+    /// `converge_model::overwrite`; this gathers the facts, because a
+    /// working tree is the one thing the model cannot see.
+    ///
+    /// `target` is the snap the tree would become. `None` for a tree
+    /// that is not a snap at all — `fetch --checkout` materializes a
+    /// candidate's manifest — where lineage cannot be compared and only
+    /// uncaptured edits are at stake.
+    ///
+    /// `named_by_user` says whether the caller typed that snap id
+    /// themselves; see [`converge_model::overwrite::Facts`].
+    pub fn overwrite_plan(
+        &self,
+        target: Option<&str>,
+        named_by_user: bool,
+    ) -> Result<converge_model::overwrite::Plan> {
+        Ok(converge_model::overwrite::plan(
+            &self.overwrite_facts(target, named_by_user)?,
+        ))
+    }
+
+    pub fn overwrite_facts(
+        &self,
+        target: Option<&str>,
+        named_by_user: bool,
+    ) -> Result<converge_model::overwrite::Facts> {
+        let head = self.store.get_head()?;
+        let mut uncaptured = Vec::new();
+        if let Some(head_id) = &head {
+            let head_snap = self.store.get_snap(head_id)?;
+            let (cur_root, cur_manifests, _) = self.current_manifest_tree()?;
+            if cur_root != head_snap.root_manifest {
+                // Paths, not a count: "3 uncaptured changes" is a number
+                // to weigh against work you cannot see, and the whole
+                // reason this decision was dangerous is that a diverged
+                // tree looks exactly like a clean one.
+                let working = crate::diff::tree_from_memory(&cur_manifests, &cur_root)?;
+                let base = crate::diff::tree_from_store(&self.store, &head_snap.root_manifest)?;
+                uncaptured = crate::diff::diff_trees(&base, &working)
+                    .iter()
+                    .map(|line| line.path().to_string())
+                    .collect();
+            }
+        }
+        let diverged = match target {
+            Some(target) => self.head_left_behind_by(target)?.is_some(),
+            None => false,
+        };
+        Ok(converge_model::overwrite::Facts {
+            target: target.unwrap_or_default().to_string(),
+            head,
+            diverged,
+            named_by_user,
+            uncaptured,
+        })
+    }
+
     /// Refuse to overwrite a workspace carrying uncaptured work.
     fn ensure_safe_to_overwrite(&self, force: bool) -> Result<()> {
         if !force {

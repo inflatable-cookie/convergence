@@ -101,11 +101,21 @@ was the operator's, and the verdict was immediate.
 - **27.4 Somebody else drives it** (card 099): the operator, on a repo
   they have not been walked through, with findings recorded the way
   batch 22.4 recorded them
+- **27.5 Decisions on screen** (card 100): the acts that replace the
+  working tree — `restore`, `sync pull --materialize`,
+  `fetch --checkout` — were unreachable from the TUI because their guard
+  was a paragraph of prose. The guard now answers in structure, so the
+  CLI prints it and the TUI draws it with a key per option, and
+  `--snap-first` gives both surfaces a way through that costs nothing.
+  Opened by the operator: *"this is the point of the TUI — to make these
+  complex actions accessible"*
 
 ## Exit Criteria
 
 - a person who has not read the source can publish, resolve and promote
   from the TUI without asking what a screen means
+- nothing a person can reach from the TUI is guarded by advice they must
+  leave the TUI to follow
 - every screen answers "where am I, what is here, what can I do"
 - colour carries meaning consistently and nothing depends on colour alone
 - the operator's verdict on 27.4 is better than the one that opened this

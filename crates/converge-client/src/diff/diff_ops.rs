@@ -57,6 +57,13 @@ pub fn diff_trees(
     out
 }
 
+impl DiffLine {
+    /// The path this line is about, whichever side it came from.
+    pub fn path(&self) -> &str {
+        line_path(self)
+    }
+}
+
 fn line_path(d: &DiffLine) -> &str {
     match d {
         DiffLine::Added { path, .. } => path,

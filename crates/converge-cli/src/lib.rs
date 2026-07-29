@@ -241,6 +241,14 @@ enum Command {
         /// Overwrite local changes.
         #[arg(long)]
         force: bool,
+        /// Capture the current tree as a snap before overwriting it, so
+        /// nothing is lost either way.
+        #[arg(long = "snap-first")]
+        snap_first: bool,
+        /// Report what overwriting the tree would cost, and change
+        /// nothing.
+        #[arg(long)]
+        preflight: bool,
     },
     /// Diff two snaps.
     Diff { from: String, to: String },
@@ -300,6 +308,13 @@ enum Command {
         /// Overwrite uncaptured workspace changes when checking out.
         #[arg(long)]
         force: bool,
+        /// Capture the current tree as a snap before overwriting it, so
+        /// nothing is lost either way.
+        #[arg(long = "snap-first")]
+        snap_first: bool,
+        /// Report what checking out would cost, and change nothing.
+        #[arg(long)]
+        preflight: bool,
     },
     /// Show a candidate's record.
     #[command(alias = "bundle")]
@@ -546,6 +561,14 @@ enum SyncCommand {
         /// Overwrite uncaptured workspace changes when materializing.
         #[arg(long)]
         force: bool,
+        /// Capture the current tree as a snap before overwriting it, so
+        /// nothing is lost either way.
+        #[arg(long = "snap-first")]
+        snap_first: bool,
+        /// Report what overwriting the tree would cost, and change
+        /// nothing.
+        #[arg(long)]
+        preflight: bool,
         #[arg(long)]
         lane: String,
     },
@@ -936,6 +959,85 @@ struct SnapSummary {
     bytes: u64,
 }
 
+/// Report what overwriting the working tree would cost, changing
+/// nothing.
+///
+/// The repo's established shape — `gc` and `token prune` report by
+/// default and act when asked — applied to the one decision that had
+/// only ever been a refusal. It is also what makes the TUI possible:
+/// the same plan the CLI prints as a paragraph is drawn there as a
+/// screen with a key per option, so neither surface has its own idea of
+/// what is at stake.
+fn emit_overwrite_plan(
+    ws: &Workspace,
+    target: Option<&str>,
+    named_by_user: bool,
+    mode: OutputMode,
+) -> Result<serde_json::Value> {
+    let plan = ws.overwrite_plan(target, named_by_user)?;
+    emit(mode, plan, |plan| {
+        if plan.is_clear() {
+            println!("nothing at risk: the working tree can be replaced safely");
+            return;
+        }
+        print!(
+            "{}",
+            converge_model::overwrite::refusal(plan, "converge <verb>")
+        );
+    })
+}
+
+/// The one guard for every verb that replaces the working tree.
+///
+/// `restore`, `sync pull --materialize` and `fetch --checkout` all ask
+/// the same question, and until batch 27.5 each answered it differently
+/// — the drift this repo has now been bitten by five times. The
+/// judgement is `converge_model::overwrite`; this applies the answer.
+///
+/// `snap_first` is the option the CLI never had: capture the tree, then
+/// overwrite it. It costs nothing, so it is what the refusal
+/// recommends, and it is the only path that is safe without the person
+/// first understanding what `restore` is.
+fn guard_overwrite(
+    ws: &Workspace,
+    target: Option<&str>,
+    named_by_user: bool,
+    force: bool,
+    snap_first: bool,
+    command: &str,
+) -> Result<Option<String>> {
+    if snap_first {
+        // Only when there is something to capture: an empty snap is
+        // noise in a history somebody has to read.
+        let facts = ws.overwrite_facts(target, named_by_user)?;
+        if !facts.uncaptured.is_empty() {
+            let snap = ws.create_snap(Some(match target {
+                Some(target) => format!(
+                    "keeping my work before taking {}",
+                    target.chars().take(12).collect::<String>()
+                ),
+                None => "keeping my work before a checkout".to_string(),
+            }))?;
+            // Returned, never printed: this runs inside the TUI too,
+            // where a stray `println!` lands on top of whatever ratatui
+            // has drawn. The caller puts it in its own result envelope.
+            return Ok(Some(snap.id));
+        }
+        return Ok(None);
+    }
+    if force {
+        return Ok(None);
+    }
+    let plan = ws.overwrite_plan(target, named_by_user)?;
+    if plan.is_clear() {
+        return Ok(None);
+    }
+    anyhow::bail!(
+        "this would replace your working tree:\n{}",
+        converge_model::overwrite::refusal(&plan, command)
+    );
+}
+
 fn snap_summary(s: &converge_client::model::SnapRecord) -> SnapSummary {
     SnapSummary {
         id: s.id.clone(),
@@ -1013,12 +1115,43 @@ fn run(cli: &Cli, mode: OutputMode, session: &Session) -> Result<serde_json::Val
                 }
             })
         }
-        Command::Restore { snap_id, force } => {
+        Command::Restore {
+            snap_id,
+            force,
+            snap_first,
+            preflight,
+        } => {
             let ws = session.workspace()?;
+            if *preflight {
+                return emit_overwrite_plan(&ws, Some(snap_id), true, mode);
+            }
+            let kept = guard_overwrite(
+                &ws,
+                Some(snap_id),
+                true,
+                *force,
+                *snap_first,
+                &format!("converge restore {snap_id}"),
+            )?;
             ws.restore_snap(snap_id, *force)?;
-            emit(mode, snap_id.clone(), |id| {
-                println!("restored {id}");
-            })
+            #[derive(Serialize)]
+            struct Restored {
+                snap: String,
+                kept: Option<String>,
+            }
+            emit(
+                mode,
+                Restored {
+                    snap: snap_id.clone(),
+                    kept,
+                },
+                |r| {
+                    if let Some(kept) = &r.kept {
+                        println!("kept your work as snap {}", short(kept));
+                    }
+                    println!("restored {}", r.snap);
+                },
+            )
         }
         Command::Diff { from, to } => {
             let ws = session.workspace()?;
@@ -1385,6 +1518,8 @@ fn run(cli: &Cli, mode: OutputMode, session: &Session) -> Result<serde_json::Val
             into,
             checkout,
             force,
+            snap_first,
+            preflight,
         } => {
             let ws = session.workspace()?;
             let (client, remote) = remote_client(session, &ws, mode)?;
@@ -1400,13 +1535,30 @@ fn run(cli: &Cli, mode: OutputMode, session: &Session) -> Result<serde_json::Val
             // A fetched candidate for the configured target becomes the new
             // publish base (doc 17 §2) — see `fetch_candidate_tree`.
             let root = fetch_candidate_tree(session, &ws, &candidate_id)?;
+            if *preflight {
+                return emit_overwrite_plan(&ws, None, false, mode);
+            }
             if let Some(dir) = into {
                 ws.materialize_manifest_to(&root, dir, true)?;
             }
             // Checkout is the "continue from this candidate" move: the tree
             // lands in the workspace and is captured with the candidate as
             // its provenance edge (doc 17 §1).
+            let mut kept = None;
             let snap = if *checkout {
+                // Checking out replaces the tree, so it asks the same
+                // question as `restore` and gets the same answer from
+                // the same place (27.5). No lineage to compare — a
+                // candidate is not a snap in your history — so only
+                // uncaptured edits are at stake here.
+                kept = guard_overwrite(
+                    &ws,
+                    None,
+                    false,
+                    *force,
+                    *snap_first,
+                    &format!("converge fetch {candidate_id} --checkout"),
+                )?;
                 Some(ws.adopt_tree(
                     &root,
                     Some(format!("checkout of candidate {}", short(&candidate_id))),
@@ -1422,6 +1574,8 @@ fn run(cli: &Cli, mode: OutputMode, session: &Session) -> Result<serde_json::Val
                 candidate_id: String,
                 root_manifest: String,
                 snap: Option<String>,
+                /// The snap `--snap-first` captured, if it did.
+                kept: Option<String>,
                 materialized_to: Option<String>,
                 next: Option<String>,
             }
@@ -1431,6 +1585,7 @@ fn run(cli: &Cli, mode: OutputMode, session: &Session) -> Result<serde_json::Val
                     candidate_id: candidate_id.clone(),
                     root_manifest: root.as_str().to_string(),
                     snap: snap.map(|s| s.id),
+                    kept,
                     materialized_to: into.as_ref().map(|d| d.display().to_string()),
                     // A bare fetch is invisible without this (audit P1.4).
                     next: (!*checkout && into.is_none()).then(|| format!("show {candidate_id}")),
@@ -1828,35 +1983,44 @@ fn run(cli: &Cli, mode: OutputMode, session: &Session) -> Result<serde_json::Val
                     lane,
                     materialize,
                     force,
+                    snap_first,
+                    preflight,
                 } => {
                     // Pulling used to leave the user holding a snap id and
                     // an undocumented `restore --force` (audit P1.3).
                     let head = client.pull_lane(&ws.store, &remote.repo_id, lane)?;
+                    // Preflight *after* the pull, never before: fetching
+                    // is the safe half and the plan is about the head
+                    // that just arrived. This is the call the TUI makes
+                    // between opening a lane and touching the tree.
+                    if *preflight {
+                        return emit_overwrite_plan(&ws, Some(&head), false, mode);
+                    }
+                    let mut kept = None;
                     if *materialize {
                         // Materializing a lane that has diverged from
                         // your own head replaces your work in the
                         // working tree. Batch 22.4 watched that happen
-                        // in silence. `force` already existed for
-                        // pending changes; divergence is the other way
-                        // to lose work, and it was unguarded.
-                        if !*force && let Some(left) = ws.head_left_behind_by(&head)? {
-                            anyhow::bail!(
-                                "lane head {} has diverged from your head {}\n\
-                                 materializing it would replace your work in the working tree.\n\
-                                 your snap is kept either way: `converge restore {}` brings it back.\n\
-                                 to go ahead: converge sync pull --lane {} --materialize --force",
-                                &head[..12.min(head.len())],
-                                &left[..12.min(left.len())],
-                                &left[..12.min(left.len())],
-                                lane
-                            );
-                        }
+                        // in silence. The guard now lives in one place
+                        // for all three verbs that overwrite a tree
+                        // (27.5), and answers in structure so the TUI
+                        // can offer the same choices as a screen.
+                        kept = guard_overwrite(
+                            &ws,
+                            Some(&head),
+                            false,
+                            *force,
+                            *snap_first,
+                            &format!("converge sync pull --lane {lane} --materialize"),
+                        )?;
                         ws.restore_snap(&head, *force)?;
                     }
                     #[derive(Serialize)]
                     struct Pulled {
                         head: String,
                         materialized: bool,
+                        /// The snap `--snap-first` captured, if it did.
+                        kept: Option<String>,
                         next: Option<String>,
                     }
                     emit(
@@ -1864,9 +2028,13 @@ fn run(cli: &Cli, mode: OutputMode, session: &Session) -> Result<serde_json::Val
                         Pulled {
                             head: head.clone(),
                             materialized: *materialize,
+                            kept: kept.clone(),
                             next: (!*materialize).then(|| format!("restore {head}")),
                         },
                         |p| {
+                            if let Some(kept) = &p.kept {
+                                println!("kept your work as snap {}", short(kept));
+                            }
                             if p.materialized {
                                 println!("pulled lane head {} (workspace updated)", p.head);
                             } else {
@@ -2548,9 +2716,20 @@ fn run(cli: &Cli, mode: OutputMode, session: &Session) -> Result<serde_json::Val
             // Pending changes vs latest snap.
             let (root, manifests, _) = session.manifest_tree(&ws)?;
             let working = converge_client::diff::tree_from_memory(&manifests, &root)?;
-            let base = match latest_snap(&ws) {
-                Ok(snap) => tree_from_store(&ws.store, &snap.root_manifest)?,
-                Err(_) => Default::default(),
+            // Against *head*, not the newest snap by timestamp. Those
+            // differ whenever a snap exists off your current line, and
+            // batch 27.5 made that ordinary: `--snap-first` captures
+            // your work, then moves head elsewhere, so the newest snap
+            // is the one you deliberately left behind. Measuring
+            // against it reported pending changes on a tree that
+            // exactly matched head, permanently.
+            let base_snap = match ws.store.get_head()? {
+                Some(head) => ws.store.get_snap(&head).ok(),
+                None => latest_snap(&ws).ok(),
+            };
+            let base = match &base_snap {
+                Some(snap) => tree_from_store(&ws.store, &snap.root_manifest)?,
+                None => Default::default(),
             };
             let changes = diff_trees(&base, &working);
 

@@ -40,6 +40,9 @@ enum Intent {
     Resolution(String),
     /// Remote heartbeat from the event poller.
     Events,
+    /// A `--preflight` answer: either proceed straight into `proceed`,
+    /// or open the decision screen (batch 27.5).
+    Preflight { proceed: Vec<String>, title: String },
 }
 
 /// Result of a worker-thread command.
@@ -261,6 +264,19 @@ fn run(terminal: &mut ratatui::DefaultTerminal, trace: &mut trace::Trace) -> Res
                     app.mark_loaded(View::Inbox);
                 }
                 Intent::Events => absorb_events(&mut app, &tx, &session, result),
+                Intent::Preflight { proceed, title } => match result {
+                    // Nothing at risk: do the thing that was asked for.
+                    // A screen here would be a prompt about nothing,
+                    // which is how safety questions get trained out of
+                    // people.
+                    Ok(plan) => match app::Decision::from_plan(&plan, title, proceed.clone()) {
+                        Some(decision) => app.decision = Some(decision),
+                        None => {
+                            spawn_verb(&mut app, &tx, &session, proceed, Intent::Command);
+                        }
+                    },
+                    Err(err) => app.record_result(Err(err)),
+                },
                 Intent::Command => {
                     app.record_result_for(&argv, result);
                     spawn_refresh(&tx, &session);
@@ -339,6 +355,19 @@ fn run(terminal: &mut ratatui::DefaultTerminal, trace: &mut trace::Trace) -> Res
                 } else {
                     spawn_refresh(&tx, &session);
                 }
+            }
+            Some(Action::Preflight {
+                ask,
+                proceed,
+                title,
+            }) => {
+                spawn_verb(
+                    &mut app,
+                    &tx,
+                    &session,
+                    ask,
+                    Intent::Preflight { proceed, title },
+                );
             }
             Some(Action::StartWizard(kind)) => {
                 app.wizard = Some(match kind {
@@ -450,6 +479,7 @@ fn action_label(action: &Action) -> String {
         Action::LoadInbox => "inbox".into(),
         Action::ApplyResolution => "resolve apply".into(),
         Action::HandOver(command) => format!("hand over: {command}"),
+        Action::Preflight { ask, .. } => format!("preflight {}", ask.join(" ")),
         Action::Quit => "quit".into(),
     }
 }
@@ -1089,6 +1119,14 @@ fn render(frame: &mut Frame, app: &App) {
                     "  in-view: History m annotate d diff  ·  Candidates p promote e release",
                 ),
                 Line::raw("           Lanes p push m add member  ·  Releases y yank"),
+                Line::styled(
+                    "  Enter on a lane or release brings it into your workspace; if that",
+                    Style::default().fg(Color::DarkGray),
+                ),
+                Line::styled(
+                    "  would cost you anything, it says what and offers a way to keep it.",
+                    Style::default().fg(Color::DarkGray),
+                ),
                 Line::raw("           Gates a add d remove  ·  Secrets r rotate u unshare"),
                 Line::styled(
                     "  wizards: type a bare `member add`, `fetch`, `release <id>`, `promote <id>`",
@@ -1300,13 +1338,96 @@ fn render(frame: &mut Frame, app: &App) {
         );
     }
 
+    // The overwrite decision (batch 27.5). Same modal treatment as the
+    // wizard: it covers the screen because there is nothing else worth
+    // looking at until it is answered.
+    if let Some(decision) = &app.decision {
+        let mut lines = vec![
+            Line::styled(
+                decision.title.clone(),
+                Style::default()
+                    .fg(Color::Yellow)
+                    .add_modifier(Modifier::BOLD),
+            ),
+            Line::raw(""),
+            Line::styled(
+                "what is at stake",
+                Style::default().add_modifier(Modifier::BOLD),
+            ),
+        ];
+        for risk in &decision.risks {
+            lines.push(Line::styled(
+                format!("  {risk}"),
+                Style::default().fg(Color::Yellow),
+            ));
+        }
+        lines.push(Line::raw(""));
+        for opt in &decision.options {
+            // The key is what the person presses, so it leads and it is
+            // the only coloured thing on the line.
+            let mut spans = vec![
+                Span::styled(
+                    format!("  [{}] ", opt.key),
+                    Style::default()
+                        .fg(Color::Cyan)
+                        .add_modifier(Modifier::BOLD),
+                ),
+                Span::styled(
+                    opt.label.clone(),
+                    Style::default().add_modifier(Modifier::BOLD),
+                ),
+            ];
+            if opt.recommended {
+                spans.push(Span::styled(
+                    "  (recommended)",
+                    Style::default().fg(Color::Green),
+                ));
+            }
+            lines.push(Line::from(spans));
+            lines.push(Line::styled(
+                format!("      {}", opt.detail),
+                Style::default().fg(Color::Gray),
+            ));
+        }
+        frame.render_widget(ratatui::widgets::Clear, body);
+        frame.render_widget(
+            Paragraph::new(lines).block(
+                Block::default()
+                    .borders(Borders::ALL)
+                    .title("Your work would be affected"),
+            ),
+            body,
+        );
+    }
+
     // The footer is the navigation surface (batch 27.1). In navigate
     // mode it lists every destination with the bare key that reaches it
     // — visible, not learned, because the previous scheme was Alt-only
     // and stock macOS terminals never deliver Alt, so from 23.1 to 27.1
     // there was no working navigation at all. In command mode it is the
     // console with a caret.
-    if app.quit_confirm || app.pending_confirm.is_some() {
+    if let Some(decision) = &app.decision {
+        let mut spans = vec![Span::styled(
+            "choose: ",
+            Style::default().add_modifier(Modifier::BOLD),
+        )];
+        for opt in &decision.options {
+            spans.push(Span::styled(
+                format!("{} ", opt.key),
+                Style::default().fg(Color::Cyan),
+            ));
+            spans.push(Span::styled(
+                format!("{}  ", opt.label),
+                Style::default().fg(Color::Gray),
+            ));
+        }
+        spans.push(Span::styled("Esc ", Style::default().fg(Color::Cyan)));
+        spans.push(Span::styled(
+            "leave it alone",
+            Style::default().fg(Color::Gray),
+        ));
+        frame.render_widget(Paragraph::new(Line::from(spans)), input);
+    } else if app.quit_confirm || app.pending_confirm.is_some() {
         let legend = if app.quit_confirm {
             "quit? Enter/y: yes  any other key: no".to_string()
         } else if let Some((label, _)) = &app.pending_confirm {

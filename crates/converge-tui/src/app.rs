@@ -448,7 +448,146 @@ pub enum Action {
     /// (batch 23.2). The only current caller is `secret rotate`, which
     /// needs a value this program must not accept.
     HandOver(String),
+    /// Ask what overwriting the working tree would cost, then either
+    /// proceed (nothing at risk) or open the decision screen with the
+    /// options the plan offers (batch 27.5).
+    ///
+    /// Two argvs because the safe half runs either way: `ask` is the
+    /// same command with `--preflight`, `proceed` is the real one, and
+    /// the decision screen appends the chosen flag to `proceed`.
+    Preflight {
+        ask: Vec<String>,
+        proceed: Vec<String>,
+        title: String,
+    },
     Quit,
+}
+
+/// One way through an overwrite decision, as the plan described it.
+///
+/// Mirrors `converge_model::overwrite::Opt` rather than importing it:
+/// the TUI reads what the CLI emitted, so a field added there shows up
+/// here as absent rather than as a compile error in a screen.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct DecisionOption {
+    pub key: char,
+    pub label: String,
+    pub detail: String,
+    pub recommended: bool,
+    /// `snap_first` | `overwrite` | `cancel`.
+    pub choice: String,
+}
+
+/// The overwrite decision, on screen (batch 27.5).
+///
+/// The operator, on finding that Enter could pull objects but not put
+/// them anywhere: *"this is the point of the TUI — to make these
+/// complex actions accessible. 'Because it is complicated' is a
+/// terrible reason not to do it."* The CLI's answer was a paragraph
+/// telling you to type something else; this is the same information
+/// with a key beside each way out.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Decision {
+    pub title: String,
+    pub risks: Vec<String>,
+    pub options: Vec<DecisionOption>,
+    /// The command each option completes.
+    pub proceed: Vec<String>,
+}
+
+impl Decision {
+    /// Read a `--preflight` envelope. `None` when nothing is at risk,
+    /// which is the case that must never draw a screen.
+    pub fn from_plan(
+        plan: &serde_json::Value,
+        title: String,
+        proceed: Vec<String>,
+    ) -> Option<Self> {
+        let risks: Vec<String> = plan["risks"]
+            .as_array()?
+            .iter()
+            .map(describe_risk)
+            .collect();
+        if risks.is_empty() {
+            return None;
+        }
+        let options = plan["options"]
+            .as_array()?
+            .iter()
+            .filter_map(|o| {
+                Some(DecisionOption {
+                    key: o["key"].as_str()?.chars().next()?,
+                    label: o["label"].as_str()?.to_string(),
+                    detail: o["detail"].as_str()?.to_string(),
+                    recommended: o["recommended"].as_bool().unwrap_or(false),
+                    choice: o["choice"].as_str()?.to_string(),
+                })
+            })
+            .collect();
+        Some(Decision {
+            title,
+            risks,
+            options,
+            proceed,
+        })
+    }
+
+    /// The command a chosen option runs, or `None` for the one that
+    /// changes nothing.
+    pub fn argv_for(&self, key: char) -> Option<Option<Vec<String>>> {
+        let opt = self.options.iter().find(|o| o.key == key)?;
+        Some(match opt.choice.as_str() {
+            "snap_first" => Some(
+                self.proceed
+                    .iter()
+                    .cloned()
+                    .chain(["--snap-first".to_string()])
+                    .collect(),
+            ),
+            "overwrite" => Some(
+                self.proceed
+                    .iter()
+                    .cloned()
+                    .chain(["--force".to_string()])
+                    .collect(),
+            ),
+            _ => None,
+        })
+    }
+}
+
+/// Risk lines, phrased for somebody who has not read the model.
+fn describe_risk(risk: &serde_json::Value) -> String {
+    match risk["risk"].as_str() {
+        Some("uncaptured_edits") => {
+            let paths: Vec<&str> = risk["paths"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .filter_map(|p| p.as_str())
+                .collect();
+            // Name them while they fit. A count alone is the thing that
+            // made this decision dangerous: uncaptured work is invisible
+            // precisely because nothing lists it.
+            match paths.len() {
+                0 => "changes you have not snapped".to_string(),
+                1..=3 => format!("not snapped yet: {}", paths.join(", ")),
+                n => format!(
+                    "not snapped yet: {}, and {} more",
+                    paths[..3].join(", "),
+                    n - 3
+                ),
+            }
+        }
+        Some("diverged_head") => format!(
+            "your own work ({}) is on a different line",
+            risk["head"]
+                .as_str()
+                .map(|h| h.chars().take(12).collect::<String>())
+                .unwrap_or_default()
+        ),
+        _ => "something in this workspace would change".to_string(),
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -495,6 +634,9 @@ pub struct App {
     pub wizard: Option<Wizard>,
     /// Destructive action awaiting Enter/y confirmation (UX spec §4.5).
     pub pending_confirm: Option<(String, Action)>,
+    /// Open overwrite decision (batch 27.5). Owns the keyboard, like a
+    /// wizard, because every key on screen is one of its answers.
+    pub decision: Option<Decision>,
     /// Selected row in the history view.
     pub history_selected: usize,
     /// Inbox report entries as (label, action argv or None).
@@ -547,6 +689,7 @@ impl Default for App {
             in_flight: None,
             wizard: None,
             pending_confirm: None,
+            decision: None,
             history_selected: 0,
             inbox_entries: Vec::new(),
             recommendations: Vec::new(),
@@ -798,12 +941,25 @@ impl App {
             // decision (finding 30).
             KeyCode::Enter if view == View::Lanes => {
                 let id = row_field(&self.rows, view, *selected, "lane_id")?;
-                Some(Some(Action::Run(vec![
-                    "sync".into(),
-                    "pull".into(),
-                    "--lane".into(),
-                    id,
-                ])))
+                // Enter means "bring this lane into my workspace" — the
+                // whole act, not the safe half of it. The preflight
+                // decides whether that needs asking; when nothing is at
+                // risk it just happens (batch 27.5).
+                let pull = |extra: &[&str]| {
+                    let mut argv = vec![
+                        "sync".to_string(),
+                        "pull".into(),
+                        "--lane".into(),
+                        id.clone(),
+                    ];
+                    argv.extend(extra.iter().map(|s| s.to_string()));
+                    argv
+                };
+                Some(Some(Action::Preflight {
+                    ask: pull(&["--preflight"]),
+                    proceed: pull(&["--materialize"]),
+                    title: format!("bringing {id} into your workspace"),
+                }))
             }
             KeyCode::Char('p') if view == View::Lanes => {
                 let id = row_field(&self.rows, view, *selected, "lane_id")?;
@@ -823,11 +979,16 @@ impl App {
             // that keeps its flag and its CLI.
             KeyCode::Enter if view == View::Releases => {
                 let version = row_field(&self.rows, view, *selected, "version")?;
-                Some(Some(Action::Run(vec![
-                    "fetch".into(),
-                    "--release".into(),
-                    version,
-                ])))
+                let fetch = |extra: &[&str]| {
+                    let mut argv = vec!["fetch".to_string(), "--release".into(), version.clone()];
+                    argv.extend(extra.iter().map(|s| s.to_string()));
+                    argv
+                };
+                Some(Some(Action::Preflight {
+                    ask: fetch(&["--preflight"]),
+                    proceed: fetch(&["--checkout"]),
+                    title: format!("checking out release {version}"),
+                }))
             }
             // Yanking needs a reason, so it opens a wizard rather than
             // a bare confirm — and the review step is the confirm.
@@ -979,6 +1140,21 @@ impl App {
     pub fn handle_key(&mut self, key: KeyEvent) -> Option<Action> {
         if self.wizard.is_some() {
             return self.handle_wizard_key(key);
+        }
+        // The decision owns the keyboard while it is open: every key it
+        // draws is an answer, and a stray `q` mid-decision should not
+        // quit the program out from under a half-made choice.
+        if let Some(decision) = self.decision.clone() {
+            if let KeyCode::Char(c) = key.code
+                && let Some(argv) = decision.argv_for(c)
+            {
+                self.decision = None;
+                return argv.map(Action::Run);
+            }
+            if matches!(key.code, KeyCode::Esc) {
+                self.decision = None;
+            }
+            return None;
         }
         if let Some((_, action)) = self.pending_confirm.clone() {
             return match key.code {
@@ -1714,14 +1890,27 @@ mod tests {
             View::Lanes,
             vec![serde_json::json!({"lane_id": "personal/alex"})],
         );
+        // Enter asks what materializing would cost before it does it;
+        // the safe half of the pull is inside the preflight command.
         assert_eq!(
             app.handle_key(key(KeyCode::Enter)),
-            Some(Action::Run(vec![
-                "sync".into(),
-                "pull".into(),
-                "--lane".into(),
-                "personal/alex".into(),
-            ]))
+            Some(Action::Preflight {
+                ask: vec![
+                    "sync".into(),
+                    "pull".into(),
+                    "--lane".into(),
+                    "personal/alex".into(),
+                    "--preflight".into(),
+                ],
+                proceed: vec![
+                    "sync".into(),
+                    "pull".into(),
+                    "--lane".into(),
+                    "personal/alex".into(),
+                    "--materialize".into(),
+                ],
+                title: "bringing personal/alex into your workspace".into(),
+            })
         );
 
         app.frames = vec![View::Root, View::Releases];
@@ -1731,11 +1920,21 @@ mod tests {
         );
         assert_eq!(
             app.handle_key(key(KeyCode::Enter)),
-            Some(Action::Run(vec![
-                "fetch".into(),
-                "--release".into(),
-                "1.2.0".into(),
-            ]))
+            Some(Action::Preflight {
+                ask: vec![
+                    "fetch".into(),
+                    "--release".into(),
+                    "1.2.0".into(),
+                    "--preflight".into(),
+                ],
+                proceed: vec![
+                    "fetch".into(),
+                    "--release".into(),
+                    "1.2.0".into(),
+                    "--checkout".into(),
+                ],
+                title: "checking out release 1.2.0".into(),
+            })
         );
         // Withdrawing needs a reason, so it opens the wizard.
         assert_eq!(
@@ -1752,6 +1951,53 @@ mod tests {
             app.handle_key(key(KeyCode::Enter)),
             Some(Action::StartWizard(WizardKind::Promote("abc123".into())))
         );
+    }
+
+    /// The decision screen is only drawn when there is a decision.
+    /// A prompt about nothing is how people learn to dismiss prompts.
+    #[test]
+    fn a_clear_plan_opens_no_decision() {
+        let plan = serde_json::json!({"risks": [], "options": []});
+        assert!(Decision::from_plan(&plan, "t".into(), vec!["restore".into()]).is_none());
+    }
+
+    #[test]
+    fn each_option_completes_the_command_it_belongs_to() {
+        let plan = serde_json::json!({
+            "risks": [{"risk": "uncaptured_edits", "paths": ["a.rs", "b.rs"]}],
+            "options": [
+                {"choice": "snap_first", "key": "k", "label": "keep mine",
+                 "detail": "...", "recommended": true},
+                {"choice": "overwrite", "key": "t", "label": "take theirs",
+                 "detail": "...", "recommended": false},
+                {"choice": "cancel", "key": "s", "label": "stay",
+                 "detail": "...", "recommended": false},
+            ],
+        });
+        let proceed = vec!["sync".to_string(), "pull".into(), "--materialize".into()];
+        let decision = Decision::from_plan(&plan, "t".into(), proceed.clone()).unwrap();
+        assert_eq!(decision.risks[0], "not snapped yet: a.rs, b.rs");
+        assert_eq!(
+            decision.argv_for('k').unwrap().unwrap().last().unwrap(),
+            "--snap-first"
+        );
+        assert_eq!(
+            decision.argv_for('t').unwrap().unwrap().last().unwrap(),
+            "--force"
+        );
+        // Staying runs nothing at all.
+        assert_eq!(decision.argv_for('s').unwrap(), None);
+        assert_eq!(decision.argv_for('z'), None, "unknown keys do nothing");
+
+        // While it is open it owns the keyboard: `q` is not quit here.
+        let mut app = App {
+            decision: Some(decision),
+            ..Default::default()
+        };
+        assert_eq!(app.handle_key(key(KeyCode::Char('q'))), None);
+        assert!(app.decision.is_some(), "a stray key must not dismiss it");
+        assert!(app.handle_key(key(KeyCode::Char('k'))).is_some());
+        assert!(app.decision.is_none(), "answering closes it");
     }
 
     #[test]

@@ -816,3 +816,134 @@ fn set_url_follows_a_moved_server_without_relogin() -> Result<()> {
     );
     Ok(())
 }
+
+/// Batch 27.5: the three ways through an overwrite, end to end.
+///
+/// Guide 001 §7 prints this exact refusal, and this test is why that is
+/// allowed to be a claim rather than a hope. What it really pins is the
+/// distinction `--force` used to hide: `--snap-first` keeps the work,
+/// `--force` does not, and the difference is visible afterwards in the
+/// store rather than only in the wording.
+#[test]
+fn an_overwrite_offers_three_ways_through_and_snap_first_keeps_the_work() -> Result<()> {
+    let server_dir = tempfile::tempdir()?;
+    let (base_url, admin_token) = start_bare_server(server_dir.path())?;
+    let ws = tempfile::tempdir()?;
+    let ws = ws.path();
+    assert!(converge(ws, &["init"]).status.success());
+    assert!(login(ws, &base_url, &admin_token, "lanes").status.success());
+    json_data(&converge(ws, &["--json", "repo", "create"]));
+    assert!(converge(ws, &["lane", "create", "shared"]).status.success());
+
+    // A lane one snap ahead of where this workspace will sit.
+    std::fs::write(ws.join("f.txt"), "base")?;
+    converge(ws, &["snap", "-m", "base"]);
+    let base = json_data(&converge(ws, &["--json", "status"]))["head"]["id"]
+        .as_str()
+        .expect("head")
+        .to_string();
+    converge(ws, &["sync", "push", "--lane", "shared"]);
+    std::fs::write(ws.join("f.txt"), "theirs")?;
+    converge(ws, &["snap", "-m", "theirs"]);
+    converge(ws, &["sync", "push", "--lane", "shared"]);
+
+    // Back to base, then diverge and leave an edit uncaptured — the two
+    // risks at once, which is the case the old refusal conflated.
+    assert!(
+        converge(ws, &["restore", &base, "--force"])
+            .status
+            .success()
+    );
+    std::fs::write(ws.join("f.txt"), "mine")?;
+    converge(ws, &["snap", "-m", "mine"]);
+    std::fs::write(ws.join("f.txt"), "mine, still editing")?;
+
+    // The preflight reports without touching anything.
+    let plan = json_data(&converge(
+        ws,
+        &["--json", "sync", "pull", "--lane", "shared", "--preflight"],
+    ));
+    let risks: Vec<&str> = plan["risks"]
+        .as_array()
+        .expect("risks")
+        .iter()
+        .filter_map(|r| r["risk"].as_str())
+        .collect();
+    assert!(risks.contains(&"uncaptured_edits"), "{plan}");
+    assert!(risks.contains(&"diverged_head"), "{plan}");
+    assert_eq!(
+        std::fs::read_to_string(ws.join("f.txt"))?,
+        "mine, still editing",
+        "a preflight changed the working tree"
+    );
+
+    // Unasked, it refuses and names all three ways forward.
+    let refused = converge(ws, &["sync", "pull", "--lane", "shared", "--materialize"]);
+    assert_eq!(refused.status.code(), Some(1));
+    let text = String::from_utf8_lossy(&refused.stderr).to_string();
+    for expected in [
+        "--snap-first",
+        "--force",
+        "keep mine",
+        "take theirs",
+        "stay",
+    ] {
+        assert!(
+            text.contains(expected),
+            "refusal omitted {expected}: {text}"
+        );
+    }
+
+    // `--snap-first` keeps the work *and* takes theirs.
+    let pulled = json_data(&converge(
+        ws,
+        &[
+            "--json",
+            "sync",
+            "pull",
+            "--lane",
+            "shared",
+            "--materialize",
+            "--snap-first",
+        ],
+    ));
+    let kept = pulled["kept"].as_str().expect("kept a snap").to_string();
+    assert_eq!(std::fs::read_to_string(ws.join("f.txt"))?, "theirs");
+
+    // The kept snap is not a receipt: restoring it brings the work back,
+    // which is the whole claim the option makes.
+    assert!(converge(ws, &["restore", &kept]).status.success());
+    assert_eq!(
+        std::fs::read_to_string(ws.join("f.txt"))?,
+        "mine, still editing",
+        "the snap that was supposed to keep the work did not"
+    );
+
+    // And a workspace sitting on the lane's own head is not asked
+    // anything at all: no risk, no screen, no prompt about nothing.
+    assert!(
+        converge(
+            ws,
+            &[
+                "sync",
+                "pull",
+                "--lane",
+                "shared",
+                "--materialize",
+                "--force",
+            ],
+        )
+        .status
+        .success()
+    );
+    let plan = json_data(&converge(
+        ws,
+        &["--json", "sync", "pull", "--lane", "shared", "--preflight"],
+    ));
+    assert_eq!(
+        plan["risks"].as_array().map(Vec::len),
+        Some(0),
+        "a clean tree was told it had something at stake: {plan}"
+    );
+    Ok(())
+}

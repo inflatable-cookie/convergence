@@ -86,6 +86,19 @@ in: `capture_tree` records a stored tree as a snap and leaves head alone,
 first), so the workspace and head never disagree about what is checked
 out.
 
+Every operation that replaces the working tree — `restore`, `sync pull
+--materialize`, `fetch --checkout` — asks one question first, through
+`Workspace::overwrite_plan` (batch 27.5). The plan separates two costs
+that a single `--force` used to conflate: **uncaptured edits**, which
+exist only in the working tree and are destroyed by an overwrite, and a
+**diverged head**, whose snap record survives so `restore` returns to it.
+`--snap-first` captures the tree before overwriting, which is the only
+option that costs nothing and so the one both surfaces recommend.
+
+Divergence is reported only when the caller did not name the target
+snap: `restore <snap>` moves head by definition, while `sync pull --lane
+alex` moves it as a side effect of something else you asked for.
+
 ## 2. Base-aware merge
 
 ### Publication base
