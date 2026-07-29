@@ -68,10 +68,14 @@ pub enum WizardKind {
     Release(String),
     /// Promote a candidate to a downstream gate; carries the candidate id.
     Promote(String),
-    /// Fetch a candidate or a channel head.
+    /// Fetch a candidate, or a release by version.
     Fetch,
     /// Add a gate to the repo's graph (batch 26.3).
     Gate,
+    /// Add a member to a lane you own; carries the lane id.
+    LaneMember(String),
+    /// Withdraw a release; carries the version.
+    Yank(String),
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -402,6 +406,46 @@ impl Wizard {
         )
     }
 
+    /// Add somebody to a lane you own.
+    ///
+    /// One field, because the lane is the row that was selected. The
+    /// server refuses when the caller is not the owner, so this asks
+    /// for the only thing it cannot know.
+    pub fn lane_member(lane_id: String) -> Self {
+        Self::new(
+            WizardKind::LaneMember(lane_id),
+            "Add lane member",
+            vec![Field::new(
+                "member",
+                "Subject to add",
+                FieldKind::Text {
+                    default: None,
+                    optional: false,
+                },
+            )],
+        )
+    }
+
+    /// Withdraw a release.
+    ///
+    /// `--reason` is required by the CLI and rightly so: a version that
+    /// silently leaves `latest` is indistinguishable from one that was
+    /// never cut, and whoever pinned it deserves the sentence.
+    pub fn yank(version: String) -> Self {
+        Self::new(
+            WizardKind::Yank(version),
+            "Yank release",
+            vec![Field::new(
+                "reason",
+                "Why it is being withdrawn",
+                FieldKind::Text {
+                    default: None,
+                    optional: false,
+                },
+            )],
+        )
+    }
+
     fn new(kind: WizardKind, title: &'static str, fields: Vec<Field>) -> Self {
         let values = vec![String::new(); fields.len()];
         Self {
@@ -610,6 +654,18 @@ impl Wizard {
                 }
                 argv
             }
+            WizardKind::LaneMember(lane_id) => vec![
+                "lane".into(),
+                "add-member".into(),
+                lane_id.clone(),
+                value("member"),
+            ],
+            WizardKind::Yank(version) => vec![
+                "yank".into(),
+                version.clone(),
+                "--reason".into(),
+                value("reason"),
+            ],
             WizardKind::Promote(candidate_id) => vec![
                 "promote".into(),
                 candidate_id.clone(),

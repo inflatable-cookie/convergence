@@ -284,9 +284,9 @@ enum Command {
     },
     /// Fetch a candidate's tree into the local store.
     Fetch {
-        /// Candidate id, or omit with --release to fetch a channel head.
+        /// Candidate id, or omit with --release to fetch a release.
         candidate_id: Option<String>,
-        /// Fetch the latest release on this channel.
+        /// Fetch a release: `latest`, an exact version, or a range.
         #[arg(long)]
         release: Option<String>,
         /// Materialize the fetched tree into a directory outside the

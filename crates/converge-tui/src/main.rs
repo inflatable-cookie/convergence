@@ -355,6 +355,8 @@ fn run(terminal: &mut ratatui::DefaultTerminal, trace: &mut trace::Trace) -> Res
                     WizardKind::Release(id) => Wizard::release(id, app.release_versions()),
                     WizardKind::Promote(id) => Wizard::promote(id, app.gate_names()),
                     WizardKind::Fetch => Wizard::fetch(app.release_versions()),
+                    WizardKind::LaneMember(lane) => Wizard::lane_member(lane),
+                    WizardKind::Yank(version) => Wizard::yank(version),
                     // Existing gates come from the loaded Gates view, so
                     // the upstream field offers something real without a
                     // synchronous probe (17.2). Every repo has at least
@@ -1086,6 +1088,7 @@ fn render(frame: &mut Frame, app: &App) {
                 Line::raw(
                     "  in-view: History m annotate d diff  ·  Candidates p promote e release",
                 ),
+                Line::raw("           Lanes p push m add member  ·  Releases y yank"),
                 Line::raw("           Gates a add d remove  ·  Secrets r rotate u unshare"),
                 Line::styled(
                     "  wizards: type a bare `member add`, `fetch`, `release <id>`, `promote <id>`",
@@ -1372,6 +1375,8 @@ fn render(frame: &mut Frame, app: &App) {
             ],
             View::Candidates => &[("↑↓", "select "), ("p", "promote "), ("e", "release ")],
             View::Gates => &[("↑↓", "select "), ("a", "add "), ("d", "remove ")],
+            View::Lanes => &[("↑↓", "select "), ("p", "push "), ("m", "add member ")],
+            View::Releases => &[("↑↓", "select "), ("y", "yank ")],
             View::Secrets => &[("↑↓", "select "), ("r", "rotate "), ("u", "unshare ")],
             View::Inbox => &[("↑↓", "select ")],
             View::Resolution => &[
@@ -1624,7 +1629,9 @@ mod screen_tests {
     fn the_hint_bar_names_each_screens_own_key() {
         for (view, expected) in [
             (View::History, "Enter: restore selected"),
-            (View::Candidates, "Enter: open selected"),
+            (View::Candidates, "Enter: promote"),
+            (View::Lanes, "Enter: pull selected lane"),
+            (View::Releases, "Enter: fetch selected"),
             (View::Secrets, "Enter: (r rotate, u unshare)"),
         ] {
             let mut app = App::default();

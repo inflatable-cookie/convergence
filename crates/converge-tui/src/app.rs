@@ -359,6 +359,20 @@ pub fn output_is_secret(argv: &[String]) -> bool {
 /// else": an approval or a promotion is visible to the whole team the
 /// moment it lands, and `gc` deletes objects for good. Local, reversible
 /// verbs (`snap`, `fetch`, `show`) stay one keystroke.
+/// One string field out of the selected row of a view.
+///
+/// Free function rather than a method: `handle_rows_key` holds a
+/// mutable borrow of `row_selected`, and the borrow checker splits
+/// fields but not whole-`self` methods.
+fn row_field(
+    rows: &BTreeMap<View, Vec<serde_json::Value>>,
+    view: View,
+    selected: usize,
+    field: &str,
+) -> Option<String> {
+    Some(rows.get(&view)?.get(selected)?[field].as_str()?.to_string())
+}
+
 pub fn confirmation_prompt(argv: &[String]) -> Option<String> {
     let verb = argv.first().map(String::as_str)?;
     let target = argv.get(1).map(|s| s.chars().take(12).collect::<String>());
@@ -375,6 +389,17 @@ pub fn confirmation_prompt(argv: &[String]) -> Option<String> {
             Some("delete unreachable objects".to_string())
         }
         "unsnap" => Some("undo the last snap".to_string()),
+        // A yanked version leaves `latest` and every range, so somebody
+        // who pinned it stops getting it — the review step is the only
+        // place that names which one before it happens.
+        "yank" => describe("withdraw release"),
+        // Not destructive, but a lane member reads unpublished work, so
+        // the review names who is being let in and where.
+        "lane" if argv.get(1).map(String::as_str) == Some("add-member") => Some(format!(
+            "add {} to lane {}",
+            argv.get(3).cloned().unwrap_or_default(),
+            argv.get(2).cloned().unwrap_or_default()
+        )),
         // Removing a gate reshapes the pipeline. The server still
         // refuses when the gate holds work (26.2), so this confirm plus
         // that refusal together give report-before-destroy; forcing
@@ -589,9 +614,25 @@ impl App {
             // Enter does the screen's most likely act; `d` has its own
             // key and its own confirm. The footer lists both.
             View::Gates => ("add gate".into(), Action::StartWizard(WizardKind::Gate)),
-            view @ (View::Candidates | View::Releases | View::Lanes) => {
-                ("open selected".into(), Action::Enter(view))
-            }
+            // `handle_rows_key` claims Enter on these three before this
+            // runs, so these labels only have to agree with it. They
+            // used to say "open selected" and open nothing — the 23.1
+            // finding again, on the three screens that were left
+            // (operator, 2026-07-29).
+            View::Lanes => ("pull selected lane".into(), Action::Enter(View::Lanes)),
+            View::Releases => ("fetch selected".into(), Action::Enter(View::Releases)),
+            View::Candidates => self
+                .rows
+                .get(&View::Candidates)
+                .and_then(|rows| rows.get(self.row_selected.get(&View::Candidates).copied()?))
+                .and_then(|row| row["candidate_id"].as_str())
+                .map(|id| {
+                    (
+                        "promote".to_string(),
+                        Action::StartWizard(WizardKind::Promote(id.to_string())),
+                    )
+                })
+                .unwrap_or_else(|| ("promote".into(), Action::Enter(View::Candidates))),
             // Enter does nothing here on purpose: every action on a
             // secret is destructive or narrowing, so each has its own
             // named key and its own confirmation.
@@ -748,6 +789,51 @@ impl App {
                 let prompt = confirmation_prompt(&argv).unwrap_or_default();
                 self.pending_confirm = Some((prompt, Action::Run(argv)));
                 Some(None)
+            }
+            // A lane is somebody's shared but unpublished lineage, so
+            // the things to do with one are read it, add to it, and let
+            // somebody else in. Enter pulls *into the store* and does
+            // not materialize: fetching is safe, overwriting a
+            // workspace is not, and `--materialize` stays a CLI
+            // decision (finding 30).
+            KeyCode::Enter if view == View::Lanes => {
+                let id = row_field(&self.rows, view, *selected, "lane_id")?;
+                Some(Some(Action::Run(vec![
+                    "sync".into(),
+                    "pull".into(),
+                    "--lane".into(),
+                    id,
+                ])))
+            }
+            KeyCode::Char('p') if view == View::Lanes => {
+                let id = row_field(&self.rows, view, *selected, "lane_id")?;
+                Some(Some(Action::Run(vec![
+                    "sync".into(),
+                    "push".into(),
+                    "--lane".into(),
+                    id,
+                ])))
+            }
+            KeyCode::Char('m') if view == View::Lanes => {
+                let id = row_field(&self.rows, view, *selected, "lane_id")?;
+                Some(Some(Action::StartWizard(WizardKind::LaneMember(id))))
+            }
+            // Enter fetches the selected release into the local store.
+            // Checking it out moves head and can overwrite work, so
+            // that keeps its flag and its CLI.
+            KeyCode::Enter if view == View::Releases => {
+                let version = row_field(&self.rows, view, *selected, "version")?;
+                Some(Some(Action::Run(vec![
+                    "fetch".into(),
+                    "--release".into(),
+                    version,
+                ])))
+            }
+            // Yanking needs a reason, so it opens a wizard rather than
+            // a bare confirm — and the review step is the confirm.
+            KeyCode::Char('y') if view == View::Releases => {
+                let version = row_field(&self.rows, view, *selected, "version")?;
+                Some(Some(Action::StartWizard(WizardKind::Yank(version))))
             }
             KeyCode::Char('r' | 'u') if view == View::Secrets => {
                 let row = self.rows.get(&view)?.get(*selected)?.clone();
@@ -1594,9 +1680,9 @@ mod tests {
             (View::Root, "open inbox"),
             (View::History, "restore selected"),
             (View::Inbox, "open selected"),
-            (View::Candidates, "open selected"),
-            (View::Releases, "open selected"),
-            (View::Lanes, "open selected"),
+            (View::Candidates, "promote"),
+            (View::Releases, "fetch selected"),
+            (View::Lanes, "pull selected lane"),
             // Gates is not a "open the selected row" screen: entering a
             // gate shows nothing the list does not, and the useful act
             // there is adding one (batch 26.3).
@@ -1611,6 +1697,61 @@ mod tests {
                 view.title()
             );
         }
+    }
+
+    /// Operator, 2026-07-29: *"it says 'Enter: open selected' but
+    /// pressing enter doesn't actually do anything"*. The label was
+    /// `Action::Enter(view)` from inside that same view — a push onto a
+    /// frame stack that was already there, so a no-op with a promise
+    /// attached. This asserts each of the three produces work.
+    #[test]
+    fn enter_on_a_row_view_does_what_it_says() {
+        let mut app = App {
+            frames: vec![View::Root, View::Lanes],
+            ..Default::default()
+        };
+        app.rows.insert(
+            View::Lanes,
+            vec![serde_json::json!({"lane_id": "personal/alex"})],
+        );
+        assert_eq!(
+            app.handle_key(key(KeyCode::Enter)),
+            Some(Action::Run(vec![
+                "sync".into(),
+                "pull".into(),
+                "--lane".into(),
+                "personal/alex".into(),
+            ]))
+        );
+
+        app.frames = vec![View::Root, View::Releases];
+        app.rows.insert(
+            View::Releases,
+            vec![serde_json::json!({"version": "1.2.0"})],
+        );
+        assert_eq!(
+            app.handle_key(key(KeyCode::Enter)),
+            Some(Action::Run(vec![
+                "fetch".into(),
+                "--release".into(),
+                "1.2.0".into(),
+            ]))
+        );
+        // Withdrawing needs a reason, so it opens the wizard.
+        assert_eq!(
+            app.handle_key(key(KeyCode::Char('y'))),
+            Some(Action::StartWizard(WizardKind::Yank("1.2.0".into())))
+        );
+
+        app.frames = vec![View::Root, View::Candidates];
+        app.rows.insert(
+            View::Candidates,
+            vec![serde_json::json!({"candidate_id": "abc123"})],
+        );
+        assert_eq!(
+            app.handle_key(key(KeyCode::Enter)),
+            Some(Action::StartWizard(WizardKind::Promote("abc123".into())))
+        );
     }
 
     #[test]
