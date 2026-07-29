@@ -127,6 +127,18 @@ fn main() -> Result<()> {
     while let Some(arg) = args.next() {
         match arg.as_str() {
             "--agent-trace" => trace_path = args.next().map(std::path::PathBuf::from),
+            // Somebody testing an installed build needs to know which
+            // build it is, and this binary ships separately from
+            // `converge` — so it is stamped with the same commit and
+            // answers the same way (batch 22.1's build script, reused).
+            "--version" | "-V" => {
+                println!(
+                    "converge-tui {} ({})",
+                    env!("CARGO_PKG_VERSION"),
+                    env!("CONVERGE_COMMIT")
+                );
+                return Ok(());
+            }
             other => anyhow::bail!("unknown argument {other}"),
         }
     }

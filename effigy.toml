@@ -25,6 +25,27 @@ bench = "cargo nextest run -P ci --run-ignored ignored-only {args}"
 # operator runs it in its own terminal and owns its lifetime — nothing
 # in this repo backgrounds it for them. 2668 is CONV on a phone keypad.
 server = "cargo run --release -p converge-server -- --data-dir $HOME/convergence-local --addr 127.0.0.1:2668"
+# Put the current tree on this machine's PATH for general testing.
+#
+# `cargo install` rather than a copy out of `target/`: it builds into
+# its own directory, so an install cannot be a half-overwritten binary
+# from a `cargo build` running in another terminal, and it lands
+# wherever this machine's cargo is configured to put binaries.
+#
+# `--locked` because an install that silently resolved different
+# dependency versions than the suite ran against is testing something
+# else. `--force` because reinstalling the same version is the whole
+# point of this task.
+#
+# The server is deliberately not installed: `effigy server` runs it from
+# source, and a stale `converge-server` on PATH beside a fresh client is
+# exactly the confusion this task exists to avoid.
+install = """
+cargo install --path crates/converge-cli --locked --force
+cargo install --path crates/converge-tui --locked --force
+converge --version
+converge-tui --version
+"""
 "backends:up" = "effigy container up"
 "backends:down" = "effigy container down"
 "backends:test" = { run = "cargo nextest run -P ci --features backend-postgres,backend-s3 --test backend_conformance {args}", env = { CONVERGE_TEST_POSTGRES_URL = "postgres://postgres:converge@127.0.0.1:5432/converge_test", CONVERGE_TEST_S3_ENDPOINT = "http://127.0.0.1:9000", CONVERGE_TEST_S3_BUCKET = "converge-test", AWS_ACCESS_KEY_ID = "minioadmin", AWS_SECRET_ACCESS_KEY = "minioadmin", CONVERGE_REQUIRE_BACKENDS = "1" } }
