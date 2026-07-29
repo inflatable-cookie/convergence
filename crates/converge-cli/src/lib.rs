@@ -1233,7 +1233,13 @@ fn run(cli: &Cli, mode: OutputMode, session: &Session) -> Result<serde_json::Val
         Command::Releases => {
             let ws = session.workspace()?;
             let (client, remote) = remote_client(session, &ws, mode)?;
-            let releases = client.list_releases(&remote.repo_id)?;
+            let mut releases = client.list_releases(&remote.repo_id)?;
+            // Newest first for reading (operator's call): the question a
+            // release list answers is "what shipped lately". The server
+            // keeps insertion order, which retention and the migration
+            // numbering depend on; ordering for the eye happens here.
+            // RFC3339 sorts lexicographically, so no parsing needed.
+            releases.sort_by(|a, b| b.created_at.cmp(&a.created_at));
             emit(mode, releases, |releases| {
                 for r in releases {
                     println!(
