@@ -375,6 +375,14 @@ pub fn confirmation_prompt(argv: &[String]) -> Option<String> {
             Some("delete unreachable objects".to_string())
         }
         "unsnap" => Some("undo the last snap".to_string()),
+        // Removing a gate reshapes the pipeline. The server still
+        // refuses when the gate holds work (26.2), so this confirm plus
+        // that refusal together give report-before-destroy; forcing
+        // past an occupied gate stays a CLI decision.
+        "gates" if argv.get(1).map(String::as_str) == Some("rm") => Some(format!(
+            "remove gate {}",
+            argv.get(2).cloned().unwrap_or_default()
+        )),
         // Deleting a secret is not undoable and the ciphertext is the
         // only copy Convergence has.
         "secret" if argv.get(1).map(String::as_str) == Some("rm") => Some(format!(
@@ -576,7 +584,9 @@ impl App {
             }
             // Row views act on the selection; `handle_rows_key` runs
             // before this, so naming anything else here would be a lie.
-            View::Gates => ("(a add gate)".into(), Action::Enter(View::Gates)),
+            // Enter does the screen's most likely act; `d` has its own
+            // key and its own confirm. The footer lists both.
+            View::Gates => ("add gate".into(), Action::StartWizard(WizardKind::Gate)),
             view @ (View::Candidates | View::Releases | View::Lanes) => {
                 ("open selected".into(), Action::Enter(view))
             }
@@ -724,6 +734,18 @@ impl App {
             // (batch 26.3).
             KeyCode::Char('a') if view == View::Gates => {
                 Some(Some(Action::StartWizard(WizardKind::Gate)))
+            }
+            // Remove the selected gate (operator: "no way to remove a
+            // gate once it's been added"). Goes through the confirm
+            // above, and the server still refuses if the gate holds
+            // candidates or open publications.
+            KeyCode::Char('d') if view == View::Gates => {
+                let row = self.rows.get(&view)?.get(*selected)?.clone();
+                let id = row["gate_id"].as_str()?.to_string();
+                let argv = vec!["gates".into(), "rm".into(), id, "--execute".into()];
+                let prompt = confirmation_prompt(&argv).unwrap_or_default();
+                self.pending_confirm = Some((prompt, Action::Run(argv)));
+                Some(None)
             }
             KeyCode::Char('r' | 'u') if view == View::Secrets => {
                 let row = self.rows.get(&view)?.get(*selected)?.clone();
@@ -1576,7 +1598,7 @@ mod tests {
             // Gates is not a "open the selected row" screen: entering a
             // gate shows nothing the list does not, and the useful act
             // there is adding one (batch 26.3).
-            (View::Gates, "(a add gate)"),
+            (View::Gates, "add gate"),
             (View::Help, "back"),
         ] {
             app.frames = vec![View::Root, view];

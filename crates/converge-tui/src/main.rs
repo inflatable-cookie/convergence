@@ -1079,19 +1079,16 @@ fn render(frame: &mut Frame, app: &App) {
         View::Help => {
             let mut lines = vec![
                 Line::styled("keys", Style::default().add_modifier(Modifier::BOLD)),
-                Line::raw("  Enter: primary action   Esc: back   q: quit   Tab: complete"),
-                Line::raw("  Alt+h history   Alt+i inbox   Alt+b candidates   Alt+l lanes"),
-                Line::raw("  Alt+e releases  Alt+g gates   Alt+s secrets  Alt+? help   Alt+r root"),
+                Line::raw("  Enter: primary action   Esc: back   q: quit"),
+                Line::raw("  go anywhere: h history  i inbox  c candidates  l lanes"),
+                Line::raw("               e releases  g gates  s secrets  r root"),
+                Line::raw("  `:` opens the command console (Tab completes, Esc closes)"),
                 Line::raw(
                     "  in-view: History m annotate d diff  ·  Candidates p promote e release",
                 ),
-                Line::raw("           Secrets r rotate u unshare"),
+                Line::raw("           Gates a add d remove  ·  Secrets r rotate u unshare"),
                 Line::styled(
                     "  wizards: type a bare `member add`, `fetch`, `release <id>`, `promote <id>`",
-                    Style::default().fg(Color::DarkGray),
-                ),
-                Line::styled(
-                    "  (macOS Terminal and iTerm send composed characters for Option;",
                     Style::default().fg(Color::DarkGray),
                 ),
                 Line::styled(
@@ -1352,18 +1349,44 @@ fn render(frame: &mut Frame, app: &App) {
                 .fg(Color::White)
                 .add_modifier(Modifier::BOLD),
         )];
-        // Uniform "key word" pairs, one space between pairs: the yellow
-        // letter is the key even where it is not the word's initial
-        // (releases is `e` — `r` is root). Kept compact so the whole
-        // bar survives a 100-column terminal.
+        // The footer lists what THIS view can do (operator: the global
+        // jumps "aren't that useful from a sibling section"). The full
+        // section list stays on the root, whose tiles are the sections,
+        // and in Help; every view keeps `Esc back` as the way home.
+        let pairs: &[(&str, &str)] = match app.current_view() {
+            View::Root => &[
+                ("↑↓←→", "choose "),
+                ("1-6", "open "),
+                ("h", "history "),
+                ("i", "inbox "),
+                ("c", "candidates "),
+                ("l", "lanes "),
+                ("e", "releases "),
+                ("g", "gates "),
+                ("s", "secrets "),
+            ],
+            View::History => &[
+                ("↑↓", "select "),
+                ("d", "diff vs head "),
+                ("m", "annotate "),
+            ],
+            View::Candidates => &[("↑↓", "select "), ("p", "promote "), ("e", "release ")],
+            View::Gates => &[("↑↓", "select "), ("a", "add "), ("d", "remove ")],
+            View::Secrets => &[("↑↓", "select "), ("r", "rotate "), ("u", "unshare ")],
+            View::Inbox => &[("↑↓", "select ")],
+            View::Resolution => &[
+                ("1-9", "pick variant "),
+                ("n", "next missing "),
+                ("f", "next invalid "),
+            ],
+            _ => &[("↑↓", "select ")],
+        };
+        for (k, l) in pairs {
+            spans.push(key(k));
+            spans.push(Span::raw(" "));
+            spans.push(label(l));
+        }
         for (k, l) in [
-            ("h", "history "),
-            ("i", "inbox "),
-            ("c", "candidates "),
-            ("l", "lanes "),
-            ("e", "releases "),
-            ("g", "gates "),
-            ("s", "secrets "),
             (":", "command "),
             ("?", "help "),
             ("Esc", "back "),
