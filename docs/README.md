@@ -38,8 +38,8 @@ effigy validate
 effigy qa:docs
 ```
 
-Use `effigy test --plan` before test-focused work; the repository test default
-prefers `cargo nextest` when it is available on the machine.
+Use `effigy test --plan` before test-focused work; the configured `rust` suite
+uses `cargo nextest run -P ci`.
 
 ## Validation
 

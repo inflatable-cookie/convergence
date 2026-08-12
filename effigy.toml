@@ -1,11 +1,14 @@
 [manifest]
-minimum_effigy_version = "0.7.0"
+minimum_effigy_version = "0.11.0"
 
 [catalog]
 alias = "convergence"
 
 [bootstrap]
 setup = ["bootstrap:deps"]
+
+[test.suites]
+rust = "cargo nextest run -P ci"
 
 [tasks]
 "bootstrap:deps" = "cargo fetch"
@@ -14,7 +17,6 @@ build = "cargo build {args}"
 fmt = "cargo fmt {args}"
 "fmt:check" = "cargo fmt --check"
 clippy = "cargo clippy --all-targets {args} -- -D warnings"
-test = "cargo nextest run -P ci {args}"
 "test:cargo" = "cargo test {args}"
 bench = "cargo nextest run -P ci --run-ignored ignored-only {args}"
 # External-backend lane (batch 18.4). `backends:up` starts Postgres and

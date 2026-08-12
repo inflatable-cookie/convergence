@@ -16,7 +16,8 @@ Scope: whole `convergence/` repository.
 - Run `effigy doctor` when environment or task resolution is uncertain.
 - Prefer `effigy health` for the narrow baseline.
 - Prefer `effigy validate` before broader merge-ready checks.
-- Prefer `effigy test --plan` before test-focused work; the repo task intentionally defaults to `cargo nextest` when available.
+- Prefer `effigy test --plan` before test-focused work; the configured `rust`
+  suite uses `cargo nextest run -P ci`.
 - Run `effigy qa:docs` when docs or planning surfaces change.
 - Use direct Cargo or Node commands only when the needed operation is not represented in `effigy.toml`.
 
