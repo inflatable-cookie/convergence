@@ -23,5 +23,6 @@ Archived specs live in [`archive/`](./archive/).
 
 ## Next Task
 
-Open `g02.013` (transactional and merge correctness); draft its spec
-if the roadmap needs tighter execution grammar.
+No active spec. Archived specs live in [`archive/`](./archive/). Queue
+authority is the active `g02` roadmaps and batch cards under
+`docs/roadmaps/g02/`.

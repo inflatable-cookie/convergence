@@ -49,4 +49,5 @@ Related:
 
 ## Next Task
 
-Build against docs 13-16 in the first rebuild implementation roadmap.
+Build against docs 13–19 for active work. Long-horizon distributed target
+(doc 14 §7) is g03 sketch only — see `roadmaps/generation-index.md`.

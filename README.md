@@ -12,12 +12,12 @@ Key terms:
 - `release`: public or organizational output cut from an allowed gate
 - `superpositions`: conflicts preserved as data and resolved per gate policy
 
-## Current State: Archive-and-Rebuild
+## Current State
 
-The g01-era implementation (CLI, TUI, dev server) is archived. The full tree
-lives at tag `v0-legacy` and branch `archive/g01`. `main` carries the docs
-spine plus the salvaged core library: content-addressed model, local store,
-diff, resolution, and workspace modules.
+The g01-era implementation is archived at tag `v0-legacy` and branch
+`archive/g01`. `main` carries the rebuilt stack: CLI, TUI, single-process
+server, Postgres/S3 backends, gate graph, identity, secrets, git interop, and
+semver releases. Terminology is **candidate** (not bundle) after `g02.029`.
 
 Capture artifacts from the archived generation:
 
@@ -25,8 +25,8 @@ Capture artifacts from the archived generation:
 - [docs/rebuild/002-tui-ux-spec.md](docs/rebuild/002-tui-ux-spec.md)
 - [docs/rebuild/003-salvage-inventory.md](docs/rebuild/003-salvage-inventory.md)
 
-Rebuild lane: `docs/specs/002-archive-and-rebuild-boundary.md` and roadmap
-`g02.002`.
+Active generation: `g02` (29 roadmaps, closing). See
+[docs/roadmaps/g02/README.md](docs/roadmaps/g02/README.md).
 
 Documentation is the source of truth:
 - Overview: [docs/README.md](docs/README.md)
@@ -55,6 +55,7 @@ cargo nextest run -P ci
 
 ## Next task
 
-The audit hardening program `g02.011`-`g02.018` is open. Active
-roadmap: `g02.012` data safety (`g02.011` complete); 12.1-12.2 done,
-next is batch card 12.3 (honest sync failure).
+No ready batch card. `g02.027` TUI usability is in closing posture (096,
+097, 100 complete; operator cold-drive verdict pending). `g02.022` batch 22.5
+has a built release pipeline but **no release cut** — operator-gated. See
+[docs/roadmaps/g02/README.md](docs/roadmaps/g02/README.md).

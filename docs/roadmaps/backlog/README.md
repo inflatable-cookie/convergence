@@ -3,19 +3,13 @@
 Backlog items are real candidate milestones not yet scheduled into a
 roadmap.
 
-The 2026-07-24 set has now been laid out as roadmaps (2026-07-25), so
-this file no longer duplicates them:
+The 2026-07-24 set has been laid out as roadmaps (2026-07-25) and largely
+executed:
 
-- **Real identity** → [`g02/021-real-identity.md`](../g02/021-real-identity.md),
-  ready
-- **Workflow profiles** → [`g02/024-workflow-profiles.md`](../g02/024-workflow-profiles.md),
-  parked on a design partner
-- **Edge nodes** → [`g02/025-edge-and-scale.md`](../g02/025-edge-and-scale.md),
-  parked on measured demand
-- **Gate graph administration** →
-  [`g02/026-gate-administration.md`](../g02/026-gate-administration.md),
-  ready, and blocking the release (opened 2026-07-27 from batch 22.4
-  finding 33)
+- **Real identity** → [`g02/021-real-identity.md`](../g02/021-real-identity.md) — complete
+- **Workflow profiles** → [`g02/024-workflow-profiles.md`](../g02/024-workflow-profiles.md) — parked on a design partner
+- **Edge nodes** → [`g02/025-edge-and-scale.md`](../g02/025-edge-and-scale.md) — parked on measured demand
+- **Gate graph administration** → [`g02/026-gate-administration.md`](../g02/026-gate-administration.md) — complete
 
 Still here, unscheduled:
 
@@ -31,7 +25,11 @@ Still here, unscheduled:
 - **Hardware-backed keys** (doc 19 §9): OS keychain, Secure Enclave,
   YubiKey. Trigger: a user asking to keep the private key off disk
 
+Long-horizon sketch (not scheduled): g03 distributed control plane —
+see `generation-index.md` strategic horizons.
+
 ## Next Task
 
-Nothing to schedule from here: the live candidates are roadmaps in
-`g02/`, and everything remaining is waiting on a stated trigger.
+Nothing to schedule from here: live candidates are roadmaps in `g02/`
+(closing), and everything remaining waits on a stated trigger or operator
+direction (TUI closeout vs first release).

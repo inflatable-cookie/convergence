@@ -1,45 +1,28 @@
 # g02 Roadmaps
 
-`g02` is the active roadmap generation for Convergence.
+`g02` is the active roadmap generation for Convergence (closing posture).
 
 ## Context
 
 `g01` closed as the foundational/research generation (archived on
-`archive/g01`). `g02` carried the archive-and-rebuild boundary and now
-runs the rebuild improvement program.
+`archive/g01`). `g02` carried the archive-and-rebuild boundary and the
+full rebuild improvement program through identity, ship readiness, gate
+administration, TUI usability, semver releases, and the candidate rename.
 
 ## Current State
 
-Three programs are complete:
+Programs complete through `g02.029` (candidate rename). Open lanes:
 
-- rebuild and improvement (`g02.001`-`g02.010`)
-- audit hardening (`g02.011`-`g02.018`), from the 2026-07-24 four-part
-  audit, sequenced security → data safety → transactional/merge
-  correctness → architecture honesty → scale walls → workflow completion
-  → TUI spec parity → adversarial tests
-- secret substrate (`g02.019`-`g02.020`), client-encrypted individual
-  and shared secrets
+- **`g02.022` ship readiness** — 22.1–22.4 complete; batch 22.5 (card 091)
+  has a built release pipeline but **no release cut** (operator-gated)
+- **`g02.027` TUI usability** — cards 096 (frame/navigation), 097 (guidance),
+  100 (decisions on screen) complete; operator cold-drive verdict pending
+  before formal closeout. Root redesign and semver tile work landed early
+  during 27.3/28.
 
-`g02.021`-`g02.025` are the next suite, laid out 2026-07-25. The first
-three are schedulable; the last two are parked on triggers that have not
-fired, and are written down so their absence reads as a decision rather
-than an oversight.
+Parked on triggers: `g02.024` workflow profiles, `g02.025` edge/scale.
 
-Scheduled by the operator (2026-07-25): `g02.021` then `g02.023`, both
-now complete. `g02.022` followed; its shakedown (22.4) is done and its
-release batch (22.5) has a built pipeline but **no release**.
-
-`g02.026` was opened 2026-07-27 out of a 22.4 finding, and blocks the
-release. The gate graph is write-once at repo creation, so `promote` —
-one of the six contract verbs — cannot be reached by anyone, and the
-whole multi-gate design is implemented and unusable. The operator's
-call: *"We don't ship until Convergence works consistently without
-issues for all use cases end to end."*
-
-`g02.023` opens with a simplification sweep rather than a feature: the
-TUI has been built, refactored across four batches, and covered by forty
-reducer tests without a human ever driving it, so the first batch uses
-it and removes things before anything new is added.
+No ready batch card. Execution waits on operator direction.
 
 ## Lanes
 
@@ -64,19 +47,23 @@ it and removes things before anything new is added.
 - [`019-secret-substrate.md`](./019-secret-substrate.md) — complete
 - [`020-shared-secrets.md`](./020-shared-secrets.md) — complete
 - [`021-real-identity.md`](./021-real-identity.md) — complete
-- [`022-ship-readiness.md`](./022-ship-readiness.md) — in progress (22.1-22.4 complete; 22.5 pipeline built, **release not cut**)
+- [`022-ship-readiness.md`](./022-ship-readiness.md) — in progress (22.1–22.4 complete; 22.5 gated)
 - [`023-tui-completion.md`](./023-tui-completion.md) — complete
 - [`024-workflow-profiles.md`](./024-workflow-profiles.md) — parked (needs a design partner)
 - [`025-edge-and-scale.md`](./025-edge-and-scale.md) — parked (needs a measured ceiling)
 - [`026-gate-administration.md`](./026-gate-administration.md) — complete
-- [`027-tui-usability.md`](./027-tui-usability.md) — in progress (27.1 done; root redesigned through three rounds of operator feedback)
+- [`027-tui-usability.md`](./027-tui-usability.md) — closing (096, 097, 100 complete)
 - [`028-semver-releases.md`](./028-semver-releases.md) — complete
-- [`029-candidate-rename.md`](./029-candidate-rename.md) — complete: bundle became candidate, everywhere
+- [`029-candidate-rename.md`](./029-candidate-rename.md) — complete
 
 ## Next Task
 
-Batch card 27.1 (frame and palette) under `g02.027`.
+Operator direction required — no ready batch card:
 
-`g02.022` batch 22.5 (release) remains the operator's call. `g02.026`
-closed the gap that was blocking it; `g02.027` is a usability debt found
-by putting the TUI in front of somebody who had not built it.
+1. **TUI closeout** — cold-drive verdict on `g02.027`; close the roadmap if
+   exit criteria are met
+2. **First release** — push tag and cut release via `g02.022` batch 22.5 when
+   the operator authorises it
+
+Long-horizon sequencing: `generation-index.md` strategic horizons (atlas,
+2026-08-17). Do not open `g03` until g02 rollover closeout is complete.

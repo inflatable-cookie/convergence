@@ -12,31 +12,35 @@ Scope: whole `convergence/` repository.
 
 ## Effigy-First Execution
 
-- Start with `effigy tasks`.
-- Run `effigy doctor` when environment or task resolution is uncertain.
-- Prefer `effigy health` for the narrow baseline.
-- Prefer `effigy validate` before broader merge-ready checks.
-- Prefer `effigy test --plan` before test-focused work; the configured `rust`
-  suite uses `cargo nextest run -P ci`.
-- Run `effigy qa:docs` when docs or planning surfaces change.
-- Use direct Cargo or Node commands only when the needed operation is not represented in `effigy.toml`.
+Route by job, not startup ritual:
+
+- `effigy tasks` — selector inventory
+- `effigy doctor` — routing ambiguity or repo health
+- `effigy graph` — code understanding (ownership, flow, changed-file impact)
+- `effigy test --plan` — test shape before test-focused work (`cargo nextest run -P ci`)
+
+Prefer `effigy <task>`, `effigy test`, and built-in surfaces over raw Cargo or
+Node when Effigy covers the path. Use `effigy --json <command>` when another
+agent or tool will consume output.
+
+Direct commands only when the operation is not in `effigy.toml`.
 
 ## Validate
 
-- `effigy health`
-- `effigy validate`
-- `effigy qa:docs`
-- `effigy test --plan` (for test-focused work)
+- `effigy health` — narrow baseline
+- `effigy validate` — merge-ready Rust suite
+- `effigy qa:docs` — docs and planning surfaces (required when docs change)
 
 ## References
 
 - `docs/README.md`
 - `docs/vision/001-convergence-platform-vision.md`
 - `docs/architecture/README.md`
-- `docs/roadmaps/`
-- `docs/logs/`
+- `docs/roadmaps/g02/README.md`
+- `docs/logs/README.md`
 - `docs/specs/README.md`
 - `docs/contracts/001-working-rules.md`
+- `docs/contracts/contract-index.md`
 
 ## Strict Continuation Rule
 
@@ -55,22 +59,6 @@ Use the repo-local style reference for internal work and normal replies:
 
 <!-- BEGIN EFFIGY AGENT CONTRACT -->
 ## Effigy Agent Contract
-
-Use Effigy as the default command surface for supported project work.
-
-Route by job, not by startup ritual:
-- use `effigy graph` for code understanding
-- use `effigy tasks` for selector inventory
-- use `effigy doctor` for routing ambiguity or repo health
-- use `effigy test --plan` when test execution shape matters
-
-Use `effigy graph` when the job is code understanding: ownership, flow,
-implementation, or changed-file impact. Do not insert graph into unrelated
-deployment, state, docs, release, or direct task-execution work.
-
-Prefer `effigy <task>`, `effigy test`, and the matching built-in surface over
-raw package-manager or shell commands when Effigy covers the path. Use
-`effigy --json <command>` whenever another agent or tool will consume output.
 
 This repo's local `.agents/skills/effigy` copy is authoritative for this
 project. When an agent supports both project-local and global skills, prefer

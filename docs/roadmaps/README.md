@@ -16,7 +16,7 @@ Convergence roadmaps hold executable milestone work.
 ## Current generation
 
 - Active generation: `g02`
-- Next roadmap ID: `g02.026`
+- Next roadmap ID: `g02.030`
 
 ## Index
 
@@ -29,17 +29,17 @@ records the closed state.
 
 ## Active strict lane
 
-- The audit hardening program `g02.011`-`g02.018` is **complete**
-  (opened from the 2026-07-24 four-part audit, closed 2026-07-25).
-- Secret substrate program opened 2026-07-25: `g02.019` individual
-  secrets, `g02.020` shared secrets. Threat model and object model in
-  `docs/architecture/19-secrets-and-key-management.md`.
-- Secret substrate program `g02.019`-`g02.020` **complete**
-  (2026-07-25).
-- Scheduled 2026-07-25: `g02.021` real identity, then `g02.023` TUI
-  completion (opening with a simplification sweep). `g02.022` ship
-  readiness planned but unscheduled; `g02.024` and `g02.025` parked.
-- next: batch card 21.3 (identity provider seam)
+`g02` is in closing posture. Programs complete through `g02.029` (candidate
+rename). Open lanes:
+
+- `g02.027` TUI usability — cards 096, 097, 100 complete; operator cold-drive
+  verdict pending before closeout
+- `g02.022` ship readiness — 22.1–22.4 complete; batch 22.5 pipeline built,
+  **release not cut** (operator-gated)
+
+Parked on triggers: `g02.024` workflow profiles, `g02.025` edge/scale.
+
+No ready batch card. Execution waits on operator direction.
 
 ## Rollover guardrail
 
@@ -53,4 +53,6 @@ Before rollover:
 
 ## Next Task
 
-Open batch card 12.3 (honest sync failure) under `g02.012`.
+Operator direction: TUI usability closeout (`g02.027`) or first release cut
+(`g02.022` batch 22.5). No ready batch card until one is opened. See
+`g02/README.md`.

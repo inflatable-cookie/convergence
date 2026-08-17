@@ -11,10 +11,13 @@ Convergence logs capture timestamped execution history, rationale records, and m
 
 ## Current evidence window
 
-- `2026-03/06-181500-convergence-effigy-default-loop-adoption.md`
-- `2026-04/09-230000-convergence-full-strict-pause-install.md`
+- `2026-08/` — northstar refresh and atlas horizon shaping
+- `2026-07/` — rebuild program closeout, audit hardening, secret substrate,
+  identity, ship shakedown, gate administration, TUI usability, candidate rename
+- `2026-04/09-230000-convergence-full-strict-pause-install.md` — strict posture install
 
 ## Next Task
 
-Keep the active evidence window aligned to `g02.001` so the paused strict
-posture is visible without reconstructing it from older research-era logs.
+Record closeout evidence for `g02.027` and `g02.022` when the operator
+settles TUI verdict and release cut. Keep month shards current; do not let
+front doors drift ahead of logs.

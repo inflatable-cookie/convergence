@@ -44,6 +44,6 @@ Git remains strong at source history, but it treats many modern workflows as awk
 
 ## Next Task
 
-Use the architecture set and the active `g02` roadmap sequence to keep
-turning the object model, gate policy, remote workflow, and UX work into
-executable milestones without reintroducing Git-shaped assumptions.
+Use the closing `g02` roadmap sequence and `generation-index.md` strategic
+horizons to sequence post-ship work without reintroducing Git-shaped
+assumptions.

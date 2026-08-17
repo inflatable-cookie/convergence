@@ -1,6 +1,6 @@
 # 027 TUI Usability
 
-Status: ready
+Status: in progress (closing)
 Owner: repo maintainers
 Updated: 2026-07-28
 
@@ -122,4 +122,6 @@ was the operator's, and the verdict was immediate.
 
 ## Next Task
 
-Batch card 27.1 (frame and palette).
+Operator cold-drive verdict on usability. Cards 096, 097, 100 are complete.
+If exit criteria are met, close `g02.027` and refresh front doors. List-view
+row polish deferred to the drive itself (card 097 notes).

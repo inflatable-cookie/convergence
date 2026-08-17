@@ -80,5 +80,5 @@ If those closeout conditions are not satisfied, repair the current generation in
 
 ## Next Task
 
-Apply these rules to the active `g02.002` archive-and-rebuild lane; execution
-anchors on the current ready card.
+Apply these rules to the closing `g02` generation. No ready batch card;
+execution waits on operator direction at `docs/roadmaps/g02/README.md`.
