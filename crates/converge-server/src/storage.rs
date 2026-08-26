@@ -441,6 +441,14 @@ pub struct AssociatingObjects<'a> {
     pub repo_id: String,
 }
 
+impl std::fmt::Debug for AssociatingObjects<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("AssociatingObjects")
+            .field("repo_id", &self.repo_id)
+            .finish_non_exhaustive()
+    }
+}
+
 impl ObjectStore for AssociatingObjects<'_> {
     fn put(&self, kind: ObjectKind, bytes: &[u8]) -> Result<ObjectId> {
         let id = self.inner.put(kind, bytes)?;
@@ -484,6 +492,12 @@ impl ObjectStore for AssociatingObjects<'_> {
 pub struct ScratchObjects<'a> {
     inner: &'a dyn ObjectStore,
     scratch: std::sync::Mutex<std::collections::HashMap<(ObjectKind, String), Vec<u8>>>,
+}
+
+impl std::fmt::Debug for ScratchObjects<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ScratchObjects").finish_non_exhaustive()
+    }
 }
 
 impl<'a> ScratchObjects<'a> {

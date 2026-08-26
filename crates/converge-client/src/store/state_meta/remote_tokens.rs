@@ -182,6 +182,7 @@ struct TokenRecord {
 }
 
 /// A cached login that `prune` can account for.
+#[derive(Debug)]
 pub struct StaleToken {
     pub path: std::path::PathBuf,
     /// The workspace it was issued for, when the file says.
@@ -192,7 +193,7 @@ pub struct StaleToken {
 ///
 /// Deletion is never inferred from a failure to decrypt: a file this
 /// machine's key cannot open is somebody else's problem, not garbage.
-#[derive(Default)]
+#[derive(Debug, Default)]
 pub struct TokenStoreSurvey {
     pub live: usize,
     /// Workspaces that no longer exist on disk.

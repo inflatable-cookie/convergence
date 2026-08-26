@@ -18,6 +18,16 @@ pub struct RemoteClient {
     progress: Option<std::sync::Arc<dyn Fn(Progress) + Send + Sync>>,
 }
 
+impl std::fmt::Debug for RemoteClient {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("RemoteClient")
+            .field("base_url", &self.base_url)
+            .field("batch_cap", &self.batch_cap)
+            .field("has_progress", &self.progress.is_some())
+            .finish_non_exhaustive()
+    }
+}
+
 /// Transfer progress, reported once per batch — the granularity the
 /// wire actually moves in, and the one that matters for the beachhead's
 /// large binaries (audit P4.20).

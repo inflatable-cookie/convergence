@@ -65,6 +65,14 @@ pub struct KeyPair {
     pub public: PublicKey,
 }
 
+impl std::fmt::Debug for KeyPair {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("KeyPair")
+            .field("public", &self.public)
+            .finish_non_exhaustive()
+    }
+}
+
 impl KeyPair {
     /// Generate a keypair and write the private half encrypted under
     /// `passphrase`.

@@ -3,6 +3,7 @@ use super::*;
 use crate::model::SnapRecord;
 
 /// What `unsnap` did, so the caller can report it precisely.
+#[derive(Debug)]
 pub struct Unsnapped {
     pub removed: SnapRecord,
     /// New head — `None` when the undone snap was the first capture.

@@ -12,7 +12,7 @@ mod snap_resolution;
 mod state_meta;
 pub use state_meta::{StaleToken, TokenStoreSurvey, survey_token_store};
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct LocalStore {
     root: PathBuf,
 }

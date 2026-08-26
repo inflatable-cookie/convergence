@@ -1,13 +1,9 @@
 //! SQL statement helpers shared by the trait methods (batch 13.1):
 //! one SQL source of truth for the single-op and batch paths.
 
-use anyhow::{Context, Result, anyhow};
+use anyhow::{Result, anyhow};
 
-use rusqlite::Row;
-
-use postgres::{Client, GenericClient};
-
-use converge_model::{GateGraph, PublicationRecord, SecretRecord, TokenRecord};
+use converge_model::{GateGraph, PublicationRecord};
 
 use crate::storage::{BatchConflict, MetaOp, PartitionState, StoredCandidate};
 
@@ -68,7 +64,7 @@ pub(super) fn apply_op_pg(c: &mut impl postgres::GenericClient, op: &MetaOp) -> 
         } => add_event_pg(c, repo_id, kind, subject_id, created_at).map(|_| ()),
         MetaOp::SetGateGraph { repo_id, graph } => {
             let json = serde_json::to_string(graph)?;
-            tx.execute(
+            c.execute(
                 "INSERT INTO gate_graphs (repo_id, graph_json) VALUES ($1, $2)
                  ON CONFLICT (repo_id) DO UPDATE SET graph_json = EXCLUDED.graph_json",
                 &[&repo_id, &json],
@@ -76,7 +72,7 @@ pub(super) fn apply_op_pg(c: &mut impl postgres::GenericClient, op: &MetaOp) -> 
             Ok(())
         }
         MetaOp::AssertGateGraph { repo_id, expected } => {
-            let row = tx.query_opt(
+            let row = c.query_opt(
                 "SELECT graph_json FROM gate_graphs WHERE repo_id = $1",
                 &[&repo_id],
             )?;
