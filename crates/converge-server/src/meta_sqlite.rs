@@ -18,6 +18,13 @@ pub struct SqliteMetadataStore {
     conn: Mutex<Connection>,
 }
 
+impl std::fmt::Debug for SqliteMetadataStore {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("SqliteMetadataStore")
+            .finish_non_exhaustive()
+    }
+}
+
 impl SqliteMetadataStore {
     pub fn open(path: &Path) -> Result<Self> {
         let conn = Connection::open(path).context("open sqlite metadata store")?;

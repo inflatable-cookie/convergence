@@ -43,9 +43,17 @@ pub struct Cli {
     pub(crate) command: Command,
 }
 
+impl std::fmt::Debug for Cli {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Cli")
+            .field("json", &self.json)
+            .finish_non_exhaustive()
+    }
+}
+
 /// How results leave the command layer. The TUI uses `Capture` to receive
 /// the same JSON the `--json` flag would print (arch 15: argv contract).
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum OutputMode {
     Human,
     Json,
@@ -103,6 +111,12 @@ pub struct Session {
     /// peak footprint for one credential. The second thread through
     /// this lock finds the cache warm.
     token_gate: std::sync::Mutex<()>,
+}
+
+impl std::fmt::Debug for Session {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Session").finish_non_exhaustive()
+    }
 }
 
 type ManifestScan = (

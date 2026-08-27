@@ -22,7 +22,7 @@ mod undo;
 
 pub use undo::Unsnapped;
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct Workspace {
     pub root: PathBuf,
     pub store: LocalStore,

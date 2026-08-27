@@ -10,6 +10,7 @@ use converge_model::{
 use crate::storage::{ObjectKind, ObjectStore};
 
 /// One publication's contribution to a candidate build (doc 17 §2).
+#[derive(Debug)]
 pub struct MergeInput {
     /// Provenance source shown on superposition variants.
     pub lane: String,
@@ -29,6 +30,7 @@ enum Op {
 
 /// Result of a fold: the merged root plus what the fold learned along
 /// the way, so callers need no second walk (audit 2.2).
+#[derive(Debug)]
 pub struct MergeOutcome {
     pub root: ObjectId,
     /// A superposition was written (or folded through from an input).

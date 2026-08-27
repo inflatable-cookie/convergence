@@ -13,6 +13,12 @@ pub struct S3ObjectStore {
     bucket: Box<Bucket>,
 }
 
+impl std::fmt::Debug for S3ObjectStore {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("S3ObjectStore").finish_non_exhaustive()
+    }
+}
+
 impl S3ObjectStore {
     /// `endpoint` like `http://127.0.0.1:9000` (MinIO-friendly);
     /// credentials from the standard AWS env variables.

@@ -52,6 +52,15 @@ pub struct AppState {
     pub oidc: Option<Arc<crate::oidc::OidcVerifier>>,
 }
 
+impl std::fmt::Debug for AppState {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("AppState")
+            .field("token_count", &self.tokens.len())
+            .field("oidc_configured", &self.oidc.is_some())
+            .finish_non_exhaustive()
+    }
+}
+
 type SharedState = Arc<AppState>;
 
 const MAX_BODY_BYTES: usize = 64 * 1024 * 1024;

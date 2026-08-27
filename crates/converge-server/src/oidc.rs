@@ -73,6 +73,20 @@ pub struct OidcVerifier {
     keys: Mutex<Vec<Jwk>>,
 }
 
+impl std::fmt::Debug for OidcVerifier {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("OidcVerifier")
+            .field("issuer", &self.config.issuer)
+            .field("audience", &self.config.audience)
+            .field("subject_claim", &self.config.subject_claim)
+            .field(
+                "cached_key_count",
+                &self.keys.lock().map(|keys| keys.len()).unwrap_or(0),
+            )
+            .finish_non_exhaustive()
+    }
+}
+
 impl OidcVerifier {
     pub fn new(config: OidcConfig) -> Self {
         Self {

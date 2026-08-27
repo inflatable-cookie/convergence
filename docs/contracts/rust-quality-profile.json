@@ -1,0 +1,23 @@
+{
+  "deviations_file": "docs/contracts/rust-quality-deviations.json",
+  "exclusions": {
+    "generated": [],
+    "vendored": []
+  },
+  "language": "rust",
+  "msrv": {
+    "cargo_manifests": [
+      "Cargo.toml",
+      "crates/converge-cli/Cargo.toml",
+      "crates/converge-client/Cargo.toml",
+      "crates/converge-model/Cargo.toml",
+      "crates/converge-server/Cargo.toml",
+      "crates/converge-tui/Cargo.toml"
+    ],
+    "source": "repository_policy",
+    "toolchain_policy_paths": [],
+    "when_unresolved": "stop"
+  },
+  "profile": "strict",
+  "schema_version": "1.0.0"
+}

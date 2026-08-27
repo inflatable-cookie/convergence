@@ -9,6 +9,7 @@ use crate::storage::{ObjectKind, ObjectStore};
 
 /// Embedded object store: sharded local FS, verify-on-read, atomic writes,
 /// idempotent puts — the same discipline as the client store.
+#[derive(Debug)]
 pub struct FsObjectStore {
     root: PathBuf,
 }

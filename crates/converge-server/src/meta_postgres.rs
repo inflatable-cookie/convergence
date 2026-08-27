@@ -13,10 +13,17 @@ use converge_model::{
     ReleaseRecord, RetentionPolicy, SnapRecord,
 };
 
-use crate::storage::{BatchConflict, MetaOp, MetadataStore, PartitionState, StoredCandidate};
+use crate::storage::{MetaOp, MetadataStore, PartitionState, StoredCandidate};
 
 pub struct PostgresMetadataStore {
     client: Mutex<Client>,
+}
+
+impl std::fmt::Debug for PostgresMetadataStore {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("PostgresMetadataStore")
+            .finish_non_exhaustive()
+    }
 }
 
 impl PostgresMetadataStore {
@@ -1079,7 +1086,7 @@ impl MetadataStore for PostgresMetadataStore {
         let mut c = self.client.lock().expect("pg lock");
         c.execute(
             "DELETE FROM object_repos WHERE kind = $1 AND object_id = $2",
-            &[&kind.dir(), &id.as_str(), &cutoff],
+            &[&kind.dir(), &id.as_str()],
         )?;
         Ok(())
     }
@@ -1128,7 +1135,7 @@ impl MetadataStore for PostgresMetadataStore {
         let row = c.query_one(
             "SELECT COUNT(*) FROM object_pins
              WHERE kind = $1 AND object_id = $2 AND pinned_at >= $3",
-            &[&kind.dir(), &id.as_str()],
+            &[&kind.dir(), &id.as_str(), &cutoff],
         )?;
         let n: i64 = row.get(0);
         Ok(n > 0)

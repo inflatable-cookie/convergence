@@ -18,6 +18,7 @@ pub struct ImportReport {
     pub translated_ignores: bool,
 }
 
+#[derive(Debug)]
 pub enum ImportDepth {
     /// Current tree only (default).
     Seed,
