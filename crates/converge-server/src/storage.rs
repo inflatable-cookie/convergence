@@ -391,7 +391,6 @@ pub trait MetadataStore: Send + Sync {
     // until it becomes durably referenced, independent of clock time.
     fn pin_object(&self, repo_id: &str, kind: ObjectKind, id: &ObjectId) -> Result<()>;
     fn unpin_object(&self, repo_id: &str, kind: ObjectKind, id: &ObjectId) -> Result<()>;
-    /// Is this object pinned by any repo? (shared store → global check).
     /// Is this object pinned by an upload no older than `cutoff`?
     ///
     /// The cutoff is what makes the pin expire. Asking here rather than

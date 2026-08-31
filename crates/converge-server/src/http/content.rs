@@ -111,7 +111,8 @@ fn read_failure(state: &AppState, kind: ObjectKind, id: &ObjectId, err: anyhow::
         return ApiError(
             StatusCode::INTERNAL_SERVER_ERROR,
             format!(
-                "stored {} {} failed its integrity check — the copy on this server                  is corrupt and must be restored or re-uploaded",
+                "stored {} {} failed its integrity check — the copy on this \
+                 server is corrupt and must be restored or re-uploaded",
                 kind.dir(),
                 id.as_str()
             ),

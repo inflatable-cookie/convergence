@@ -1,6 +1,6 @@
 # 101 Northstar AGENTS And Rust Audit
 
-Status: ready
+Status: complete
 Updated: 2026-08-31
 Roadmap: `g02.030`
 
@@ -84,6 +84,24 @@ Use the invariant table in `g02.030`. During falsification, reconcile the
 recorder result, diff, this card, roadmap, log, and front doors. The PR must
 state every retained limitation; absence of a repair is not evidence of a
 clean audit.
+
+## Outcome
+
+Both passes ran. The Rust audit finalized as `convergence-20260831-rust-audit`
+with status `degraded`: six units, 26 evidence records, 19 files repaired, and
+eight findings plus six out-of-catalogue defects recorded and left for the
+orchestrator. The AGENTS rewrite added orientation, a preservation-intent
+section and annotated references while keeping every boundary and both
+generated blocks byte-identical; `CLAUDE.md` is now exactly `@AGENTS.md`.
+
+Evidence: `docs/logs/2026-08/31-214500-northstar-instruction-rust-audit-closeout.md`
+and the recorder's `report.md`/`result.json` under
+`.git/.../northstar/rust-quality/audits/convergence-20260831-rust-audit/`.
+
+Retained limitations: the pre-existing `effigy doctor` god-file and
+attention-marker findings are unchanged, and the Effigy-generated reference
+paths in `AGENTS.md` remain wrong but untouched because they sit inside
+generated markers.
 
 ## Next Task
 

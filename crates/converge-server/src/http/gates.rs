@@ -16,8 +16,6 @@ use super::{
     page_of, site_admin,
 };
 
-/// Register a scope (batch 14.3). Admin-only: scopes define the
-/// partitioning of a repo, so minting them is a policy act.
 /// Create a repo with its `default` scope and an `intake` gate (batch
 /// 16.3). Server admins only: this runs before the repo exists, so there
 /// is no repo-scoped grant to check.
@@ -172,7 +170,9 @@ pub(crate) async fn set_gates(
         return Err(ApiError(
             StatusCode::CONFLICT,
             format!(
-                "this change would strand work in {stranded}.                  That work stays in the store either way, but nothing would                  address it. Promote or release it first, or resend with force."
+                "this change would strand work in {stranded}. That work stays in \
+                 the store either way, but nothing would address it. Promote or \
+                 release it first, or resend with force."
             ),
         ));
     }
@@ -211,6 +211,8 @@ pub(crate) async fn set_gates(
     }))
 }
 
+/// Register a scope (batch 14.3). Admin-only: scopes define the
+/// partitioning of a repo, so minting them is a policy act.
 pub(crate) async fn create_scope(
     State(state): State<SharedState>,
     Path(repo): Path<String>,

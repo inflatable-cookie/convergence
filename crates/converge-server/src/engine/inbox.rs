@@ -103,12 +103,12 @@ impl Engine<'_> {
             let onward: Vec<(String, String)> = graph
                 .gates
                 .iter()
-                .filter_map(|candidate| {
-                    if reached.contains(&candidate.gate_id) {
+                .filter_map(|gate| {
+                    if reached.contains(&gate.gate_id) {
                         return None;
                     }
-                    let from = candidate.upstreams.iter().find(|up| reached.contains(up))?;
-                    Some((candidate.gate_id.clone(), from.clone()))
+                    let from = gate.upstreams.iter().find(|up| reached.contains(up))?;
+                    Some((gate.gate_id.clone(), from.clone()))
                 })
                 .collect();
             let has_somewhere_to_go = !onward.is_empty();

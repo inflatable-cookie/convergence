@@ -113,7 +113,6 @@ pub struct UploadStats {
     pub uploaded: usize,
 }
 
-/// All manifest ids reachable from `root`, root first.
 /// Server-side per-request id/frame cap (doc 16 §1c).
 const MAX_BATCH_FRAMES: usize = 4096;
 
@@ -149,6 +148,7 @@ fn split_object_set(request: &ObjectSet, cap: usize) -> Vec<ObjectSet> {
     chunks
 }
 
+/// All manifest ids reachable from `root`, root first.
 fn collect_manifests(store: &LocalStore, root: &ObjectId) -> Result<Vec<ObjectId>> {
     let mut out = Vec::new();
     let mut stack = vec![root.clone()];

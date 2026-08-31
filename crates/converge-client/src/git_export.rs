@@ -22,10 +22,6 @@ pub struct ExportReport {
 
 const MAP_FILE: &str = "git-map.json";
 
-/// Export the lineage of `head_snap_id` to `refs/heads/<branch>` of the
-/// git repo at `git_workdir`. Incremental: snaps already in the mapping
-/// table are reused as parents, not re-exported. Mirror branches are
-/// force-moved (doc 18: snapshot semantics, read-only for git users).
 /// Who the mirrored commits are attributed to.
 ///
 /// A mirror is a git artifact, so git's own identity is the right source:
@@ -64,6 +60,10 @@ fn git_identity(git_workdir: &Path) -> (String, String) {
     )
 }
 
+/// Export the lineage of `head_snap_id` to `refs/heads/<branch>` of the
+/// git repo at `git_workdir`. Incremental: snaps already in the mapping
+/// table are reused as parents, not re-exported. Mirror branches are
+/// force-moved (doc 18: snapshot semantics, read-only for git users).
 pub fn export_lineage(
     store: &LocalStore,
     git_workdir: &Path,

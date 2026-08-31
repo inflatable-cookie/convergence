@@ -28,9 +28,6 @@ impl Field {
     /// Build a plain field. Masking is opt-in and rare enough to be a
     /// separate constructor, so nobody adds a credential field without
     /// deciding.
-    /// Build a plain field. Masking is opt-in and rare enough to be a
-    /// separate constructor, so nobody adds a credential field without
-    /// deciding.
     pub fn new(name: &'static str, prompt: &'static str, kind: FieldKind) -> Self {
         Self {
             name,
@@ -100,6 +97,7 @@ pub struct Wizard {
     pub error: Option<String>,
 }
 
+#[derive(Debug)]
 pub enum WizardEvent {
     /// Still running; render again.
     Continue,

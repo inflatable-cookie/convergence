@@ -7,8 +7,6 @@ use converge_model::AddLaneMemberRequest;
 use super::RemoteClient;
 
 impl RemoteClient {
-    /// Register a scope (admin). Scopes are declared repo state — an
-    /// unregistered scope is refused rather than minting a partition.
     /// Create a repo with its default scope and gate (batch 16.3).
     /// Server admins only — this is what runs before a repo exists.
     pub fn create_repo(&self, repo_id: &str) -> Result<serde_json::Value> {
@@ -116,6 +114,8 @@ impl RemoteClient {
         response.json().context("parse gate change")
     }
 
+    /// Register a scope (admin). Scopes are declared repo state — an
+    /// unregistered scope is refused rather than minting a partition.
     pub fn create_scope(&self, repo_id: &str, scope_id: &str) -> Result<()> {
         Self::check(
             self.http
