@@ -48,8 +48,7 @@ uses `cargo nextest run -P ci`.
 
 ## Next Task
 
-Review and merge the `g02.030` card 101 PR — the Northstar instruction and Rust
-quality audit — and decide the findings it returned. Product execution remains
-paused: `g02.027` awaits the operator's TUI cold-drive verdict, while `g02.022`
-batch 22.5 has a built release pipeline but **no release cut**. Canonical
-queue: `roadmaps/g02/README.md`.
+The `g02.030` audit merged in PR #3. Its retained findings have no authorized
+repair card. Product execution remains paused: `g02.027` awaits the operator's
+TUI cold-drive verdict, while `g02.022` batch 22.5 has a built release pipeline
+but **no release cut**. Canonical queue: `roadmaps/g02/README.md`.

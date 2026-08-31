@@ -20,6 +20,6 @@ Convergence logs capture timestamped execution history, rationale records, and m
 ## Next Task
 
 The `g02.030` card 101 audit closeout is recorded at
-`2026-08/31-214500-northstar-instruction-rust-audit-closeout.md`. Product
-closeout evidence for `g02.027` and `g02.022` still waits on the operator's TUI
-verdict and release authority.
+`2026-08/31-214500-northstar-instruction-rust-audit-closeout.md`; PR #3 is
+merged. Product closeout evidence for `g02.027` and `g02.022` still waits on
+the operator's TUI verdict and release authority.

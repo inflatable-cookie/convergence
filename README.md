@@ -55,8 +55,8 @@ cargo nextest run -P ci
 
 ## Next task
 
-Review and merge the `g02.030` card 101 PR — the Northstar instruction and Rust
-quality audit — and decide the findings it returned. Product direction remains
-paused: `g02.027` awaits the operator's TUI cold-drive verdict and `g02.022`
-batch 22.5 awaits release authority. See
+The `g02.030` audit merged in PR #3. No repair card is authorized from its
+retained findings. Product direction remains paused: `g02.027` awaits the
+operator's TUI cold-drive verdict and `g02.022` batch 22.5 awaits release
+authority. See
 [docs/roadmaps/g02/README.md](docs/roadmaps/g02/README.md).

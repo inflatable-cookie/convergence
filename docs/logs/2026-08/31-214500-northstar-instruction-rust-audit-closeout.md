@@ -178,6 +178,7 @@ markers, so it was left byte-identical and is reported instead.
 
 ## Next Task
 
-Orchestrator review of the card 101 PR head. Product execution stays paused:
-`g02.027` awaits the operator's TUI cold-drive verdict and `g02.022` batch 22.5
-awaits release authority.
+PR #3 merged after exact-head review. No repair card is authorized from the
+retained findings. Product execution stays paused: `g02.027` awaits the
+operator's TUI cold-drive verdict and `g02.022` batch 22.5 awaits release
+authority.

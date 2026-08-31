@@ -65,13 +65,15 @@ Product execution still waits on operator direction.
 
 ## Next Task
 
-Review and merge the `g02.030` card 101 PR, then decide the findings it
-returned (candidate-id hashing, `cmd_run`'s process exit, the wire field
-rename). Product direction remains unresolved:
+No ready card. `g02.030` merged in PR #3; its retained Rust findings are
+decision inputs, not implementation authority. The next operator intent
+checkpoint is one of:
 
-1. **TUI closeout** — cold-drive verdict on `g02.027`; close the roadmap if
+1. **Audit follow-up** — promote a bounded set of retained findings into a new
+   repair card
+2. **TUI closeout** — cold-drive verdict on `g02.027`; close the roadmap if
    exit criteria are met
-2. **First release** — push tag and cut release via `g02.022` batch 22.5 when
+3. **First release** — push tag and cut release via `g02.022` batch 22.5 when
    the operator authorises it
 
 Long-horizon sequencing: `generation-index.md` strategic horizons (atlas,

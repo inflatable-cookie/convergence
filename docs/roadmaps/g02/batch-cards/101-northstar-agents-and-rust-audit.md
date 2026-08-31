@@ -113,5 +113,6 @@ generated markers.
 
 ## Next Task
 
-Orchestrator review of the worker's exact PR head. Requested changes return to
-the same worker; accepted checked work may be merged by the orchestrator.
+None. PR #3 merged after exact-head review. Retained findings return to the
+generation intent checkpoint; no repair lane is implied by this completed
+card.

@@ -75,4 +75,5 @@ exactly `@AGENTS.md`.
 
 ## Next Task
 
-Orchestrator review of the card 101 PR head, then merge if the checks hold.
+None. Card 101 merged in PR #3. Its retained findings return to the generation
+intent checkpoint; no repair lane is implied by this completed audit.
