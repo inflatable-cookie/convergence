@@ -94,10 +94,11 @@ orchestrator. The AGENTS rewrite added orientation, a preservation-intent
 section and annotated references while keeping every boundary and both
 generated blocks byte-identical; `CLAUDE.md` is now exactly `@AGENTS.md`.
 
-Orchestrator review of the first head requested three changes, applied on the
-same branch: hand-written redacting `Debug` for `Wizard` and `WizardEvent`
-with a regression test, a corrected wire-compatibility rule in `AGENTS.md`,
-and closeout wording aligned to what shipped.
+Orchestrator review requested four changes across two rounds, all applied on
+the same branch: hand-written redacting `Debug` for `Wizard` and `WizardEvent`
+with a regression test, a corrected wire-compatibility rule in `AGENTS.md` and
+in `wire.rs`'s own `WIRE_VERSION` comment, and closeout wording aligned to what
+shipped.
 
 Evidence: `docs/logs/2026-08/31-214500-northstar-instruction-rust-audit-closeout.md`
 and the recorder's `report.md`/`result.json` under

@@ -2,8 +2,15 @@ use serde::{Deserialize, Serialize};
 
 use crate::ids::ObjectId;
 
-/// Protocol major version. Servers refuse unknown majors; no pre-1.0
-/// compatibility shims (architecture doc 16).
+/// Protocol major version. A server refuses an unknown major outright
+/// (architecture doc 16).
+///
+/// That is the whole of the version negotiation: there is no shim layer
+/// and no downgrade path. Reads of an older *field* name are a separate,
+/// deliberate thing — the `serde(alias = ...)` entries below carry the
+/// `g02.029` bundle-to-candidate rename and the `g02.028` channel
+/// retirement — so adding or dropping one is a compatibility decision
+/// rather than tidying.
 pub const WIRE_VERSION: u32 = 1;
 
 /// Object-ID sets grouped by kind, used for negotiation in both directions.

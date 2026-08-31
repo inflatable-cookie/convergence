@@ -107,20 +107,26 @@ in the emitted argv — and asserts that everything which is not a credential is
 still readable. Reverting either impl to a derive fails it; that was checked,
 not assumed.
 
-**A false wire-compatibility claim.** `AGENTS.md` said "there are no pre-1.0
-compatibility shims", which the code contradicts: ten `serde(alias = ...)`
-reads exist across `wire.rs`, `snap.rs` and `config.rs`, and `g02.029`
-documents them deliberately. The rule now states what is actually true — an
-unknown major is refused outright, and an older field-name read is explicit and
-is a compatibility decision rather than tidying. The same overstatement is in
-`wire.rs`'s own doc comment on `WIRE_VERSION`; it is reported rather than
-repaired, because the recorder finalized against that file's first-wave
-content.
+**A false wire-compatibility claim, in two places.** `AGENTS.md` said "there
+are no pre-1.0 compatibility shims", which the code contradicts: ten
+`serde(alias = ...)` reads exist across `wire.rs`, `snap.rs` and `config.rs`,
+and `g02.029` documents them deliberately. Both the instruction rule and
+`wire.rs`'s own doc comment on `WIRE_VERSION` — the source the phrasing was
+taken from — now state what is actually true: an unknown major is refused
+outright, that is the whole of version negotiation, and an older field-name
+read is a separate deliberate thing whose addition or removal is a
+compatibility decision rather than tidying.
+
+The first pass left the source comment alone to keep the recorder's snapshot
+matching the tree. That was the wrong trade, and the orchestrator named it:
+snapshot fidelity is not a reason to retain a comment known to be false. The
+scoping note below is what keeps the evidence honest instead.
 
 **Evidence scope.** The finalized recorder report covers the first wave at
-`5ee0f08`. This wave's three files are not in it; they are validated by the
-same merge-ready suite plus the new regression test. A second recorder run
-would need its own audit id, and the orchestrator has not asked for one.
+`5ee0f08`. The four files this wave touches — `wizard.rs`, `wire.rs`,
+`AGENTS.md` and this log — are outside it, and are validated by the same
+merge-ready suite plus the new regression test. A second recorder run would
+need its own audit id; the orchestrator confirmed one is not required.
 
 ## AGENTS And CLAUDE
 
