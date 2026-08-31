@@ -22,5 +22,5 @@ Use this folder for ready execution cards that sit under an active master spec.
 
 ## Next Task
 
-Add the first ready card only after the governing architecture, contracts, and
-roadmap lane already exist.
+Run [`101-northstar-agents-and-rust-audit.md`](./101-northstar-agents-and-rust-audit.md)
+under `g02.030`.

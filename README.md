@@ -55,7 +55,7 @@ cargo nextest run -P ci
 
 ## Next task
 
-No ready batch card. `g02.027` TUI usability is in closing posture (096,
-097, 100 complete; operator cold-drive verdict pending). `g02.022` batch 22.5
-has a built release pipeline but **no release cut** — operator-gated. See
+Run `g02.030` card 101, the isolated Northstar instruction and Rust quality
+audit. Product direction remains paused: `g02.027` awaits the operator's TUI
+cold-drive verdict and `g02.022` batch 22.5 awaits release authority. See
 [docs/roadmaps/g02/README.md](docs/roadmaps/g02/README.md).

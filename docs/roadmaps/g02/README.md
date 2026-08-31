@@ -22,7 +22,11 @@ Programs complete through `g02.029` (candidate rename). Open lanes:
 
 Parked on triggers: `g02.024` workflow profiles, `g02.025` edge/scale.
 
-No ready batch card. Execution waits on operator direction.
+Independent maintenance lane:
+
+- **`g02.030` Northstar instruction and Rust quality audit** — card 101 ready
+
+Product execution still waits on operator direction.
 
 ## Lanes
 
@@ -55,10 +59,12 @@ No ready batch card. Execution waits on operator direction.
 - [`027-tui-usability.md`](./027-tui-usability.md) — closing (096, 097, 100 complete)
 - [`028-semver-releases.md`](./028-semver-releases.md) — complete
 - [`029-candidate-rename.md`](./029-candidate-rename.md) — complete
+- [`030-northstar-instruction-and-rust-quality-audit.md`](./030-northstar-instruction-and-rust-quality-audit.md) — in progress (card 101 ready)
 
 ## Next Task
 
-Operator direction required — no ready batch card:
+Run card 101 in the isolated `g02.030` maintenance lane. Product direction
+remains unresolved:
 
 1. **TUI closeout** — cold-drive verdict on `g02.027`; close the roadmap if
    exit criteria are met

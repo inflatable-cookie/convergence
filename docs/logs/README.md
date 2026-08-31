@@ -11,13 +11,14 @@ Convergence logs capture timestamped execution history, rationale records, and m
 
 ## Current evidence window
 
-- `2026-08/` — northstar refresh and atlas horizon shaping
+- `2026-08/` — northstar refresh, atlas horizon shaping, and the opened
+  instruction/Rust quality audit lane
 - `2026-07/` — rebuild program closeout, audit hardening, secret substrate,
   identity, ship shakedown, gate administration, TUI usability, candidate rename
 - `2026-04/09-230000-convergence-full-strict-pause-install.md` — strict posture install
 
 ## Next Task
 
-Record closeout evidence for `g02.027` and `g02.022` when the operator
-settles TUI verdict and release cut. Keep month shards current; do not let
-front doors drift ahead of logs.
+Record the `g02.030` card 101 audit closeout. Product closeout evidence for
+`g02.027` and `g02.022` still waits on the operator's TUI verdict and release
+authority.

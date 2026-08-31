@@ -48,9 +48,7 @@ uses `cargo nextest run -P ci`.
 
 ## Next Task
 
-`g02` is in closing posture: `g02.027` TUI usability (cards 096, 097, 100
-complete; operator verdict on cold-drive usability pending), `g02.028` semver
-releases and `g02.029` candidate rename complete. `g02.022` batch 22.5 (release)
-has a built pipeline but **no release cut** — operator-gated. No ready batch
-card; execution waits on operator direction (TUI closeout vs first release).
-Canonical queue: `roadmaps/g02/README.md`.
+Run `g02.030` card 101, the isolated Northstar instruction and Rust quality
+audit. Product execution remains paused: `g02.027` awaits the operator's TUI
+cold-drive verdict, while `g02.022` batch 22.5 has a built release pipeline but
+**no release cut**. Canonical queue: `roadmaps/g02/README.md`.

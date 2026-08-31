@@ -2,7 +2,7 @@
 
 - `g02`
   - Status: active (closing)
-  - Range: `001` to `029`
+  - Range: `001` to `030`
   - Notes: |
     Post-research planning gate (001), archive-and-rebuild boundary
     (002), rebuild vertical slice (003), TUI rebuild (004), semantics
@@ -19,7 +19,9 @@
     Gate administration (026), TUI usability (027), semver releases
     (028), candidate rename (029) — 026, 028, 029 complete; 027 closing
     (cards 096, 097, 100 complete; operator cold-drive verdict pending).
-    Next roadmap ID: `g02.030` if more g02 work is needed before rollover.
+    Northstar instruction and Rust quality audit (030) — in progress; card
+    101 ready in one isolated maintenance lane.
+    Next roadmap ID: `g02.031` if more g02 work is needed before rollover.
 
 - `g01`
   - Status: complete
