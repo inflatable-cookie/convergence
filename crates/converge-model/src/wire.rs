@@ -2,8 +2,15 @@ use serde::{Deserialize, Serialize};
 
 use crate::ids::ObjectId;
 
-/// Protocol major version. Servers refuse unknown majors; no pre-1.0
-/// compatibility shims (architecture doc 16).
+/// Protocol major version. A server refuses an unknown major outright
+/// (architecture doc 16).
+///
+/// That is the whole of the version negotiation: there is no shim layer
+/// and no downgrade path. Reads of an older *field* name are a separate,
+/// deliberate thing — the `serde(alias = ...)` entries below carry the
+/// `g02.029` bundle-to-candidate rename and the `g02.028` channel
+/// retirement — so adding or dropping one is a compatibility decision
+/// rather than tidying.
 pub const WIRE_VERSION: u32 = 1;
 
 /// Object-ID sets grouped by kind, used for negotiation in both directions.
@@ -432,11 +439,11 @@ pub struct InboxCandidate {
 /// Pure evaluation lives server-side; GC (g02.008 batch 8.3) consumes it.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RetentionPolicy {
-    /// Keep the newest N releases per channel (None = keep all).
+    /// Keep the newest N releases, `None` to keep all (g02.028:
+    /// channels retired, so this is one count, not per-channel). The
+    /// old field name is accepted on the wire so a stored policy
+    /// predating the rename still parses.
     #[serde(default)]
-    /// Keep the newest N releases (g02.028: channels retired, so this
-    /// is one count, not per-channel). The old field name is accepted on
-    /// the wire so a stored policy predating the rename still parses.
     #[serde(alias = "keep_releases_per_channel")]
     pub keep_releases: Option<u32>,
     /// Keep the newest N candidates per gate (None = keep all).

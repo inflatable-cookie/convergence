@@ -7,14 +7,14 @@ use crate::{OutputMode, ReportedFailure, Session, emit};
 /// Can this deployment still hand over the bytes it claims to hold?
 ///
 /// The control-plane checks cannot answer this: SQLite holds candidate
-/// records, release channels and secret ciphertext, while the trees
-/// those records point at live in the object store. Back up one without
-/// the other and every ordinary check still passes.
+/// records, releases and secret ciphertext, while the trees those
+/// records point at live in the object store. Back up one without the
+/// other and every ordinary check still passes.
 ///
-/// Asked as a negotiate against the current channel head's root
-/// manifest, which is cheap — one round trip, no transfer — and precise:
-/// the server reports the object as missing exactly when it cannot
-/// serve it.
+/// Asked as a negotiate against the subject candidate's root manifest,
+/// which is cheap — one round trip, no transfer — and precise: the
+/// server reports the object as missing exactly when it cannot serve
+/// it.
 ///
 /// **Run this from a client that does not already have the data.** A
 /// `fetch` from a workspace that fetched before is served out of the
@@ -25,7 +25,7 @@ fn serving_check(
     remote: &converge_client::model::RemoteConfig,
     store: &converge_client::store::LocalStore,
 ) -> Check {
-    // A `stable` release is the best thing to ask about, because it is
+    // The latest release is the best thing to ask about, because it is
     // what other people fetch. Failing that, the candidate this workspace
     // last saw: it is local, needs no extra round trip, and is real
     // published history.
@@ -47,7 +47,7 @@ fn serving_check(
             _ => {
                 return Check::ok(
                     "serving",
-                    "not checked: no `stable` release, and this workspace has not \
+                    "not checked: no releases yet, and this workspace has not \
                      seen a candidate yet",
                 );
             }

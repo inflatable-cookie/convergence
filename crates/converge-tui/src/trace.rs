@@ -10,6 +10,7 @@ use std::path::Path;
 
 use serde_json::json;
 
+#[derive(Debug)]
 pub struct Trace {
     sink: Option<File>,
     last_screen_signature: Option<u64>,

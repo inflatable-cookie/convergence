@@ -50,8 +50,6 @@ fn now() -> String {
         .expect("format rfc3339")
 }
 
-impl Engine<'_> {}
-
 mod flow;
 mod gates;
 mod inbox;

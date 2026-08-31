@@ -2163,24 +2163,6 @@ fn latest_snap(ws: &Workspace) -> Result<converge_client::model::SnapRecord> {
     snaps.into_iter().next().context("no snaps to publish")
 }
 
-/// Drop cached logins whose workspace is gone.
-///
-/// Dry by default, like `gc`: this deletes credentials, and a store
-/// nobody can read by eye is a bad place to guess. That default earned
-/// itself immediately — the first version of the staleness test looked
-/// for `.converge/.converge/config.json` and called the one live
-/// credential on the machine dead.
-/// Apply a gate-graph change, reporting by default.
-///
-/// `gc` and `token prune` are dry unless `--execute`, and both caught a
-/// real defect because of it — the first staleness check in `token
-/// prune` classified the one live credential on the machine as dead. A
-/// gate edit is at least as consequential, so it reads the same way.
-///
-/// Every edit is expressed as a whole graph on the wire. The server
-/// validates and diffs one submission, which is what lets a reshape that
-/// changes two gates at once be legal at every moment somebody can
-/// observe it.
 /// Hand over to the terminal UI.
 ///
 /// Looked for beside this binary first, then on `PATH`. Beside first
@@ -2231,6 +2213,17 @@ fn run_tui() -> Result<serde_json::Value> {
     }
 }
 
+/// Apply a gate-graph change, reporting by default.
+///
+/// `gc` and `token prune` are dry unless `--execute`, and both caught a
+/// real defect because of it — the first staleness check in `token
+/// prune` classified the one live credential on the machine as dead. A
+/// gate edit is at least as consequential, so it reads the same way.
+///
+/// Every edit is expressed as a whole graph on the wire. The server
+/// validates and diffs one submission, which is what lets a reshape that
+/// changes two gates at once be legal at every moment somebody can
+/// observe it.
 fn run_gate_change(
     mode: OutputMode,
     client: &converge_client::remote::RemoteClient,
@@ -2369,6 +2362,13 @@ fn run_gate_change(
     })
 }
 
+/// Drop cached logins whose workspace is gone.
+///
+/// Dry by default, like `gc`: this deletes credentials, and a store
+/// nobody can read by eye is a bad place to guess. That default earned
+/// itself immediately — the first version of the staleness test looked
+/// for `.converge/.converge/config.json` and called the one live
+/// credential on the machine dead.
 fn run_token_prune(
     mode: OutputMode,
     execute: bool,
@@ -2648,7 +2648,7 @@ fn report_progress(progress: converge_client::remote::Progress) {
     );
 }
 
-/// Address a candidate by id or by channel head (batch 16.4, audit P3).
+/// Address a candidate by id or by release request (batch 16.4, audit P3).
 ///
 /// `fetch` accepted `--release` while `candidate` and `verify` demanded an
 /// id, so inspecting what you had just fetched meant copying a hash by

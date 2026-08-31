@@ -28,9 +28,6 @@ impl Field {
     /// Build a plain field. Masking is opt-in and rare enough to be a
     /// separate constructor, so nobody adds a credential field without
     /// deciding.
-    /// Build a plain field. Masking is opt-in and rare enough to be a
-    /// separate constructor, so nobody adds a credential field without
-    /// deciding.
     pub fn new(name: &'static str, prompt: &'static str, kind: FieldKind) -> Self {
         Self {
             name,
@@ -89,7 +86,7 @@ pub enum WizardStep {
     Review,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct Wizard {
     pub kind: WizardKind,
     pub title: &'static str,
@@ -107,6 +104,54 @@ pub enum WizardEvent {
     Cancelled,
     /// Review confirmed: run this argv.
     Execute(Vec<String>),
+}
+
+/// Written by hand rather than derived: `values` holds whatever was typed
+/// and `input` holds what is being typed now, and on the Login wizard one
+/// of those is an access token.
+///
+/// Masking goes through [`Field::display`], so a debug format obeys the
+/// same rule the review screen does instead of becoming a second place
+/// that has to remember which field is a credential.
+impl std::fmt::Debug for Wizard {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let values: Vec<String> = self
+            .fields
+            .iter()
+            .zip(&self.values)
+            .map(|(field, value)| format!("{}={}", field.name, field.display(value)))
+            .collect();
+        let input = self
+            .current_field()
+            .map_or_else(String::new, |field| field.display(&self.input));
+        f.debug_struct("Wizard")
+            .field("kind", &self.kind)
+            .field("title", &self.title)
+            .field("step", &self.step)
+            .field("values", &values)
+            .field("input", &input)
+            .field("error", &self.error)
+            .finish_non_exhaustive()
+    }
+}
+
+/// Written by hand rather than derived: `Execute` carries the argv the
+/// wizard built, and for Login that argv contains `--token <value>`.
+///
+/// Redaction goes through [`crate::app::redact_argv`], the same helper the
+/// Last strip and the agent trace use, so a credential cannot reach a debug
+/// format by a route the other two already close.
+impl std::fmt::Debug for WizardEvent {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            WizardEvent::Continue => f.write_str("Continue"),
+            WizardEvent::Cancelled => f.write_str("Cancelled"),
+            WizardEvent::Execute(argv) => f
+                .debug_tuple("Execute")
+                .field(&crate::app::redact_argv(argv))
+                .finish(),
+        }
+    }
 }
 
 impl Wizard {
@@ -671,5 +716,56 @@ mod tests {
         );
         let url = wizard.fields.iter().find(|f| f.name == "url").unwrap();
         assert_eq!(url.display("http://x"), "http://x");
+    }
+
+    /// Masking the review screen is not enough on its own: a `{:?}` of the
+    /// wizard or of the event it emits reaches a panic message, a log line
+    /// and anything else that formats state. Both are written by hand for
+    /// this reason, and this pins it.
+    #[test]
+    fn debug_output_never_carries_the_access_token() {
+        const TOKEN: &str = "s3cr3t-token-value";
+        let mut wizard = Wizard::login();
+
+        // Mid-typing: the live buffer is the token itself.
+        wizard.input = TOKEN.to_string();
+        wizard.step = WizardStep::Field(1);
+        let typing = format!("{wizard:?}");
+        assert!(
+            !typing.contains(TOKEN),
+            "token visible while typing: {typing}"
+        );
+
+        let mut wizard = Wizard::login();
+        type_and_submit(&mut wizard, "");
+        type_and_submit(&mut wizard, TOKEN);
+        type_and_submit(&mut wizard, "");
+        type_and_submit(&mut wizard, "");
+        let event = type_and_submit(&mut wizard, "");
+        assert_eq!(wizard.step, WizardStep::Review);
+
+        // Collected: the token is in `values`.
+        let reviewing = format!("{wizard:?}");
+        assert!(
+            !reviewing.contains(TOKEN),
+            "token visible at review: {reviewing}"
+        );
+        assert!(
+            reviewing.contains("url=http://127.0.0.1:8080"),
+            "everything that is not a credential should still be readable: {reviewing}"
+        );
+        assert!(matches!(event, WizardEvent::Continue));
+
+        // Emitted: the token is in the argv the event carries.
+        let executed = format!("{:?}", wizard.submit());
+        assert!(
+            !executed.contains(TOKEN),
+            "token visible in the emitted event: {executed}"
+        );
+        assert!(executed.contains("<redacted>"), "{executed}");
+        assert!(
+            executed.contains("http://127.0.0.1:8080"),
+            "only the credential goes: {executed}"
+        );
     }
 }

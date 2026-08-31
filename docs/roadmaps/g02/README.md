@@ -24,7 +24,9 @@ Parked on triggers: `g02.024` workflow profiles, `g02.025` edge/scale.
 
 Independent maintenance lane:
 
-- **`g02.030` Northstar instruction and Rust quality audit** — card 101 ready
+- **`g02.030` Northstar instruction and Rust quality audit** — complete;
+  card 101 delivered the repository-scope Rust audit and the AGENTS rewrite,
+  and its retained findings return to the orchestrator
 
 Product execution still waits on operator direction.
 
@@ -59,12 +61,13 @@ Product execution still waits on operator direction.
 - [`027-tui-usability.md`](./027-tui-usability.md) — closing (096, 097, 100 complete)
 - [`028-semver-releases.md`](./028-semver-releases.md) — complete
 - [`029-candidate-rename.md`](./029-candidate-rename.md) — complete
-- [`030-northstar-instruction-and-rust-quality-audit.md`](./030-northstar-instruction-and-rust-quality-audit.md) — in progress (card 101 ready)
+- [`030-northstar-instruction-and-rust-quality-audit.md`](./030-northstar-instruction-and-rust-quality-audit.md) — complete (card 101 delivered)
 
 ## Next Task
 
-Run card 101 in the isolated `g02.030` maintenance lane. Product direction
-remains unresolved:
+Review and merge the `g02.030` card 101 PR, then decide the findings it
+returned (candidate-id hashing, `cmd_run`'s process exit, the wire field
+rename). Product direction remains unresolved:
 
 1. **TUI closeout** — cold-drive verdict on `g02.027`; close the roadmap if
    exit criteria are met

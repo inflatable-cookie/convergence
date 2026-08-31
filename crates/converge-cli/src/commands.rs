@@ -107,7 +107,7 @@ pub(crate) enum Command {
     Candidate {
         /// Candidate id, or omit with --release latest|version|range.
         candidate_id: Option<String>,
-        /// Use the latest release on this channel.
+        /// Resolve a release: `latest`, an exact version, or a range.
         #[arg(long)]
         release: Option<String>,
     },
@@ -193,7 +193,7 @@ pub(crate) enum Command {
     Verify {
         /// Candidate id, or omit with --release latest|version|range.
         candidate_id: Option<String>,
-        /// Use the latest release on this channel.
+        /// Resolve a release: `latest`, an exact version, or a range.
         #[arg(long)]
         release: Option<String>,
     },
@@ -410,7 +410,7 @@ pub(crate) enum GateCommand {
         approvals: u32,
         #[arg(long, default_value = "whole-file")]
         strategy: String,
-        /// Candidates from this gate may be released to a channel.
+        /// Candidates from this gate may be released as a version.
         #[arg(long)]
         releasable: bool,
         #[arg(long)]

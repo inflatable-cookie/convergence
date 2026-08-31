@@ -353,12 +353,6 @@ pub fn output_is_secret(argv: &[String]) -> bool {
     )
 }
 
-/// Verbs that confirm once before running (UX spec §4.5, audit P2.10).
-///
-/// The test is not "destructive" but "hard to walk back for someone
-/// else": an approval or a promotion is visible to the whole team the
-/// moment it lands, and `gc` deletes objects for good. Local, reversible
-/// verbs (`snap`, `fetch`, `show`) stay one keystroke.
 /// One string field out of the selected row of a view.
 ///
 /// Free function rather than a method: `handle_rows_key` holds a
@@ -373,6 +367,12 @@ fn row_field(
     Some(rows.get(&view)?.get(selected)?[field].as_str()?.to_string())
 }
 
+/// Verbs that confirm once before running (UX spec §4.5, audit P2.10).
+///
+/// The test is not "destructive" but "hard to walk back for someone
+/// else": an approval or a promotion is visible to the whole team the
+/// moment it lands, and `gc` deletes objects for good. Local, reversible
+/// verbs (`snap`, `fetch`, `show`) stay one keystroke.
 pub fn confirmation_prompt(argv: &[String]) -> Option<String> {
     let verb = argv.first().map(String::as_str)?;
     let target = argv.get(1).map(|s| s.chars().take(12).collect::<String>());
@@ -667,6 +667,27 @@ pub struct App {
     pub cursor: usize,
 }
 
+/// Written by hand rather than derived: `input`, `command_history` and
+/// `last` can hold a credential somebody typed, which is the whole
+/// reason [`redact_argv`] exists. A derived `Debug` would put one back
+/// into any log or panic message that formatted the shell.
+impl std::fmt::Debug for App {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("App")
+            .field("view", &self.current_view())
+            .field("command_mode", &self.command_mode)
+            .field("passphrase_available", &self.passphrase_available)
+            .field("workspace_missing", &self.workspace_missing)
+            .field("reachable", &self.reachable)
+            .field("pending_changes", &self.pending_changes)
+            .field("snaps", &self.snaps.len())
+            .field("inbox_entries", &self.inbox_entries.len())
+            .field("wizard_open", &self.wizard.is_some())
+            .field("decision_open", &self.decision.is_some())
+            .finish_non_exhaustive()
+    }
+}
+
 impl Default for App {
     fn default() -> Self {
         Self {
@@ -836,9 +857,9 @@ impl App {
         self.row_values(View::Gates, "gate_id")
     }
 
-    /// Release channels, if the Releases view has been loaded.
     /// Existing release versions, newest first — shown for orientation
-    /// when cutting the next one (g02.028).
+    /// when cutting the next one (g02.028). Empty until the Releases
+    /// view has been loaded.
     pub fn release_versions(&self) -> Vec<String> {
         let mut names = self.row_values(View::Releases, "version");
         names.reverse();
@@ -1049,7 +1070,6 @@ fn summarize(value: &serde_json::Value) -> String {
     }
 }
 
-/// Ids are long and only their head is recognisable.
 /// Fields that are shown once and never again, so truncating them
 /// destroys the thing (batch 23.3).
 ///
@@ -1067,6 +1087,7 @@ fn shorten_field(key: &str, text: &str) -> String {
     shorten(text)
 }
 
+/// Ids are long and only their head is recognisable.
 fn shorten(text: &str) -> String {
     if text.len() > 40 && !text.contains(' ') {
         text.chars().take(12).collect()

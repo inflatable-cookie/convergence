@@ -89,13 +89,6 @@ pub(crate) struct VariantPreview {
 const PREVIEW_BYTES: usize = 2048;
 const PREVIEW_LINES: usize = 12;
 
-/// Render a variant for a chooser, or say why it cannot be rendered.
-///
-/// Refusing to guess is the point: a resolution view that showed
-/// mojibake for a binary would be worse than one that says "binary". A
-/// preview exists so somebody can tell two versions apart, and an
-/// honest "these are both binaries, 4.1 MB and 4.3 MB" does that better
-/// than two screens of replacement characters.
 /// Drop the leading lines every variant shares, and report how many.
 ///
 /// Only applies when more than one variant has text: with a single
@@ -138,6 +131,13 @@ pub(crate) fn trim_common_prefix(previews: &mut [VariantPreview]) -> usize {
     common
 }
 
+/// Render a variant for a chooser, or say why it cannot be rendered.
+///
+/// Refusing to guess is the point: a resolution view that showed
+/// mojibake for a binary would be worse than one that says "binary". A
+/// preview exists so somebody can tell two versions apart, and an
+/// honest "these are both binaries, 4.1 MB and 4.3 MB" does that better
+/// than two screens of replacement characters.
 pub(crate) fn variant_preview(
     store: &converge_client::store::LocalStore,
     key: &converge_client::model::VariantKey,

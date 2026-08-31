@@ -1,6 +1,6 @@
 # 030 Northstar Instruction And Rust Quality Audit
 
-Status: in progress
+Status: complete
 Owner: repo maintainers
 Updated: 2026-08-31
 
@@ -21,7 +21,7 @@ and leave one reviewable evidence-backed PR.
 
 ## Runway
 
-- [`batch-cards/101-northstar-agents-and-rust-audit.md`](./batch-cards/101-northstar-agents-and-rust-audit.md) — ready
+- [`batch-cards/101-northstar-agents-and-rust-audit.md`](./batch-cards/101-northstar-agents-and-rust-audit.md) — complete
 
 ## Boundaries
 
@@ -57,6 +57,22 @@ and leave one reviewable evidence-backed PR.
 | Instruction intent survives compression | A release/workflow boundary, strict continuation rule, Effigy contract, or Rust activation disappears | Section map and final diff show the boundary retained clearly |
 | Claude bridge stays a bridge | Generic repo guidance remains duplicated in `CLAUDE.md` | `CLAUDE.md` is exactly `@AGENTS.md` unless the PR proves a Claude-only need |
 
+## Outcome
+
+Card 101 ran in one isolated worker lane and produced one PR.
+
+Every invariant in the review oracle above holds. Audit scope is complete: six
+units cover all six Cargo manifests, every target, and all 165 Rust files, with
+`unsafe` proven absent repository-wide. Repairs stayed inside authority: no
+report-only finding, MSRV, public break or foreign error policy was changed,
+and every operator-decision item is recorded rather than mutated. Existing
+behaviour survives — 363 tests pass, clippy is clean at `-D warnings` with
+`--all-features`, and the repairs are comment, naming, dead-code and `Debug`
+changes plus two broken message strings. Instruction intent survives: the
+release/workflow boundary, strict continuation rule, Effigy contract and Rust
+activation are all still present, the last two byte-identical. `CLAUDE.md` is
+exactly `@AGENTS.md`.
+
 ## Next Task
 
-Run card 101 through one isolated worker lane, then review its exact PR head.
+Orchestrator review of the card 101 PR head, then merge if the checks hold.

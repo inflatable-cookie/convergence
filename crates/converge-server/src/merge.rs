@@ -307,7 +307,6 @@ fn diff_trees(
     Ok(())
 }
 
-/// The value at `path`, walking only the manifests along it.
 /// `lookup_path` with a fold-lifetime memo keyed by (root, path).
 fn lookup_path_memo(
     objects: &dyn ObjectStore,
@@ -324,6 +323,7 @@ fn lookup_path_memo(
     Ok(value)
 }
 
+/// The value at `path`, walking only the manifests along it.
 fn lookup_path(
     objects: &dyn ObjectStore,
     root: &ObjectId,

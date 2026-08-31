@@ -271,7 +271,6 @@ pub(crate) fn emit<T: Serialize>(
     Ok(value)
 }
 
-/// Binary entrypoint (kept in the library so the code path is shared).
 /// The command ran, printed its answer, and the answer is "no".
 ///
 /// Without this, a `--json` command that reports failure in-band prints
@@ -291,6 +290,7 @@ impl std::fmt::Display for ReportedFailure {
 
 impl std::error::Error for ReportedFailure {}
 
+/// Binary entrypoint (kept in the library so the code path is shared).
 pub fn main_impl() -> std::process::ExitCode {
     let cli = Cli::parse();
     let mode = if cli.json {

@@ -75,7 +75,6 @@ impl RemoteClient {
         Ok(root)
     }
 
-    /// Poll the event feed after `since` (doc 14 §5b: hints, not truth).
     /// One page of the event feed. `EventPage::gap` is true when pruning
     /// removed events this cursor never saw — reconcile via inbox/status
     /// rather than assuming the page is complete.
