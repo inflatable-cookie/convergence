@@ -94,9 +94,16 @@ orchestrator. The AGENTS rewrite added orientation, a preservation-intent
 section and annotated references while keeping every boundary and both
 generated blocks byte-identical; `CLAUDE.md` is now exactly `@AGENTS.md`.
 
+Orchestrator review of the first head requested three changes, applied on the
+same branch: hand-written redacting `Debug` for `Wizard` and `WizardEvent`
+with a regression test, a corrected wire-compatibility rule in `AGENTS.md`,
+and closeout wording aligned to what shipped.
+
 Evidence: `docs/logs/2026-08/31-214500-northstar-instruction-rust-audit-closeout.md`
 and the recorder's `report.md`/`result.json` under
-`.git/.../northstar/rust-quality/audits/convergence-20260831-rust-audit/`.
+`.git/.../northstar/rust-quality/audits/convergence-20260831-rust-audit/`. That
+report covers the first wave; the review-fix wave is validated by the same
+merge-ready suite plus the new test.
 
 Retained limitations: the pre-existing `effigy doctor` god-file and
 attention-marker findings are unchanged, and the Effigy-generated reference

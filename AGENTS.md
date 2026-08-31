@@ -27,10 +27,12 @@ rationale. Where code and docs disagree, docs win until a decision moves them.
 
 Each is a versioned or hashed contract that already has a guard, because
 breaking one silently is worse than failing loudly. Changing one is an
-operator decision, not an implementation detail:
+operator decision:
 
-- **Wire format** — `converge_model::WIRE_VERSION`. Servers refuse unknown
-  majors; there are no pre-1.0 compatibility shims.
+- **Wire format** — `converge_model::WIRE_VERSION`. A server refuses an
+  unknown major outright. Reads of an older field name are the exception and
+  are always explicit: `serde(alias = "bundle_id")` and its siblings carry
+  `g02.029`. Adding or dropping one is a compatibility decision, not tidying.
 - **On-disk format** — `converge_model::format`. A store carries a stamp and
   both directions of mismatch are refused. Adding a file nobody older reads is
   not a bump; changing what an existing file means is.
@@ -46,12 +48,10 @@ operator decision, not an implementation detail:
 - Do not recreate the retired `docs/roadmap/` or `docs/decisions/` folders.
   `docs/roadmaps/` and `docs/logs/YYYY-MM/` replaced them; a second copy
   splits the queue, and the stale half still looks authoritative.
-- Keep roadmap checklists in sync with the implementation that closed them. A
-  finished card still advertised as ready is how the next agent picks up work
-  that is already done.
-- Secret values never enter the TUI: its input buffer is echoed, submitted
-  lines replay, and the trace outlives the session. Verbs that need a value
-  are handed over to a terminal instead.
+- Keep roadmap checklists in sync with the work that closed them: a card still
+  advertised as ready is how the next agent picks up finished work.
+- Secret values never enter the TUI: the input buffer echoes, submitted lines
+  replay, and the trace outlives the session. Such verbs hand over to a shell.
 
 ## Effigy-First Execution
 

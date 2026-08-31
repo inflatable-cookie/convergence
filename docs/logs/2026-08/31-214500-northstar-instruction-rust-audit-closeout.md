@@ -39,11 +39,10 @@ Nineteen files, all behaviour-preserving:
 - **A shadowed closure parameter** in `engine/inbox.rs`, where the closure over
   `graph.gates` bound its parameter as `candidate`, shadowing a real
   `StoredCandidate` in the same scope — at the spot whose approval logic was
-  got wrong in both 26.4 and 26.5.
+  wrong in both 26.4 and 26.5.
 - **Three missing `Debug` impls** in `converge-tui` (`App`, `Trace`,
-  `WizardEvent`). `App` got a hand-written redacting impl in the shape the
-  workspace already uses, because its input buffer and command history can
-  hold a credential.
+  `WizardEvent`). See the review-fix wave below: `Trace` derives, while `App`,
+  `Wizard` and `WizardEvent` are hand-written and redact.
 
 ### Reported, not repaired
 
@@ -83,6 +82,46 @@ all six await points: the one guard held across an await is a
 `tokio::sync::Mutex`. MSRV is 1.97, declared once and inherited by all five
 crates. Clippy is clean at `-D warnings` with `--all-features`.
 
+## Review-Fix Wave
+
+Orchestrator review of `5ee0f08` requested three changes; all are applied on
+the same branch.
+
+**Secret-bearing `Debug` surfaces.** The first wave gave `App` a redacting
+`Debug` but derived one for `WizardEvent`, whose `Execute(Vec<String>)` carries
+the argv the Login wizard built — including `--token <value>`. `Wizard` already
+derived `Debug` while holding the same token in `values` and `input`. That was
+an execution miss: `RUST-API-001`'s own carve-out is "unless doing so would
+expose protected data", and it was applied to one of the three types that hold
+a credential.
+
+Both are now hand-written. `Wizard` formats its values through
+`Field::display`, so a debug format obeys the same masking rule the review
+screen does rather than becoming a second place that has to remember which
+field is a credential. `WizardEvent::Execute` formats through
+`app::redact_argv`, the helper the Last strip and the agent trace already use.
+
+`wizard::tests::debug_output_never_carries_the_access_token` pins it at all
+three moments a token exists — being typed, collected in `values`, and carried
+in the emitted argv — and asserts that everything which is not a credential is
+still readable. Reverting either impl to a derive fails it; that was checked,
+not assumed.
+
+**A false wire-compatibility claim.** `AGENTS.md` said "there are no pre-1.0
+compatibility shims", which the code contradicts: ten `serde(alias = ...)`
+reads exist across `wire.rs`, `snap.rs` and `config.rs`, and `g02.029`
+documents them deliberately. The rule now states what is actually true — an
+unknown major is refused outright, and an older field-name read is explicit and
+is a compatibility decision rather than tidying. The same overstatement is in
+`wire.rs`'s own doc comment on `WIRE_VERSION`; it is reported rather than
+repaired, because the recorder finalized against that file's first-wave
+content.
+
+**Evidence scope.** The finalized recorder report covers the first wave at
+`5ee0f08`. This wave's three files are not in it; they are validated by the
+same merge-ready suite plus the new regression test. A second recorder run
+would need its own audit id, and the orchestrator has not asked for one.
+
 ## AGENTS And CLAUDE
 
 `AGENTS.md` had no orientation. It opened with a rule about its own leanness
@@ -106,7 +145,9 @@ previously had to reconstruct from `docs/`.
 ## Validation
 
 - Northstar recorder finalized: 6 units, 26 evidence records, all exit 0.
-- `cargo nextest run -P ci`: 363 passed, 4 skipped.
+  That report covers the first wave only; see Review-Fix Wave above.
+- `cargo nextest run -P ci -p converge-tui`: 77 passed (76 before this wave).
+- `cargo nextest run -P ci`: 364 passed, 4 skipped.
 - `cargo clippy --all-targets --all-features -- -D warnings`: clean.
 - `cargo fmt --check`: clean.
 - `effigy qa`, `git diff --check`, and the target-local agent-instruction audit.
