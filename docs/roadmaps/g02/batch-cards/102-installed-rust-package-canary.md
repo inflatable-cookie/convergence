@@ -1,6 +1,6 @@
 # 102 Installed Rust Package Canary
 
-Status: ready
+Status: complete
 Updated: 2026-09-03
 Roadmap: `g02.031`
 
@@ -19,20 +19,23 @@ repairing Convergence product code.
    and manifest
    `sha256:dd71d04efd67cc7805f417a79666dd920ea1811ee252d941108dfbeca8aab612`.
    Keep package-source and Northstar siblings read-only.
-2. Snapshot tracked Convergence bytes plus the profile, deviations, activation
-   block, and existing v2 evidence. Exercise setup and both declared workflows
-   from the lifecycle `installed_path`, with the package as task/instruction
-   source and Convergence as consumer target.
+2. Snapshot tracked Convergence bytes plus the profile, deviations, and
+   activation block. Exercise setup and both declared workflows from the
+   lifecycle `installed_path`, with the package as task/instruction source and
+   Convergence as consumer target.
 3. Prove everyday authoring remains changed-tranche-only using a controlled
    disposable Convergence materialization. It must not initialize or claim a
    repository-wide explicit audit.
 4. Run one fresh repository-scope explicit audit from the installed package in
    a disposable Convergence materialization. Finalize honest findings and
    limitations, but make no repair wave and no product-code edit.
-5. Re-read pre-extraction v2 evidence with the installed engine. Assert the
-   profile, deviations, activation, evidence meaning, and tracked consumer
-   bytes remain compatible and that retained package state contains no
-   TypeScript/Svelte payload.
+5. Create a representative pre-extraction v2 ledger with the pinned
+   pre-extraction engine against the unchanged Convergence tree. Have the
+   installed engine read and finalize that ledger while asserting the profile,
+   deviations, activation, evidence meaning, and tracked consumer bytes remain
+   compatible. Record the original audit ledger as unavailable if it cannot be
+   recovered, and assert retained package state contains no TypeScript/Svelte
+   payload.
 6. Force the official-acquisition failure path and capture the exact bounded
    frozen-Rust fallback notice. Keep host `stopped` distinct from fallback.
 7. Add one dated evidence log, close this card and `g02.031`, update affected
@@ -62,8 +65,10 @@ repairing Convergence product code.
 - Existing profile and deviation hashes remain
   `5049d861115f819db5368dcd9ab2dc45381d1be6c5ae3c9947aa1e595fc281a4` and
   `d6d876aeb6e70da9fec368201350b6d16f345a7363309dde4169284c51c2fcd0`.
-- Existing pre-extraction evidence remains readable; consumer tracked bytes are
-  unchanged outside this lane's documentation; installed inventory is Rust-only.
+- A representative pre-extraction Convergence ledger remains readable and
+  byte-compatible; the original `convergence-20260831-rust-audit` ledger is
+  explicitly recorded as unavailable; consumer tracked bytes are unchanged
+  outside this lane's documentation; installed inventory is Rust-only.
 - Forced fallback names `@northstar/rust-quality@0.1.0`, the stop reason, and
   the frozen embedded Rust payload.
 - `effigy validate`, `effigy qa:docs`, `effigy qa:northstar`, and
@@ -83,7 +88,24 @@ repairing Convergence product code.
 Use the seven rows in `g02.031`. The PR must map each row to executable or
 hash-based evidence and disclose every unavailable selector or baseline failure.
 
+## Outcome
+
+The canary ran from the committed worker handoff. The exact registry, package
+tree, manifest, receipt, and installed-tree identities matched; both declared
+workflows routed through that installed package; setup preserved the existing
+policy and activation; and everyday authoring stayed changed-tranche-only.
+The installed Cargo-native engine finalized a repository-scope audit with all
+six units complete, no findings or repair plans, and retained limitations.
+A representative pre-extraction Convergence ledger remained readable through
+the installed engine with the profile and deviations byte-preserved; the
+original `convergence-20260831-rust-audit` ledger was unavailable in the common
+Git directory. The retained package inventory was 59 Rust-only files, and the
+forced host stop stayed distinct from the exact bounded frozen-Rust fallback
+notice. No Convergence product or sibling source changed. Validation results
+and the collector-local CLI integration-test failure are recorded in the dated
+canary log.
+
 ## Next Task
 
-Run the canary from the committed orchestrator handoff. Do not merge from the
-worker lane.
+Review the review-only PR at the tested head. Do not merge from the worker
+lane.

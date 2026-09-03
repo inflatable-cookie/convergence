@@ -48,8 +48,8 @@ uses `cargo nextest run -P ci`.
 
 ## Next Task
 
-Run the evidence-only `g02.031/102` installed Rust package canary. Its result
-does not authorize product repair. Product execution remains paused:
+Review the evidence-only `g02.031/102` installed Rust package canary. Its
+result does not authorize product repair. Product execution remains paused:
 `g02.027` awaits the operator's TUI cold-drive verdict, while `g02.022` batch
 22.5 has a built release pipeline but **no release cut**. Canonical queue:
 `roadmaps/g02/README.md`.

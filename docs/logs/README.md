@@ -11,7 +11,7 @@ Convergence logs capture timestamped execution history, rationale records, and m
 
 ## Current evidence window
 
-- `2026-09/` — installed Rust package canary planning and execution evidence
+- `2026-09/` — installed Rust package canary planning, execution, and closeout
 - `2026-08/` — northstar refresh, atlas horizon shaping, and the instruction /
   Rust quality audit lane through closeout
 - `2026-07/` — rebuild program closeout, audit hardening, secret substrate,
@@ -20,7 +20,7 @@ Convergence logs capture timestamped execution history, rationale records, and m
 
 ## Next Task
 
-Run card 102 from
-`2026-09/03-082521-open-installed-rust-package-canary.md`. Product closeout
+Review the completed card 102 canary evidence from
+`2026-09/03-085115-installed-rust-package-canary.md`. Product closeout
 evidence for `g02.027` and `g02.022` still waits on the operator's TUI verdict
 and release authority.

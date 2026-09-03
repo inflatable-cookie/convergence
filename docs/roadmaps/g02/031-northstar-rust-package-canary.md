@@ -1,8 +1,9 @@
 # 031 Northstar Rust Package Canary
 
-Status: ready
+Status: complete
 Owner: repo maintainers
 Created: 2026-09-03
+Updated: 2026-09-03
 
 ## Objective
 
@@ -41,14 +42,28 @@ policy, evidence meaning, product code, or existing validation boundary.
   contract at the pinned identity, with no TypeScript payload retained.
 - Everyday authoring stays changed-tranche-only; explicit audit stays an
   explicit repository-scope workflow.
-- Existing profile, deviations, activation, and v2 evidence remain readable and
-  byte-compatible.
+- Existing profile, deviations, and activation remain readable and
+  byte-compatible; a representative pre-extraction Convergence v2 ledger is
+  read and finalized by the installed engine, while the original
+  `convergence-20260831-rust-audit` ledger is explicitly recorded as
+  unavailable.
 - Forced acquisition failure emits the bounded frozen-Rust notice without
   turning a host `stopped` result into package success.
 - Tracked consumer bytes stay unchanged until this lane writes its own planning
   and evidence closeout.
 - Repository validation passes, or a pre-existing failure is reproduced and
   recorded without widening the lane.
+
+## Outcome
+
+Card 102 completed the installed consumer canary in one disposable Convergence
+materialization. The pinned package identity, both workflow routes, setup,
+changed-tranche authoring, repository-scope explicit audit, representative
+pre-extraction evidence compatibility, Rust-only inventory, and visible
+fallback all held. The original `convergence-20260831-rust-audit` ledger was
+unavailable in the current common Git directory and is not claimed as reread.
+The audit finalized with six units, no findings or repairs, and explicit
+limitations; no Convergence product or sibling source changed.
 
 ## Review Oracle
 
@@ -64,4 +79,5 @@ policy, evidence meaning, product code, or existing validation boundary.
 
 ## Next Task
 
-Run card 102 in one isolated Paseo worktree and open a review-only PR.
+Review the card 102 review-only PR. No product repair or Northstar card 120 is
+implied by this completed maintenance lane.

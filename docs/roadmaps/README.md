@@ -16,7 +16,7 @@ Convergence roadmaps hold executable milestone work.
 ## Current generation
 
 - Active generation: `g02`
-- Next roadmap ID: `g02.031`
+- Next roadmap ID: `g02.032`
 
 ## Index
 
@@ -41,7 +41,8 @@ Parked on triggers: `g02.024` workflow profiles, `g02.025` edge/scale.
 
 Independent maintenance lane:
 
-- `g02.030` Northstar instruction and Rust quality audit — card 101 ready
+- `g02.030` Northstar instruction and Rust quality audit — complete
+- `g02.031` installed Rust package consumer canary — complete
 
 Product execution still waits on operator direction.
 
@@ -57,6 +58,6 @@ Before rollover:
 
 ## Next Task
 
-Run `g02.030` card 101 in its isolated maintenance worker. Product direction
-remains TUI usability closeout (`g02.027`) or the operator-gated first release
-(`g02.022` batch 22.5). See `g02/README.md`.
+Review the completed `g02.031` canary PR. Product direction remains TUI
+usability closeout (`g02.027`) or the operator-gated first release (`g02.022`
+batch 22.5). See `g02/README.md`.

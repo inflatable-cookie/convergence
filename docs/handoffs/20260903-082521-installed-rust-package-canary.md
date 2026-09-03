@@ -5,7 +5,7 @@ handoff_mode: worker-pr-loop
 worker_mode: implementation
 dispatch_authority: orchestrator
 handoff: single-file-path-only
-status: ready-to-launch
+status: review-only-pr
 owner: repo maintainers
 created: 2026-09-03
 updated: 2026-09-03
@@ -23,7 +23,9 @@ owns its real Convergence consumer canary under `g02.031/102`.
 
 Northstar cannot remove its frozen embedded Rust payload until a real consumer
 proves the installed package preserves workflow scope, repository policy, and
-existing evidence.
+pre-extraction evidence compatibility. The original Convergence audit ledger
+is unavailable in the current common Git directory, so the worker must state
+that limit rather than claim to reread it.
 
 ## Current State
 
@@ -56,8 +58,9 @@ existing evidence.
 - **Tool/runtime restrictions:** siblings read-only; no product repair, release, CI, or embedded-payload removal.
 - **Required validation:** card 102 acceptance plus `effigy validate`, `effigy qa:docs`, `effigy qa:northstar`, `git diff --check`.
 - **PR base/head:** `main` <- `worker/installed-rust-package-canary`.
-- **PR URL:** pending.
-- **Review state:** awaiting implementation.
+- **PR URL:** https://github.com/inflatable-cookie/convergence/pull/4
+- **Tested head:** `0e4c679bd415e64417c1f9272fb5320b2d0581da`
+- **Review state:** awaiting orchestrator review.
 - **Merge path:** orchestrator after accepted current-head review and passing checks.
 
 ## Boundaries
@@ -73,14 +76,14 @@ existing evidence.
 - **Planning lineage:** Northstar `g02.048/119`; core PR 27 merge `256d0f7`; accepted package-source merge `56b2e11`.
 - **Why this card is ready:** registry identity, generic lifecycle, installed-route proof, Rust-only inventory, and bounded fallback passed independent review.
 - **Decisions and preferences:** Convergence is the operator-selected consumer; evidence must not become product repair authority.
-- **Open tensions:** repository-native tests may expose existing environmental limits; reproduce and classify them without widening scope.
+- **Open tensions:** repository-native tests may expose existing environmental limits; reproduce and classify them without widening scope. The original `convergence-20260831-rust-audit` ledger is unavailable; use the representative Convergence ledger proof and say so.
 - **Report after:** pushed review-only PR with exact head, seven-row oracle map, hashes, validation, and limits.
 - **Report to:** originating orchestrator through Paseo.
 
 ## Suggested Next Move
 
-Complete worker preflight, read card 102 and its governing refs, then build the
-disposable consumer proof before running the installed explicit audit.
+Canary and evidence closeout are complete. Review the worker PR at its exact
+tested head; do not start Northstar card 120.
 
 ## Completion Protocol
 
