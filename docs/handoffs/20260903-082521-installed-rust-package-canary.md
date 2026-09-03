@@ -23,7 +23,9 @@ owns its real Convergence consumer canary under `g02.031/102`.
 
 Northstar cannot remove its frozen embedded Rust payload until a real consumer
 proves the installed package preserves workflow scope, repository policy, and
-existing evidence.
+pre-extraction evidence compatibility. The original Convergence audit ledger
+is unavailable in the current common Git directory, so the worker must state
+that limit rather than claim to reread it.
 
 ## Current State
 
@@ -74,7 +76,7 @@ existing evidence.
 - **Planning lineage:** Northstar `g02.048/119`; core PR 27 merge `256d0f7`; accepted package-source merge `56b2e11`.
 - **Why this card is ready:** registry identity, generic lifecycle, installed-route proof, Rust-only inventory, and bounded fallback passed independent review.
 - **Decisions and preferences:** Convergence is the operator-selected consumer; evidence must not become product repair authority.
-- **Open tensions:** repository-native tests may expose existing environmental limits; reproduce and classify them without widening scope.
+- **Open tensions:** repository-native tests may expose existing environmental limits; reproduce and classify them without widening scope. The original `convergence-20260831-rust-audit` ledger is unavailable; use the representative Convergence ledger proof and say so.
 - **Report after:** pushed review-only PR with exact head, seven-row oracle map, hashes, validation, and limits.
 - **Report to:** originating orchestrator through Paseo.
 

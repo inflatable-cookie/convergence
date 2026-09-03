@@ -16,7 +16,9 @@ The pinned inputs were Northstar core `04a7ee22b9bc9863b5dc68e7ea50cc1eeec6aa9f`
 at registry version `1.4.0`, package source commit
 `56b2e1107b80f369807cff88e1b0253df035c700`, and package
 `@northstar/rust-quality@0.1.0`. The installed package contained 59 files and
-no TypeScript, TSX, or Svelte payload.
+no TypeScript, TSX, or Svelte payload. The original
+`convergence-20260831-rust-audit` ledger was checked in the disposable
+consumer's current common Git directory and was unavailable.
 
 ## Review oracle
 
@@ -25,7 +27,7 @@ no TypeScript, TSX, or Svelte payload.
 | Installed identity is exact | Local activation receipt `sha256:ec829b1309c70cebae0f31fe4e7b351e0a8b697b3d0f113f843a06e79ab7446e`; tree `sha256:e5cf9c5da4a30c0f5164f2ea0c5e9d87d544c0c32f09f3c139a386c56154dba0`; manifest `sha256:dd71d04efd67cc7805f417a79666dd920ea1811ee252d941108dfbeca8aab612`; installed prover passed | exact |
 | Workflows stay distinct | `resolve` routed both `everyday_authoring` and `explicit_audit_repair` to the same installed path; authoring changed only one controlled source file and created no audit ledger; explicit audit was repository scope | held |
 | Consumer owns policy | Installed `rust-quality:setup` passed; profile `5049d861115f819db5368dcd9ab2dc45381d1be6c5ae3c9947aa1e595fc281a4` and deviations `d6d876aeb6e70da9fec368201350b6d16f345a7363309dde4169284c51c2fcd0` were preserved | held |
-| Evidence survives extraction | Installed prover passed cross-boundary v2 migration and byte preservation; installed engine finalized the new ledger | held |
+| Evidence survives extraction | Pinned pre-extraction engine created a full repository-scope Convergence ledger; installed package engine completed and finalized that same ledger; profile and deviations were byte-equal. Original `convergence-20260831-rust-audit` ledger unavailable. | representative proof held; original unavailable |
 | Package stays independent | Retained installed inventory was 59 Rust-only files; package self-check and decoy-catalogue checks passed | held |
 | Fallback stays visible | Official acquisition returned host `stopped` with the transport-capability notice; the separate fallback emitted the versioned frozen-Rust notice | held |
 | Product remains untouched | Final audit `changed_files: []`; disposable consumer tracked bytes stayed clean except the intentional authoring fixture change; worker diff is documentation-only | held |
@@ -47,6 +49,19 @@ the unchanged materialized main tree. The model warning is the test name
 diagnostic. The configured validation path subsequently passed all 364 tests,
 so this collector-local observation is retained without widening the lane. No
 failure produced a repair plan.
+
+## Oracle-gap repair
+
+Review comment `5522596715` correctly identified that the prior claim cited the
+package compatibility fixture rather than a Convergence ledger. The repair
+created audit `convergence-preextraction-rust-compat` in the unchanged
+disposable Convergence tree with the pre-extraction engine built from Northstar
+core `04a7ee22b9bc9863b5dc68e7ea50cc1eeec6aa9f`. The installed package engine
+then read the pre-engine ledger, completed all six units, and finalized it.
+The final receipt had `changed_files: []`; the profile and deviations matched
+their source bytes exactly. The original `convergence-20260831-rust-audit`
+ledger was not recoverable from the current common Git directory and remains an
+explicit limitation.
 
 ## Fallback and route details
 
