@@ -56,7 +56,8 @@ existing evidence.
 - **Tool/runtime restrictions:** siblings read-only; no product repair, release, CI, or embedded-payload removal.
 - **Required validation:** card 102 acceptance plus `effigy validate`, `effigy qa:docs`, `effigy qa:northstar`, `git diff --check`.
 - **PR base/head:** `main` <- `worker/installed-rust-package-canary`.
-- **PR URL:** pending.
+- **PR URL:** https://github.com/inflatable-cookie/convergence/pull/4
+- **Tested head:** `b71b532c4fa09bda4b37d24463430391ee3e90f1`
 - **Review state:** awaiting orchestrator review.
 - **Merge path:** orchestrator after accepted current-head review and passing checks.
 
