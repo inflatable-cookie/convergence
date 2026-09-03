@@ -19,9 +19,10 @@
     Gate administration (026), TUI usability (027), semver releases
     (028), candidate rename (029) — 026, 028, 029 complete; 027 closing
     (cards 096, 097, 100 complete; operator cold-drive verdict pending).
-    Northstar instruction and Rust quality audit (030) — in progress; card
-    101 ready in one isolated maintenance lane.
-    Next roadmap ID: `g02.031` if more g02 work is needed before rollover.
+    Northstar instruction and Rust quality audit (030) — complete.
+    Installed Rust package consumer canary (031) — ready as an independent
+    evidence-only maintenance lane; card 102.
+    Next roadmap ID: `g02.032` if more g02 work is needed before rollover.
 
 - `g01`
   - Status: complete
