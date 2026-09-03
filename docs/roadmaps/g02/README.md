@@ -27,7 +27,7 @@ Independent maintenance lane:
 - **`g02.030` Northstar instruction and Rust quality audit** — complete;
   card 101 delivered the repository-scope Rust audit and the AGENTS rewrite,
   and its retained findings return to the orchestrator
-- **`g02.031` Northstar Rust package canary** — ready; card 102 proves the
+- **`g02.031` Northstar Rust package canary** — complete; card 102 proved the
   installed official package against Convergence without authorizing product
   repair
 
@@ -65,13 +65,12 @@ Product execution still waits on operator direction.
 - [`028-semver-releases.md`](./028-semver-releases.md) — complete
 - [`029-candidate-rename.md`](./029-candidate-rename.md) — complete
 - [`030-northstar-instruction-and-rust-quality-audit.md`](./030-northstar-instruction-and-rust-quality-audit.md) — complete (card 101 delivered)
-- [`031-northstar-rust-package-canary.md`](./031-northstar-rust-package-canary.md) — ready (card 102)
+- [`031-northstar-rust-package-canary.md`](./031-northstar-rust-package-canary.md) — complete (card 102)
 
 ## Next Task
 
-Run card 102 as the independent installed Rust package canary. It does not
-change the product queue. After its review, the next product intent checkpoint
-remains one of:
+Review the completed card 102 canary. It does not change the product queue.
+After its review, the next product intent checkpoint remains one of:
 
 1. **Audit follow-up** — promote a bounded set of retained findings into a new
    repair card

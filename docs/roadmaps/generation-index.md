@@ -2,7 +2,7 @@
 
 - `g02`
   - Status: active (closing)
-  - Range: `001` to `030`
+  - Range: `001` to `031`
   - Notes: |
     Post-research planning gate (001), archive-and-rebuild boundary
     (002), rebuild vertical slice (003), TUI rebuild (004), semantics
@@ -20,7 +20,7 @@
     (028), candidate rename (029) — 026, 028, 029 complete; 027 closing
     (cards 096, 097, 100 complete; operator cold-drive verdict pending).
     Northstar instruction and Rust quality audit (030) — complete.
-    Installed Rust package consumer canary (031) — ready as an independent
+    Installed Rust package consumer canary (031) — complete as an independent
     evidence-only maintenance lane; card 102.
     Next roadmap ID: `g02.032` if more g02 work is needed before rollover.
 

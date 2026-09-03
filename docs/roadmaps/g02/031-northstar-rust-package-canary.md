@@ -1,8 +1,9 @@
 # 031 Northstar Rust Package Canary
 
-Status: ready
+Status: complete
 Owner: repo maintainers
 Created: 2026-09-03
+Updated: 2026-09-03
 
 ## Objective
 
@@ -50,6 +51,15 @@ policy, evidence meaning, product code, or existing validation boundary.
 - Repository validation passes, or a pre-existing failure is reproduced and
   recorded without widening the lane.
 
+## Outcome
+
+Card 102 completed the installed consumer canary in one disposable Convergence
+materialization. The pinned package identity, both workflow routes, setup,
+changed-tranche authoring, repository-scope explicit audit, pre-extraction
+evidence migration, Rust-only inventory, and visible fallback all held. The
+audit finalized with six units, no findings or repairs, and explicit
+limitations; no Convergence product or sibling source changed.
+
 ## Review Oracle
 
 | Invariant | Smallest counterexample | Expected stop or proof |
@@ -64,4 +74,5 @@ policy, evidence meaning, product code, or existing validation boundary.
 
 ## Next Task
 
-Run card 102 in one isolated Paseo worktree and open a review-only PR.
+Review the card 102 review-only PR. No product repair or Northstar card 120 is
+implied by this completed maintenance lane.

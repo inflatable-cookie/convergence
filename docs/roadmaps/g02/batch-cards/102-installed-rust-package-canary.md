@@ -1,6 +1,6 @@
 # 102 Installed Rust Package Canary
 
-Status: ready
+Status: complete
 Updated: 2026-09-03
 Roadmap: `g02.031`
 
@@ -83,7 +83,21 @@ repairing Convergence product code.
 Use the seven rows in `g02.031`. The PR must map each row to executable or
 hash-based evidence and disclose every unavailable selector or baseline failure.
 
+## Outcome
+
+The canary ran from the committed worker handoff. The exact registry, package
+tree, manifest, receipt, and installed-tree identities matched; both declared
+workflows routed through that installed package; setup preserved the existing
+policy and activation; and everyday authoring stayed changed-tranche-only.
+The installed Cargo-native engine finalized a repository-scope audit with all
+six units complete, no findings or repair plans, and retained limitations.
+Pre-extraction evidence remained readable, the retained package inventory was
+59 Rust-only files, and the forced host stop stayed distinct from the exact
+bounded frozen-Rust fallback notice. No Convergence product or sibling source
+changed. Validation results and the collector-local CLI integration-test
+failure are recorded in the dated canary log.
+
 ## Next Task
 
-Run the canary from the committed orchestrator handoff. Do not merge from the
-worker lane.
+Review the review-only PR at the tested head. Do not merge from the worker
+lane.

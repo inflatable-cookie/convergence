@@ -5,7 +5,7 @@ handoff_mode: worker-pr-loop
 worker_mode: implementation
 dispatch_authority: orchestrator
 handoff: single-file-path-only
-status: ready-to-launch
+status: review-only-pr
 owner: repo maintainers
 created: 2026-09-03
 updated: 2026-09-03
@@ -57,7 +57,7 @@ existing evidence.
 - **Required validation:** card 102 acceptance plus `effigy validate`, `effigy qa:docs`, `effigy qa:northstar`, `git diff --check`.
 - **PR base/head:** `main` <- `worker/installed-rust-package-canary`.
 - **PR URL:** pending.
-- **Review state:** awaiting implementation.
+- **Review state:** awaiting orchestrator review.
 - **Merge path:** orchestrator after accepted current-head review and passing checks.
 
 ## Boundaries
@@ -79,8 +79,8 @@ existing evidence.
 
 ## Suggested Next Move
 
-Complete worker preflight, read card 102 and its governing refs, then build the
-disposable consumer proof before running the installed explicit audit.
+Canary and evidence closeout are complete. Review the worker PR at its exact
+tested head; do not start Northstar card 120.
 
 ## Completion Protocol
 
