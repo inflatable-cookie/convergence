@@ -82,7 +82,7 @@ embedded payload `2b75b0866e3bedf99c133e53cb742c284715fb1f10f589358ce2a913315711
 `effigy tasks` and `effigy test --plan` passed. `effigy validate` passed 364
 tests with 4 skipped; `effigy qa:docs`, `effigy qa:northstar`, and
 `git diff --check` passed. Review-only PR: [#4](https://github.com/inflatable-cookie/convergence/pull/4),
-tested head `b71b532c4fa09bda4b37d24463430391ee3e90f1`.
+tested head `0e4c679bd415e64417c1f9272fb5320b2d0581da`.
 
 ## Next Task
 

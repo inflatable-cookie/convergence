@@ -59,7 +59,7 @@ that limit rather than claim to reread it.
 - **Required validation:** card 102 acceptance plus `effigy validate`, `effigy qa:docs`, `effigy qa:northstar`, `git diff --check`.
 - **PR base/head:** `main` <- `worker/installed-rust-package-canary`.
 - **PR URL:** https://github.com/inflatable-cookie/convergence/pull/4
-- **Tested head:** `b71b532c4fa09bda4b37d24463430391ee3e90f1`
+- **Tested head:** `0e4c679bd415e64417c1f9272fb5320b2d0581da`
 - **Review state:** awaiting orchestrator review.
 - **Merge path:** orchestrator after accepted current-head review and passing checks.
 
