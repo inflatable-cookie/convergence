@@ -63,3 +63,11 @@ The flattened-task switchover (PR #5) and roadmap-backlog retirement (PR #6)
 are merged and did not change the product queue. Product direction remains
 TUI usability closeout (`g02.027`) or the operator-gated first release
 (`g02.022` release step). See `g02/README.md`.
+<!-- northstar:lifecycle:begin schema=northstar.lifecycle.projection.v2 digest=sha256:c802836a0adce05a6e9df621cbf58427b8756343af64e7dd7078cce508f77235 -->
+| Generation | Disposition | Runway state |
+| --- | --- | --- |
+| g02 | open | planning_required |
+| Task | Status | Stage | Revision | Record digest |
+| --- | --- | --- | --- | --- |
+| g02.032 | complete | none | 8 | sha256:e31ca216ea4ceafcd6576364f17dfcece94a1e16aa5c3ffa4b486495058965a1 |
+<!-- northstar:lifecycle:end -->
