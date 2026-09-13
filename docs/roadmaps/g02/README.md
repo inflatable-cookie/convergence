@@ -77,6 +77,14 @@ Product execution still waits on operator direction.
 - [`030-northstar-instruction-and-rust-quality-audit.md`](./030-northstar-instruction-and-rust-quality-audit.md) — complete (batch record 101, PR #3)
 - [`031-northstar-rust-package-canary.md`](./031-northstar-rust-package-canary.md) — complete (batch record 102, PR #4)
 
+## Queue lifecycle adoption
+
+- [g02.032 Effigy-hosted lifecycle hook](032-adopt-effigy-hosted-lifecycle-hook.md)
+  is an operator-approved, configuration-only maintenance lane. It follows its
+  declared Queue dependencies and may run without changing product priority.
+  Existing next-task text continues to describe product sequencing; this entry
+  authorizes no sibling product work.
+
 ## Next Task
 
 The flattened-task switchover (PR #5) and roadmap-backlog retirement (PR #6)
