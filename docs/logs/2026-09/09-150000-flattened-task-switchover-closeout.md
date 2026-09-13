@@ -1,7 +1,7 @@
 # Flattened Task Switchover Closeout
 
 Date: 2026-09-09
-Handoff: [`20260909-140500-flattened-task-switchover.md`](../../handoffs/20260909-140500-flattened-task-switchover.md)
+Handoff: `20260909-140500-flattened-task-switchover.md` (consumed at closeout; durable record is [PR #5](https://github.com/inflatable-cookie/convergence/pull/5))
 Status: complete; merged in PR #5
 
 ## Outcome

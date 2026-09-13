@@ -92,7 +92,7 @@ are merged; neither changes the product queue. The next product intent
 checkpoint is the operator's call among:
 
 1. **Audit follow-up** — promote a bounded set of retained findings into a
-   new task (`g02.032` if still in this generation)
+   new task in this generation
 2. **TUI closeout** — cold-drive verdict on `g02.027`; close the task if
    exit criteria are met
 3. **First release** — push tag and cut release via the `g02.022` release

@@ -24,7 +24,7 @@ research scaffolding, g01 roadmap files) are archived on branch `archive/g01`.
 - Canonical task execution now lives under `roadmaps/g02/`, one file per
   Northstar task `g02.NNN`.
 - Historical decision records now live under `logs/YYYY-MM/`.
-- New tasks use task IDs such as `g02.032`.
+- New tasks use task IDs such as `g02.NNN`.
 - New rationale records should go in `logs/YYYY-MM/`.
 
 ## Effigy-First Loop
