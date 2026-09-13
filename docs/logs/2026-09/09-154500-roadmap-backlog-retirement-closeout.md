@@ -1,7 +1,7 @@
 # Roadmap Backlog Retirement Closeout
 
 Date: 2026-09-09
-Handoff: [`20260909-151020-retire-roadmap-backlog.md`](../../handoffs/20260909-151020-retire-roadmap-backlog.md)
+Handoff: `20260909-151020-retire-roadmap-backlog.md` (consumed at closeout; durable record is [PR #6](https://github.com/inflatable-cookie/convergence/pull/6))
 Status: complete; merged in PR #6
 
 ## Outcome
