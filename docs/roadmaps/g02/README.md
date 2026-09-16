@@ -85,6 +85,10 @@ Product execution still waits on operator direction.
   Existing next-task text continues to describe product sequencing; this entry
   authorizes no sibling product work.
 
+- [g02.034 prospective-merge protocol migration](034-prospective-merge-protocol-migration.md)
+  owns the operator-authorized v4 manifest update. It is configuration-only,
+  independent of product priority, and changes no product behavior.
+
 ## Next Task
 
 The flattened-task switchover (PR #5) and roadmap-backlog retirement (PR #6)
