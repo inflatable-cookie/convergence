@@ -54,7 +54,7 @@ Its result does not authorize product repair. Product execution remains
 paused: `g02.027` awaits the operator's TUI cold-drive verdict, while the
 `g02.022` release step has a built pipeline but **no release cut**.
 Canonical queue: `roadmaps/g02/README.md`.
-<!-- northstar:lifecycle:begin schema=northstar.lifecycle.projection.v2 digest=sha256:51d7b7438b4c0864c5e839fc7f0b33841805c42c1083d916915e1654377fe6b2 -->
+<!-- northstar:lifecycle:begin schema=northstar.lifecycle.projection.v2 digest=sha256:2ee3e865b961ce43cfa99e47a86b492f12bace2bbdb7063740b01f3df1b57667 -->
 | Generation | Disposition | Runway state |
 | --- | --- | --- |
 | g02 | open | planning_required |
@@ -62,4 +62,5 @@ Canonical queue: `roadmaps/g02/README.md`.
 | --- | --- | --- | --- | --- |
 | g02.032 | complete | none | 8 | sha256:e31ca216ea4ceafcd6576364f17dfcece94a1e16aa5c3ffa4b486495058965a1 |
 | g02.033 | complete | none | 8 | sha256:ed019980e9f1ffa7aab0bede4c40a768f4c5a02221743f047f1fa4c29b387fed |
+| g02.034 | complete | none | 8 | sha256:70c6e1be72fd6f81879f19ca0add528a7435f3d239ed7f6db24ab15c42dc3da9 |
 <!-- northstar:lifecycle:end -->
