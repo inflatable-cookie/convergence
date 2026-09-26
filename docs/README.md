@@ -1,66 +1,30 @@
-# Convergence Documentation
+# Convergence — current state
 
-Northstar-aligned documentation authority for Convergence.
+The rebuilt stack is on `main`: CLI, TUI, single-process server, Postgres/S3
+backends, gate graph, identity, secrets, git interop, and semver releases.
+The g01-era implementation lives at tag `v0-legacy` and branch `archive/g01`.
+No tagged product release has been cut.
 
-## Core structure
+Work is captured continuously or explicitly, then converged through
+configurable gates. Conflicts stay as data until a gate policy resolves them.
+The vocabulary is load-bearing: `snap`, `publish`, `candidate`, `promote`,
+`release`, `superposition`.
 
-- `vision/`: long-horizon product direction and operating intent
-- `architecture/`: durable system model and invariants (canonical object model)
-- `contracts/`: explicit working and behavior contracts
-- `specs/`: active strict planning and ready-task execution control
-- `research/`: comparative systems research findings (dossiers, memos, tracks)
-- `rebuild/`: g01-era capture artifacts (lessons, TUI UX spec, salvage)
-- `roadmaps/`: executable Northstar tasks (`gNN.NNN`); deferred candidates wait in `triage/`
-- `logs/`: month-sharded execution history and decision/rationale records
-- `guides/`: task-shaped walkthroughs proven by tests
-- `git-podcast/`: origin rationale summary
-- `policy/`: writing style and docs QA policy inputs
+## Knowledge (internal truth)
 
-The g01-era docs (operators, processes, testing, extended architecture set,
-research scaffolding, g01 roadmap files) are archived on branch `archive/g01`.
+- Index: [knowledge/README.md](knowledge/README.md)
+- Vision: [knowledge/vision.md](knowledge/vision.md)
+- Architecture: [knowledge/architecture/](knowledge/architecture/README.md)
+- Contracts: [knowledge/contracts/](knowledge/contracts/README.md)
+- Release: [knowledge/contracts/release.md](knowledge/contracts/release.md)
 
-## Current state
+## Product documentation
 
-- Canonical task execution now lives under `roadmaps/g02/`, one file per
-  Northstar task `g02.NNN`.
-- Historical decision records now live under `logs/YYYY-MM/`.
-- New tasks use task IDs such as `g02.NNN`.
-- New rationale records should go in `logs/YYYY-MM/`.
+- [guides/](guides/) — task-shaped walkthroughs proven by tests
+- [git-podcast/](git-podcast/README.md) — origin rationale
+- [research/](research/README.md) — comparative-systems evidence
+- [rebuild/](rebuild/) — rebuild capture, including the TUI UX spec
 
-## Effigy-First Loop
+## What's next
 
-From the repo root:
-
-```bash
-effigy tasks
-effigy doctor
-effigy health
-effigy validate
-effigy qa:docs
-```
-
-Use `effigy test --plan` before test-focused work; the configured `rust` suite
-uses `cargo nextest run -P ci`.
-
-## Validation
-
-- `effigy qa:docs`
-- `effigy qa:northstar`
-
-## Next Task
-
-The evidence-only `g02.031` installed Rust package canary merged (PR #4).
-Its result does not authorize product repair. Product execution remains
-paused: `g02.027` awaits the operator's TUI cold-drive verdict, while the
-`g02.022` release step has a built pipeline but **no release cut**.
-Canonical queue: `roadmaps/g02/README.md`.
-<!-- northstar:lifecycle:begin schema=northstar.lifecycle.projection.v2 digest=sha256:2ee3e865b961ce43cfa99e47a86b492f12bace2bbdb7063740b01f3df1b57667 -->
-| Generation | Disposition | Runway state |
-| --- | --- | --- |
-| g02 | open | planning_required |
-| Task | Status | Stage | Revision | Record digest |
-| --- | --- | --- | --- | --- |
-| g02.032 | complete | none | 8 | sha256:e31ca216ea4ceafcd6576364f17dfcece94a1e16aa5c3ffa4b486495058965a1 |
-| g02.033 | complete | none | 8 | sha256:ed019980e9f1ffa7aab0bede4c40a768f4c5a02221743f047f1fa4c29b387fed |
-| g02.034 | complete | none | 8 | sha256:70c6e1be72fd6f81879f19ca0add528a7435f3d239ed7f6db24ab15c42dc3da9 |
-<!-- northstar:lifecycle:end -->
+See [plan.md](plan.md). Unresolved leads are in [triage/](triage/).

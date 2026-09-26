@@ -86,16 +86,3 @@ The Phase 1 dossiers establish comparative baseline across architectural approac
 | Perforce | Centralized | Streams, locking, gate workflow |
 | Plastic | Hybrid | Semantic merge, visual branching |
 | Jujutsu | Distributed (Git-backed) | Conflicts-as-data, operation log |
-
-## Next Task
-
-Proceed to Phase 2 (g01.044): Synthesize value tracks for continuous capture, gate workflows, and conflict preservation. Focus on:
-- The immutable object store model
-- The staging area (index) design
-- Branch vs. tag semantics
-- What makes large repositories painful
-- What makes binary files painful
-- What CI/CD workflows have bolted on
-
-Use the completed Git, Mercurial, Perforce, Plastic, and Jujutsu dossiers as
-the comparative baseline for that synthesis work.

@@ -272,9 +272,3 @@ real one:
 ```sh
 CONVERGE_HOME=/tmp/throwaway-identity converge key init
 ```
-
-## Next Task
-
-Batch 22.4 is the shakedown: use this for real work and record what
-breaks. Nothing in this guide publishes anything, and the release batch
-does not start until you say so.

@@ -12,37 +12,36 @@ Key terms:
 - `release`: a candidate designated for consumption, identified by a semver version (`g02.028` retired channels)
 - `superposition`: a conflict preserved as data and resolved per gate policy
 
-## Current State
+## Current state
 
 The g01-era implementation is archived at tag `v0-legacy` and branch
 `archive/g01`. `main` carries the rebuilt stack: CLI, TUI, single-process
 server, Postgres/S3 backends, gate graph, identity, secrets, git interop, and
 semver releases. Terminology is **candidate** (not bundle) after `g02.029`.
+No tagged product release has been cut.
 
-Capture artifacts from the archived generation:
+Documentation is the source of truth:
+
+- Overview: [docs/README.md](docs/README.md)
+- Knowledge: [docs/knowledge/README.md](docs/knowledge/README.md)
+- Plan: [docs/plan.md](docs/plan.md)
+- Vision: [docs/knowledge/vision.md](docs/knowledge/vision.md)
+- Architecture: [docs/knowledge/architecture/README.md](docs/knowledge/architecture/README.md)
+
+Rebuild capture artifacts, including the TUI UX spec:
 
 - [docs/rebuild/001-lessons-retrospective.md](docs/rebuild/001-lessons-retrospective.md)
 - [docs/rebuild/002-tui-ux-spec.md](docs/rebuild/002-tui-ux-spec.md)
 - [docs/rebuild/003-salvage-inventory.md](docs/rebuild/003-salvage-inventory.md)
 
-Active generation: `g02` (29 roadmaps, closing). See
-[docs/roadmaps/g02/README.md](docs/roadmaps/g02/README.md).
-
-Documentation is the source of truth:
-- Overview: [docs/README.md](docs/README.md)
-- Vision: [docs/vision/001-convergence-platform-vision.md](docs/vision/001-convergence-platform-vision.md)
-- Architecture + semantics: [docs/architecture/README.md](docs/architecture/README.md)
-- Roadmaps: [docs/roadmaps/README.md](docs/roadmaps/README.md)
-- Logs: [docs/logs/README.md](docs/logs/README.md)
-
-## Effigy-First Loop
+## Commands
 
 ```bash
 effigy tasks
 effigy doctor
 effigy health
 effigy validate
-effigy qa:docs
+effigy qa
 ```
 
 Rust 2024 edition. Direct commands when needed:
@@ -52,11 +51,3 @@ cargo fmt
 cargo clippy --all-targets -- -D warnings
 cargo nextest run -P ci
 ```
-
-## Next task
-
-The `g02.030` audit merged in PR #3. No repair card is authorized from its
-retained findings. Product direction remains paused: `g02.027` awaits the
-operator's TUI cold-drive verdict and `g02.022` batch 22.5 awaits release
-authority. See
-[docs/roadmaps/g02/README.md](docs/roadmaps/g02/README.md).

@@ -21,17 +21,11 @@ archived on branch `archive/g01`.
   conflict-preservation
 - `translation-memos/` — research → Convergence design decisions:
   001 snap semantics (prototype first), 002 gate policy (prototype first),
-  003 superposition-as-data (promoted into `docs/architecture/04`)
+  003 superposition-as-data (promoted into `docs/knowledge/architecture/04`)
 
 ## Working Rule
 
-Promote stable conclusions into `docs/architecture/` or contracts; keep
+Promote stable conclusions into `docs/knowledge/architecture/` or contracts; keep
 tentative findings here. A finding is promotable when it states the problem,
 the evidence, the accepted tradeoffs, and what must be prototyped or measured
 first.
-
-## Next Task
-
-Use these findings as evidence for the `g02.002` Batch 2.4
-rebuild-architecture card — the Perforce dossier's centralized-fragility
-warnings apply directly to the server design.

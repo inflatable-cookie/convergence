@@ -96,7 +96,7 @@ converge resolve apply <candidate> decisions.json
 converge publish --snap <the resolution snap>
 ```
 
-Details of that loop: `docs/architecture/17-lineage-and-merge-semantics.md`.
+Details of that loop: `docs/knowledge/architecture/17-lineage-and-merge-semantics.md`.
 
 ## 7. Taking someone else's work into your workspace
 
@@ -161,7 +161,3 @@ on `publish` and `release` as an alias. Any verb that names a candidate
 
 Human mode prints transfer progress to stderr, so `--json` output stays
 one envelope on stdout and pipelines are safe.
-
-## Next Task
-
-Roadmap `g02.016` is complete. Next: `g02.017` TUI spec parity.

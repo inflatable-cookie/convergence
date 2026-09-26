@@ -92,17 +92,17 @@ qa = [
 ]
 "qa:docs:links" = "effigy docs check links"
 "qa:docs:agent-defaults" = "effigy docs check forbidden AGENTS.md README.md docs/README.md --forbid '--repo .'"
-"qa:docs:headings" = "effigy docs check headings docs/README.md docs/vision/README.md docs/roadmaps/README.md docs/logs/README.md --require-heading '## Next Task'"
-"qa:docs:index:vision" = "effigy docs check index --policy-index vision"
-"qa:docs:next-action:vision" = "effigy docs check next-action --policy vision"
+"qa:docs:knowledge:local-paths" = "effigy docs check forbidden docs/knowledge/*.md docs/knowledge/*/*.md docs/plan.md --forbid '/Users/' --forbid '/home/'"
+"qa:northstar:agent-contract" = "effigy docs check contains AGENTS.md --require 'effigy tasks' --require 'effigy test --plan' --require 'effigy qa' --require 'docs/README.md' --require 'docs/knowledge/README.md' --require 'docs/plan.md'"
+"qa:northstar:front-door" = "effigy docs check contains docs/README.md --require 'knowledge/README.md' --require 'plan.md'"
 "qa:northstar" = [
-  { task = "qa:docs:headings" },
-  { task = "qa:docs:index:vision" },
-  { task = "qa:docs:next-action:vision" },
+  { task = "qa:northstar:agent-contract" },
+  { task = "qa:northstar:front-door" },
 ]
 "qa:docs" = [
   { task = "qa:docs:links" },
   { task = "qa:docs:agent-defaults" },
+  { task = "qa:docs:knowledge:local-paths" },
   { task = "qa:northstar" },
 ]
 
@@ -129,12 +129,3 @@ password = "converge"
 [containers.backends.services.minio]
 catalog = "minio"
 
-[docs_policy.indexes.vision]
-file = "docs/vision/README.md"
-dir = "docs/vision"
-section = "Vision Artifacts"
-
-[docs_policy.next_actions.vision]
-index = "vision"
-heading = "## Next Task"
-allowlist_file = "docs/policy/vision-next-task-verbs.txt"

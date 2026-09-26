@@ -69,19 +69,14 @@ listed as carry is archived on `archive/g01` and removed from `main`.
 
 ## Carry: docs (keeper set for Batch 2.3)
 
-- `docs/vision/001-convergence-platform-vision.md`
-- `docs/architecture/01-concepts-and-object-model.md`
-- `docs/architecture/04-superpositions-and-resolution.md`
-- `docs/architecture/product-guardrails.md` (condensed)
+- `docs/knowledge/vision.md`
+- `docs/knowledge/architecture/01-concepts-and-object-model.md`
+- `docs/knowledge/architecture/04-superpositions-and-resolution.md`
+- `docs/knowledge/architecture/product-guardrails.md` (condensed)
 - `docs/research/specimen-dossiers/` (5 dossiers)
 - `docs/research/translation-memos/` (3 memos)
 - `docs/research/value-tracks/` (3 tracks)
 - `docs/git-podcast/summary.md` (origin rationale; raw transcript archived)
 - `docs/rebuild/` (these capture artifacts)
-- `docs/contracts/`, `docs/specs/`, `docs/roadmaps/g02/`, `docs/logs/` live
-  planning surfaces continue per working rules; g01 roadmap files archive.
-
-## Next Task
-
-Open the Batch 2.2 archive-cut card once all three capture artifacts are
-linked from the governing spec.
+- Knowledge now lives under `docs/knowledge/`; intent in `docs/plan.md`.
+  g01 roadmap files remain on `archive/g01`.
