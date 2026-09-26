@@ -27,7 +27,7 @@ Where code and knowledge disagree, knowledge wins until a decision moves them.
 - What's next: `docs/plan.md`
 - Unresolved leads: `docs/triage/`
 - Tool and process friction: Queue, via `papercut.add` (see the
-  `northstar-lean` skill)
+  `northstar` skill)
 
 Tasks, briefs and status live in Queue, never in this repository.
 

@@ -15,7 +15,7 @@ allow = ["docs/research/", "docs/rebuild/"]
 [[retired]]
 id = "papercuts-file"
 retired = "2026-09-26"
-replacement = "Papercuts are filed in Queue with `papercut.add` (see the `northstar-lean` skill)."
+replacement = "Papercuts are filed in Queue with `papercut.add` (see the `northstar` skill)."
 owner = "AGENTS.md"
 terms = ["PAPERCUTS.md"]
 allow = ["docs/research/", "docs/rebuild/", "CHANGELOG.md"]

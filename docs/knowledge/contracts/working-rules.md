@@ -17,7 +17,7 @@ Queue, never in this repository.
   planning.
 - Update code, knowledge, tests, and indexes together when they form one
   observable change.
-- File papercuts in Queue with `papercut.add` (see the `northstar-lean`
+- File papercuts in Queue with `papercut.add` (see the `northstar`
   skill); there is no repository papercuts file.
 
 ## Product facts every change must respect
