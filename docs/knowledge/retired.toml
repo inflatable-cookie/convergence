@@ -18,4 +18,4 @@ retired = "2026-09-26"
 replacement = "Papercuts are filed in Queue with `papercut.add` (see the `northstar-lean` skill)."
 owner = "AGENTS.md"
 terms = ["PAPERCUTS.md"]
-allow = ["CHANGELOG.md"]
+allow = ["docs/research/", "docs/rebuild/", "CHANGELOG.md"]
