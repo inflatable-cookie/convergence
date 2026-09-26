@@ -11,3 +11,11 @@ terms = ["roadmap card", "generation index", "lifecycle record", "Next Task", "n
 paths = [".northstar/lifecycle/", "docs/roadmaps/", "docs/handoffs/", "docs/logs/", "docs/specs/", "docs/vision/", "docs/policy/"]
 config_keys = ["northstar/queue:hook", "paseo.queue.control.v4"]
 allow = ["docs/research/", "docs/rebuild/"]
+
+[[retired]]
+id = "papercuts-file"
+retired = "2026-09-26"
+replacement = "Papercuts are filed in Queue with `papercut.add` (see the `northstar-lean` skill)."
+owner = "AGENTS.md"
+terms = ["PAPERCUTS.md"]
+allow = ["docs/research/", "docs/rebuild/", "CHANGELOG.md"]
