@@ -176,4 +176,4 @@ Test with real users before committing to architecture.
 
 - Value Track: [Track 1: Continuous Capture vs. Explicit Commit](../value-tracks/continuous-capture-vs-explicit-commit.md)
 - Dossiers: Git, Jujutsu, Mercurial
-- Architecture: `docs/architecture/01-concepts-and-object-model.md` (snap definition)
+- Architecture: `docs/knowledge/architecture/01-concepts-and-object-model.md` (snap definition)

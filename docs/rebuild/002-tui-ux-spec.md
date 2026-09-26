@@ -295,8 +295,3 @@ places at once. `secret rotate` is handed over unconditionally.
   `resolve list --preview` returns a bounded look at each variant, the
   detail pane renders it, and "binary, 4.1 MB" is a legitimate answer —
   two variants labelled only "binary" are not a choice
-
-## Next Task
-
-Roadmap `g02.017` is complete. Remaining audit-hardening work:
-`g02.018` adversarial test hardening.

@@ -7,7 +7,7 @@ Roadmap: `g02.019`
 Storing a credential in Convergence so that only you can read it. Every
 command here is exercised by `converge-cli/tests/secret_verbs.rs`.
 
-Design and threat model: `docs/architecture/19-secrets-and-key-management.md`.
+Design and threat model: `docs/knowledge/architecture/19-secrets-and-key-management.md`.
 
 ## Before anything else: agents get their own identity
 
@@ -159,8 +159,3 @@ converge key rotate           # new key; old one kept so nothing strands
 Deleting a secret does not change the credential it held. If it leaked,
 rotate it at its source — the AWS console, the API dashboard — and store
 the new value.
-
-## Next Task
-
-Membership changes and a first-class rotation workflow are the rest of
-`g02.020`.

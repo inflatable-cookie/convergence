@@ -132,11 +132,3 @@ Priority order for expansion:
 5. Workspace state management
 6. Server authority models (centralized vs. distributed)
 7. Review and approval workflows
-
-## Next Task
-
-After Git, Mercurial, and Perforce dossiers are written, synthesize:
-- Track 1: Continuous capture (compare Git's index, Fossil's auto-sync, Jujutsu's auto-amend)
-- Track 2: Gate workflows (compare Perforce streams, GitHub branch protection, CI gating)
-
-These two tracks will inform the core `snap` → `publish` → `bundle` → `promote` semantics.

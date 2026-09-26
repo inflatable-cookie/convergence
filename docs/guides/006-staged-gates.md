@@ -124,7 +124,3 @@ collectable that had not been before.
 This is not a reason to add stages you do not want. It is a reason to
 know that a single gate is a choice with a cost, rather than the only
 possibility.
-
-## Next Task
-
-None. This describes a procedure.

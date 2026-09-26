@@ -211,19 +211,19 @@ Before final adoption:
 
 Superposition-as-data is well-supported by research (Jujutsu precedent). Proceed to concept work:
 
-1. Update `docs/architecture/04-superpositions-and-resolution.md` with detailed superposition structure
+1. Update `docs/knowledge/architecture/04-superpositions-and-resolution.md` with detailed superposition structure
 2. Define superposition storage format
 3. Design resolution UX
 4. Plan collaborative resolution features
 
 ## Architecture Updates Required
 
-Update `docs/architecture/04-superpositions-and-resolution.md`:
+Update `docs/knowledge/architecture/04-superpositions-and-resolution.md`:
 - Add superposition data structure
 - Document resolution mechanics
 - Define superposition lifecycle
 
-Update `docs/architecture/01-concepts-and-object-model.md`:
+Update `docs/knowledge/architecture/01-concepts-and-object-model.md`:
 - Reference superposition definition
 - Clarify bundle can contain unresolved superpositions
 
@@ -231,4 +231,4 @@ Update `docs/architecture/01-concepts-and-object-model.md`:
 
 - Value Track: [Track 3: Conflict Preservation](../value-tracks/conflict-preservation.md)
 - Dossiers: Jujutsu (conflict commits), Pijul (patch theory), Perforce (locking)
-- Architecture: `docs/architecture/04-superpositions-and-resolution.md`
+- Architecture: `docs/knowledge/architecture/04-superpositions-and-resolution.md`

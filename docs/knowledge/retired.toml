@@ -1,0 +1,13 @@
+# Concepts that no longer exist. The retired-concepts check fails on any listed
+# term, path or config key found outside `allow`. See the Northstar skill's
+# references/knowledge.md.
+
+[[retired]]
+id = "northstar-process-records"
+retired = "2026-09-26"
+replacement = "Knowledge in docs/knowledge/, intent in docs/plan.md; tasks, briefs, status and outcomes live in Queue."
+owner = "docs/knowledge/README.md"
+terms = ["roadmap card", "generation index", "lifecycle record", "Next Task", "northstar:lifecycle", "chatterbox handoff"]
+paths = [".northstar/lifecycle/", "docs/roadmaps/", "docs/handoffs/", "docs/logs/", "docs/specs/", "docs/vision/", "docs/policy/"]
+config_keys = ["northstar/queue:hook", "paseo.queue.control.v4"]
+allow = ["docs/research/", "docs/rebuild/"]

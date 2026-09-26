@@ -84,8 +84,3 @@ Retrospective over the g01-era implementation (2026-01 → 2026-05, 373 commits,
 - Identity/authz: real gate/scope ACL enforcement design.
 - Chunking: content-defined chunking choice (FastCDC or similar) and migration
   of the recipe format.
-
-## Next Task
-
-See [`003-salvage-inventory.md`](./003-salvage-inventory.md) and the governing
-spec `docs/specs/002-archive-and-rebuild-boundary.md`.

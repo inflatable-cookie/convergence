@@ -73,8 +73,3 @@ transaction conflict detection in `apply_batch`, which is the one place
 the two metadata stores implement the same contract differently. Treat
 it as a product bug in `meta_postgres.rs` or `object_s3.rs`, not as test
 flake.
-
-## Next Task
-
-Roadmap `g02.018` is complete; the audit-hardening program `g02.011`-
-`g02.018` is closed.
