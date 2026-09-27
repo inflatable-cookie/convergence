@@ -27,4 +27,4 @@ The vocabulary is load-bearing: `snap`, `publish`, `candidate`, `promote`,
 
 ## What's next
 
-See [plan.md](plan.md). Unresolved leads are in [triage/](triage/).
+The project's plan is in Queue: its lanes, their documents and their order.

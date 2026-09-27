@@ -78,5 +78,5 @@ listed as carry is archived on `archive/g01` and removed from `main`.
 - `docs/research/value-tracks/` (3 tracks)
 - `docs/git-podcast/summary.md` (origin rationale; raw transcript archived)
 - `docs/rebuild/` (these capture artifacts)
-- Knowledge now lives under `docs/knowledge/`; intent in `docs/plan.md`.
+- Knowledge now lives under `docs/knowledge/`; intent in the Queue plan.
   g01 roadmap files remain on `archive/g01`.

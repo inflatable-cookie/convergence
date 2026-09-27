@@ -59,7 +59,7 @@ encoding; JSON remains the HTTP/API representation.
 - blobs remain raw bytes
 
 Manifest paging for very large directories (>4096 entries) is deferred
-(see [plan.md](../../plan.md) not-now): it touches every manifest walker
+(see `plan.md` (Git history) not-now): it touches every manifest walker
 for a case the beachhead rarely hits; revisit against real trees.
 
 ## 1c. Batched transport (g02.010)

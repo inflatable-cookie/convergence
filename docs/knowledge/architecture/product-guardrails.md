@@ -10,7 +10,7 @@ These guardrails define what must remain true as the product moves.
   `release`, and `superposition` must stay stable and explicit across docs and
   implementation.
 - Research can inform the product; active implementation work must be named
-  as an explicit owner in `docs/plan.md`.
+  as an explicit lane in the project's Queue plan.
 - Preserve the large-organization workflow focus without inventing a separate
   small-team product mode by drift.
 - Keep CLI and TUI semantics aligned to one underlying model instead of letting

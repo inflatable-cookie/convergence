@@ -92,9 +92,9 @@ qa = [
 ]
 "qa:docs:links" = "effigy docs check links"
 "qa:docs:agent-defaults" = "effigy docs check forbidden AGENTS.md README.md docs/README.md --forbid '--repo .'"
-"qa:docs:knowledge:local-paths" = "effigy docs check forbidden docs/knowledge/*.md docs/knowledge/*/*.md docs/plan.md --forbid '/Users/' --forbid '/home/'"
-"qa:northstar:agent-contract" = "effigy docs check contains AGENTS.md --require 'effigy tasks' --require 'effigy test --plan' --require 'effigy qa' --require 'docs/README.md' --require 'docs/knowledge/README.md' --require 'docs/plan.md'"
-"qa:northstar:front-door" = "effigy docs check contains docs/README.md --require 'knowledge/README.md' --require 'plan.md'"
+"qa:docs:knowledge:local-paths" = "effigy docs check forbidden docs/knowledge/*.md docs/knowledge/*/*.md --forbid '/Users/' --forbid '/home/'"
+"qa:northstar:agent-contract" = "effigy docs check contains AGENTS.md --require 'effigy tasks' --require 'effigy test --plan' --require 'effigy qa' --require 'docs/README.md' --require 'docs/knowledge/README.md'"
+"qa:northstar:front-door" = "effigy docs check contains docs/README.md --require 'knowledge/README.md'"
 "qa:northstar" = [
   { task = "qa:northstar:agent-contract" },
   { task = "qa:northstar:front-door" },

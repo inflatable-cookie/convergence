@@ -24,7 +24,7 @@ Documentation is the source of truth:
 
 - Overview: [docs/README.md](docs/README.md)
 - Knowledge: [docs/knowledge/README.md](docs/knowledge/README.md)
-- Plan: [docs/plan.md](docs/plan.md)
+- Plan: `plan.md` (Git history)
 - Vision: [docs/knowledge/vision.md](docs/knowledge/vision.md)
 - Architecture: [docs/knowledge/architecture/README.md](docs/knowledge/architecture/README.md)
 

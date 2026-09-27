@@ -5,8 +5,8 @@ Queue, never in this repository.
 
 ## Execution
 
-- Start through `docs/README.md`, `docs/knowledge/README.md`, and
-  `docs/plan.md`.
+- Start through `docs/README.md`, `docs/knowledge/README.md`, and the
+  project's Queue plan (`plan.get`).
 - Route commands through Effigy: `effigy tasks`, `effigy doctor` when routing
   or health is unclear, `effigy test --plan` before choosing test scope.
 - Keep a change bounded to one honest owner. Do not mix research expansion,

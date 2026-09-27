@@ -24,12 +24,12 @@ Where code and knowledge disagree, knowledge wins until a decision moves them.
 - Knowledge (one owner per fact): `docs/knowledge/README.md`
 - Retired concepts, which must not come back: `docs/knowledge/retired.toml`
 - Open questions: `docs/knowledge/questions.md`
-- What's next: `docs/plan.md`
-- Unresolved leads: `docs/triage/`
 - Tool and process friction: Queue, via `papercut.add` (see the
   `northstar` skill)
 
-Tasks, briefs and status live in Queue, never in this repository.
+The plan (lanes, their documents and their order), leads, papercuts, brief
+drafts, tasks and status live in Queue, never in this repository. Read what's
+next with `plan.get` (see the `northstar` skill).
 
 ## Commands
 
@@ -69,7 +69,7 @@ replay, and the trace outlives the session. Such verbs hand over to a shell.
 ## Guardrails
 
 - Process records stay out of the repository: no roadmaps, handoffs,
-  lifecycle files, or routine logs. Intent lives in `docs/plan.md`; tasks
+  lifecycle files, or routine logs. The plan, leads and tasks
   live in Queue.
 - When a change alters what is true, update the owning knowledge file in the
   same PR.
