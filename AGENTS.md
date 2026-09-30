@@ -79,8 +79,9 @@ replay, and the trace outlives the session. Such verbs hand over to a shell.
 
 ## Validate
 
-`effigy qa` before opening a PR. That runs the merge-ready Rust suite, docs
-checks, and workflow lint.
+Targeted and once per task: run the tests for the code you changed, compile
+what you touched, and `effigy qa:docs` when docs changed. Full `effigy qa`
+belongs to the planner on `main` at Queue milestones, not to each task.
 
 - `effigy health` — narrow baseline
 - `effigy validate` — merge-ready Rust suite
@@ -89,16 +90,54 @@ checks, and workflow lint.
 <!-- BEGIN EFFIGY AGENT CONTRACT -->
 ## Effigy Agent Contract
 
-This repo's local `.agents/skills/effigy` copy is authoritative for this
-project. When an agent supports both project-local and global skills, prefer
-the project-local copy over any globally installed Effigy skill.
+Use Effigy as the default command surface for supported project work.
 
-Do not add a `--repo` flag pointing at the current directory while already
-inside the target repo. Do not edit
+Route by job, not by startup ritual:
+- use `effigy graph` for code understanding
+- use `effigy tasks` for selector inventory
+- use `effigy doctor` for routing ambiguity or repo health
+- use `effigy test --plan` when test execution shape matters
+
+Use `effigy graph` when the job is code understanding: ownership, flow,
+implementation, or changed-file impact. Do not insert graph into unrelated
+deployment, state, docs, release, or direct task-execution work.
+
+Prefer `effigy <task>`, `effigy test`, and the matching built-in surface over
+raw package-manager or shell commands when Effigy covers the path. Use
+`effigy --json <command>` whenever another agent or tool will consume output.
+
+Effigy guidance is maintained in the installed shared Agent Skill. Read the
+installed `effigy/SKILL.md` from one of these user skill roots when using
+Effigy-specific agent guidance: `~/.agents/skills`, `~/.codex/skills`,
+`~/.claude/skills`, or `~/.cursor/skills`. Resolve symlinks first; aliases to
+the same canonical skill directory are one installation. If distinct roots
+contain the skill, report the ambiguity and choose one source explicitly.
+
+This repo's `.agents/skills/effigy` copy is optional project-local content,
+not the maintained guidance source. Preserve it if it exists; plain init does
+not create or refresh it. The named `skill.codex_project` init action is an
+explicit snapshot opt-in and may replace files at maintained paths. Named
+`effigy skill run` task lookup still gives an invocation project's local skill
+source precedence, as defined by contract 042.
+
+If no installed Effigy Agent Skill is present, say so and suggest
+`npx skills add inflatable-cookie/effigy -g`; init does not download or install
+skills. A filesystem check cannot prove what an already-running agent loaded;
+use a fresh agent context to verify discovery.
+
+Agent Skill guidance and the `effigy` executable are separate channels. A
+current skill does not prove the binary on `PATH` is current or admission-capable;
+check the binary independently with `command -v effigy` and
+`effigy admission status --json`.
+
+Do not add a current-directory repo override while already inside the target
+repo. Do not edit
 `.github/workflows/` or run release mutations unless the user explicitly asks.
 
 Reference docs:
 - Effigy agent adoption: `docs/guides/047-agent-and-cross-repo-adoption.md`
+- Installed skill task sources: `docs/knowledge/contracts/042-external-skill-task-runner-contract.md`
+- Heavy validation admission: `docs/guides/080-host-wide-validation-admission.md`
 - Graph workflows: `docs/guides/076-code-graph-and-agent-workflows.md`
 - JSON contracts: `docs/guides/017-json-output-contracts.md`
 <!-- END EFFIGY AGENT CONTRACT -->
